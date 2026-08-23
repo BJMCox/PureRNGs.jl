@@ -16,8 +16,12 @@ const RANGE_FAMILIES = (
 
 struct UnionIntegerRange <: AbstractRange{Union{Int8,UInt8}} end
 
-function reference_range_value(range, offset::UInt64)
+function reference_range_value(range::OrdinalRange, offset::UInt64)
     return eltype(range)(BigInt(first(range)) + BigInt(step(range)) * BigInt(offset))
+end
+
+function reference_range_value(range, offset::UInt64)
+    return range[Int(offset)+1]
 end
 
 function reference_range_words(rng, count::Int)
@@ -79,6 +83,18 @@ end
             @test rand(rng, descending_linear) ===
                   reference_scalar_range(rng, descending_linear)
         end
+
+        rounded_linear = LinRange{Int64}(Int64(1)<<53, (Int64(1)<<53)+Int64(4), 5)
+        @test collect(rounded_linear) == [
+            Int64(1) << 53,
+            Int64(1) << 53,
+            (Int64(1) << 53) + Int64(2),
+            (Int64(1) << 53) + Int64(4),
+            (Int64(1) << 53) + Int64(4),
+        ]
+        rounded_rng = Philox2x32(3)
+        @test rand(rounded_rng, rounded_linear) === last(rounded_linear)
+        @test last(rand_next(rounded_rng, rounded_linear)) === last(rounded_linear)
         for range in (
             false:true,
             Int128(1):Int128(3),
@@ -176,6 +192,8 @@ end
             UInt64(9):(UInt64(9)+threshold),
             typemin(Int64):typemax(Int64),
             UInt64(0):typemax(UInt64),
+            typemax(Int64):Int64(-1):typemin(Int64),
+            typemax(UInt64):Int64(-1):UInt64(0),
         )
         for base in RANGE_FAMILIES
             width = Int(RangeIR._words_per_block(base))
