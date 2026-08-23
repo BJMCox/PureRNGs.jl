@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 9
+Status: normative specification, revision 10
 Date: 2026-08-23
 
 ## 1. Reading rules
@@ -139,9 +139,10 @@ Version 0 ships the eight standard Random123 shapes:
   family never packs two children into one block.
 - [R13] Oracle scope. `Philox4x32` and `Threefry2x32` streams equal the
   testbed value for value ([R2]). The other six families are fully
-  determined by [R11], [R12a], [R17]-[R19], and [R27]; their golden vectors,
-  frozen in-repo before release, confirm the specification rather than
-  define it.
+  determined by the value-determining stream-law rules listed in section
+  10, none of which depends on a testbed-only value; their golden
+  vectors, frozen in-repo before release, confirm the specification
+  rather than define it.
 - [R14] Constructors, for every family `F` with key type `K`: `F(seed::
   Integer)` and `F(key::K)`. Every generator names its family at
   construction; the package defines no default generator. Both constructors
@@ -294,9 +295,12 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   logical position is the native word's high half. [R28] normal word
   counts are counted in logical 32-bit words and equal the testbed
   counts: one for `Float32`, two for `Float64`.
-- [R28] Normal generation consumes a fixed number of native words per value
-  with no cache and no rejection, so [R26] holds for `randn`. Algorithm and
-  word count equal the testbed normal family.
+- [R28] Normal generation consumes a fixed number of logical 32-bit
+  words per value ([R62]) with no cache and no rejection, so [R26] holds
+  for `randn`: one word for `Float32`, two for `Float64`, equal to the
+  testbed counts. The algorithm equals the testbed normal family. On a
+  64-bit-word family a `Float32` normal therefore consumes half a native
+  word, exactly like every other one-logical-word result.
 - [R29] `randat(rng, T, i) == rand(rng, T, n)[i]` for every `n >= i`, and
   `randnat` likewise for `randn`. The index is one-based: element `i`
   occupies the span starting at the
@@ -313,13 +317,19 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   32-bit word, represented as a core block and a lane, plus one terminal
   exhausted value. `Bool`, `UInt32`, and `Float32` consume one logical word.
   `UInt64` and `Float64` consume two logical words. Normal word counts
-  equal [R28]. Every draw reserves its span at an alignment equal to its
-  logical word count — one, two, or four logical words — computed on the
-  zero-based global logical position (testbed `_reserve` with
-  `alignment = words`). Alignment padding words are consumed and never
-  drawn. A span never crosses its own alignment unit, so a two-word
-  element always starts at an even position and, in 64-bit-word
-  families, coincides with one native word ([R62]).
+  equal [R28]. Alignment is per element: every draw reserves at an
+  alignment equal to one element's logical word count — one, two, or
+  four logical words — computed on the zero-based global logical
+  position. A nonempty reservation is that alignment padding plus
+  element count times element words consecutive logical words.
+  Consecutive same-width elements preserve alignment, so the one
+  starting alignment aligns every element, which is the [R26] batch law.
+  A zero-element request reserves nothing — no padding and no position
+  change — at every position, including exhaustion. Alignment padding
+  words are consumed and never drawn. No element crosses its own
+  alignment unit, so a two-word element always starts at an even
+  position and, in 64-bit-word families, coincides with one native word
+  ([R62]).
   Each draw family applies its own family word to the same position.
   `rand` and `randn` read at the held position without advancing.
   Continuation draws reserve their alignment padding plus their exact
@@ -490,8 +500,11 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   performs a device-to-host copy or forces synchronization. Section 6
   sampling requires device-aligned inputs and allocates its result on the
   generator device.
-- [R40] Fills launch asynchronously with the ordering semantics of the
-  KernelAbstractions backend queue and do nothing for empty destinations.
+- [R40] Fills validate in fixed order: destination device ([R39]),
+  [R41] serviceability, then size. A fill that passes validation with an
+  empty destination performs no backend lookup and no kernel launch and
+  leaves the position unchanged. Nonempty fills launch asynchronously
+  with the ordering semantics of the KernelAbstractions backend queue.
 - [R41] Backend tiers. CPU and CUDA pass the full section 13 suite and
   block release. AMDGPU is a preview: the suite runs and failures are
   documented without blocking. Metal is experimental and serves the 32-bit
@@ -522,11 +535,17 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
 ## 10. Stream law and serialization
 
 The stream law is the set of value-determining rules: [R9] tags and
-regions, [R11] cores and rounds, [R12] layouts, [R16] seed mapping,
+regions, [R11] cores and rounds, [R12]-[R12b] layouts and narrow
+derivation, [R14] and [R20] initial position zero, [R16] seed mapping,
 [R17]-[R19] derivation, [R25] conversion, [R27] packing, [R28] normal
-algorithm, [R53] counter continuation, [R62] logical word order,
-[R55] integer ranges, [R58]-[R59]
-sampling, and the fixed-work rule [R61].
+algorithm, [R53] counter continuation and alignment, [R62] logical word
+order, [R55] integer ranges, [R57]-[R59] sampling, and the fixed-work
+rule [R61]. Rules that equate one public operation with a composition
+of stream-law rules — [R26] batch shape, [R29] addressed indexing,
+[R33] the bridge, [R60] sampling order and prefix stability — are
+consistency laws: they introduce no value of their own, and a change to
+one that changes any value is a change to a stream-law rule and
+increments the identifier through [R44].
 
 - [R44] The package defines a stream-law identifier, one integer constant.
   Version 0 ships identifier 1. Any change to a value-determining rule
@@ -642,7 +661,7 @@ the R41 preview tier and do not block.
 | Launch-shape and lane independence for addressed draws | R51 | CUDA |
 | Method-surface audit: typed pure draws, continuation defaults, no default generator, dynamic and `Val` splits, return order, bridge hooks, and no extra foreign methods | R1, R14, R21-R24, R34, R49, R52 | CPU |
 | Wrong-device destination, population, and weights throw before generation; device-agnostic ranges work | R39, R57, R59 | CUDA |
-| Empty fill launches no kernel | R40 | CPU+CUDA |
+| Validated empty fill launches no kernel and keeps the position; validation order is device, serviceability, size | R40 | CPU+CUDA |
 | Metal exclusion errors, including zero-size requests | R41, R54 | Metal |
 | Serialization round-trip preserves key, exact position, and exhaustion; device resets; malformed payloads reject | R44-R46 | CPU |
 | Reactant: changed keys and positions use one compilation | R42 | Reactant |
