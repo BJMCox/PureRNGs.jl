@@ -9,3 +9,6 @@ end
 
 include("philox.jl")
 include("threefry.jl")
+include("families.jl")
+include("uniform.jl")
+include("integers.jl")
