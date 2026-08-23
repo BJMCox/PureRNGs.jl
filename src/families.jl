@@ -13,52 +13,79 @@ struct _Position128
     lane::UInt8
 end
 
+struct _ConstructionToken end
+const _CONSTRUCTION_TOKEN = _ConstructionToken()
+
 struct Philox2x32{D} <: AbstractPureRNG
     key::NTuple{1,UInt32}
     position::_Position64
     device::D
+
+    Philox2x32{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 struct Philox4x32{D} <: AbstractPureRNG
     key::NTuple{2,UInt32}
     position::_Position64
     device::D
+
+    Philox4x32{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 struct Philox2x64{D} <: AbstractPureRNG
     key::NTuple{1,UInt64}
     position::_Position64
     device::D
+
+    Philox2x64{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 struct Philox4x64{D} <: AbstractPureRNG
     key::NTuple{2,UInt64}
     position::_Position128
     device::D
+
+    Philox4x64{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 struct Threefry2x32{D} <: AbstractPureRNG
     key::NTuple{2,UInt32}
     position::_Position64
     device::D
+
+    Threefry2x32{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 struct Threefry4x32{D} <: AbstractPureRNG
     key::NTuple{4,UInt32}
     position::_Position64
     device::D
+
+    Threefry4x32{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 struct Threefry2x64{D} <: AbstractPureRNG
     key::NTuple{2,UInt64}
     position::_Position64
     device::D
+
+    Threefry2x64{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 struct Threefry4x64{D} <: AbstractPureRNG
     key::NTuple{4,UInt64}
     position::_Position128
     device::D
+
+    Threefry4x64{D}(::_ConstructionToken, key, position, device) where {D} =
+        new{D}(key, position, device)
 end
 
 const _Position64Family =
@@ -79,8 +106,10 @@ for F in (
     :Threefry2x64,
     :Threefry4x64,
 )
-    @eval $F(key::fieldtype($F, :key)) =
-        $F(key, _zero_position($F), MLDataDevices.CPUDevice())
+    @eval function $F(key::fieldtype($F, :key))
+        device = MLDataDevices.CPUDevice()
+        return $F{typeof(device)}(_CONSTRUCTION_TOKEN, key, _zero_position($F), device)
+    end
 end
 
 function _seed_key(::Type{T}, ::Val{N}, seed::Integer) where {T<:Unsigned,N}
@@ -112,11 +141,11 @@ for F in (
     :Threefry2x64,
     :Threefry4x64,
 )
-    @eval @inline _rebuild(rng::$F, position, device) = $F(rng.key, position, device)
+    @eval @inline _rebuild(rng::$F, position, device::D) where {D} =
+        $F{D}(_CONSTRUCTION_TOKEN, rng.key, position, device)
 end
 
-MLDataDevices.get_device(rng::AbstractPureRNG) = rng.device
-@inline (device::MLDataDevices.AbstractDevice)(rng::AbstractPureRNG) =
+@inline (device::MLDataDevices.CPUDevice)(rng::AbstractPureRNG) =
     _rebuild(rng, rng.position, device)
 
 @inline _words_per_block(::_NarrowFamily) = UInt8(2)

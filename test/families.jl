@@ -17,8 +17,13 @@ const FAMILY_TYPES = (
         @test supertype(typeof(rng)) === PureRNGs.AbstractPureRNG
         @test isbitstype(typeof(rng))
         @test fieldnames(typeof(rng)) === (:key, :position, :device)
-        @test MLDataDevices.get_device(rng) == MLDataDevices.CPUDevice()
-        @test rng.position.lane == 0x00
+        @test rng.device == MLDataDevices.CPUDevice()
+        @test all(
+            name -> iszero(getfield(rng.position, name)),
+            fieldnames(typeof(rng.position)),
+        )
+        @test F(rng.key).key === rng.key
+        @test !applicable(F, rng.key, rng.position, rng.device)
     end
 end
 
@@ -50,7 +55,7 @@ end
     rebound = MLDataDevices.CPUDevice()(rng)
     @test rebound.key == rng.key
     @test rebound.position == rng.position
-    @test MLDataDevices.get_device(rebound) == MLDataDevices.CPUDevice()
+    @test rebound.device == MLDataDevices.CPUDevice()
 end
 
 @testset "R53 and R54 checked reservation" begin
@@ -113,11 +118,14 @@ end
 
     crossing = PureRNGs._reserve(Philox4x32(1), UInt64(5))
     @test crossing.position == PureRNGs._Position64(0x01, 0x01)
+    exact = PureRNGs._reserve(Philox4x32(1), UInt64(4))
+    @test exact.position == PureRNGs._Position64(0x01, 0x00)
 end
 
 @testset "R4 and R53 inference and allocation" begin
-    rng = Philox4x32(123)
-    @test @inferred(PureRNGs._reserve(rng, UInt64(2))) isa typeof(rng)
-    PureRNGs._reserve(rng, UInt64(2))
-    @test @allocated(PureRNGs._reserve(rng, UInt64(2))) == 0
+    for rng in (Philox2x32(123), Philox4x32(123), Philox4x64(123))
+        @test @inferred(PureRNGs._reserve(rng, UInt64(2))) isa typeof(rng)
+        PureRNGs._reserve(rng, UInt64(2))
+        @test @allocated(PureRNGs._reserve(rng, UInt64(2))) == 0
+    end
 end
