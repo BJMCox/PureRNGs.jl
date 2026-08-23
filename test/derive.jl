@@ -162,7 +162,8 @@ end
 end
 
 @testset "R13 derivation golden vectors" begin
-    # Philox4x32 and Threefry2x32 were captured from testbed commit 7a6d2cfe06c6.
+    # Philox4x32 and Threefry2x32 were captured from testbed commit
+    # 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d.
     # The other families are frozen vectors from the revision 9 stream law.
     cases = (
         (
@@ -334,6 +335,12 @@ end
     end
     @test occursin("purpose", lowercase(sub_doc))
     @test occursin("few thousand", lowercase(philox2x32_doc))
+
+    splitting_doc = lowercase(read(joinpath(pkgdir(PureRNGs), "SPLITTING.md"), String))
+    @test occursin("n^2 / 2^(k+1)", splitting_doc)
+    @test occursin("subrng(root, chunk_id)", splitting_doc)
+    @test occursin("subtrees identical", splitting_doc)
+    @test occursin("few thousand", splitting_doc)
 end
 
 @testset "R30 inference and allocation" begin
