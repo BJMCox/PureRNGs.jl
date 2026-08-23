@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 8
+Status: normative specification, revision 9
 Date: 2026-08-23
 
 ## 1. Reading rules
@@ -131,6 +131,12 @@ Version 0 ships the eight standard Random123 shapes:
   `subrng` chains two blocks: the first derives the namespace key with
   counter `(THREEFRY_FOLD_INDEX, DERIVE_TAG)`, the second consumes the
   full 64 data bits as its counter.
+  When a narrow family's key is narrower than its block output —
+  `Philox2x32`, one key word from a two-word block — every derivation
+  child key is output word 1, the low word: the `derive_child` child,
+  the `subrng` namespace key, and the final `subrng` child. Output word
+  2 is discarded. The narrow rule stays one child per block; a narrow
+  family never packs two children into one block.
 - [R13] Oracle scope. `Philox4x32` and `Threefry2x32` streams equal the
   testbed value for value ([R2]). The other six families are fully
   determined by [R11], [R12a], [R17]-[R19], and [R27]; their golden vectors,
@@ -260,8 +266,10 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   `rand(rng, T, n)[1:m] == rand(rng, T, m)` holds bitwise, and
   `vec(rand(rng, T, a, b)) == rand(rng, T, a*b)`. Same for `randn` and
   integer ranges. A batch continuation equals chained scalar continuation
-  draws and advances by the same raw-word count. Pure array draws have the
-  same values but leave the input generator unchanged.
+  draws and advances by the same raw-word count: one [R53] alignment at the start,
+  then consecutive elements, which chained same-width scalars reproduce
+  because each element leaves the position aligned for the next.
+  Pure array draws have the same values but leave the input generator unchanged.
 - [R27] Element packing equals the testbed `_draw` packing rule. A core
   block of `N` words of `W` bits holds `(N * W) / e` elements of bit width
   `e`; each element occupies consecutive `e`-bit lanes of the block
@@ -272,13 +280,30 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   Hence `Philox4x32` packs four 32-bit or two 64-bit elements per block,
   `Threefry2x32` two or one, and the 64-bit-word families pack `N` 64-bit
   or `2N` 32-bit elements per block.
+- [R62] Logical word order. The stream of a family region is a sequence
+  of logical 32-bit words. In 32-bit-word families the logical words are
+  the block output words in order. In 64-bit-word families each native
+  output word contributes two logical words: the earlier logical word is
+  the native word's high 32 bits, the later its low 32 bits. This is the
+  [R27] rule read in reverse: the lower-indexed lane supplies the
+  high-order bits, so reassembling the two logical words as
+  `(UInt64(w1) << 32) | UInt64(w2)` returns the native word. Every [R27]
+  element occupies exactly `e / 32` consecutive logical words, a `UInt64`
+  or `Float64` element of a 64-bit-word family is exactly one native
+  word, and a `UInt32`-class element of a 64-bit-word family at an even
+  logical position is the native word's high half. [R28] normal word
+  counts are counted in logical 32-bit words and equal the testbed
+  counts: one for `Float32`, two for `Float64`.
 - [R28] Normal generation consumes a fixed number of native words per value
   with no cache and no rejection, so [R26] holds for `randn`. Algorithm and
   word count equal the testbed normal family.
 - [R29] `randat(rng, T, i) == rand(rng, T, n)[i]` for every `n >= i`, and
-  `randnat` likewise for `randn`. The index is one-based relative to the
-  generator's held position. These addressed operations never advance the
-  generator. They throw `ArgumentError` for `i < 1` or when the addressed
+  `randnat` likewise for `randn`. The index is one-based: element `i`
+  occupies the span starting at the
+  [R53]-aligned position derived from the generator's held position,
+  advanced by `i - 1` element word counts.
+  These addressed operations never advance the generator. They throw
+  `ArgumentError` for `i < 1` or when the addressed
   word span exceeds [R53].
 - [R30] `randat`, `randnat`, `subrng`, `splitrng` with `Val`, and scalar
   pure and continuation draws compile in GPU kernels without allocation,
@@ -287,18 +312,29 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
 - [R53] The counter position is the zero-based index of the next logical
   32-bit word, represented as a core block and a lane, plus one terminal
   exhausted value. `Bool`, `UInt32`, and `Float32` consume one logical word.
-  `UInt64` and `Float64` consume two consecutive logical words. Normal word
-  counts equal [R28]. Consecutive words may cross a core-block boundary.
+  `UInt64` and `Float64` consume two logical words. Normal word counts
+  equal [R28]. Every draw reserves its span at an alignment equal to its
+  logical word count — one, two, or four logical words — computed on the
+  zero-based global logical position (testbed `_reserve` with
+  `alignment = words`). Alignment padding words are consumed and never
+  drawn. A span never crosses its own alignment unit, so a two-word
+  element always starts at an even position and, in 64-bit-word
+  families, coincides with one native word ([R62]).
   Each draw family applies its own family word to the same position.
   `rand` and `randn` read at the held position without advancing.
-  Continuation draws reserve their exact span and return the advanced
-  generator. The last valid reservation returns the exhausted value. A
+  Continuation draws reserve their alignment padding plus their exact
+  span and return the advanced generator.
+  The last valid reservation returns the exhausted value. A
   later nonempty draw throws `ArgumentError`. No operation wraps the
   position or derives a new key automatically.
-- [R54] A fixed-size draw computes its full reservation with widened checked
-  arithmetic before generating a value or mutating a destination. It throws
-  `ArgumentError` if the reservation exceeds the family region. A zero-size
-  draw succeeds at every position, including exhaustion. The region contains
+- [R54] A fixed-size draw computes its full reservation, including [R53]
+  alignment padding, with widened checked arithmetic before generating a
+  value or mutating a destination. It throws `ArgumentError` if the
+  reservation exceeds the family region. A
+  zero-size draw succeeds at every position, including exhaustion,
+  provided its result type and family are serviceable on the generator's
+  device: the [R41] Metal exclusion is checked before size and throws
+  even for a zero-size request. The region contains
   `(max_block + 1) * logical_words_per_block` words, where `max_block` is
   `2^56 - 1` for narrow families and the full [R12a] draw-block range for
   wide families.
@@ -466,6 +502,9 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   Philox multiplies need 128-bit emulation Metal.jl lacks, and the 64-bit
   Threefry integer paths are unvalidated on Metal.jl and excluded pending
   validation. Host-side scalar draws follow [R39] regardless of binding.
+  The exclusion applies before size checks: a zero-size allocating draw,
+  fill, or kernel draw for an excluded result type or 64-bit-word family
+  throws the same `ArgumentError`.
 - [R42] Reactant: the generator representation traces under
   `Reactant.@compile` as data, so a changed key or position does not force a
   recompile. A compilation test gates release. If a plain `isbits` value
@@ -485,7 +524,8 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
 The stream law is the set of value-determining rules: [R9] tags and
 regions, [R11] cores and rounds, [R12] layouts, [R16] seed mapping,
 [R17]-[R19] derivation, [R25] conversion, [R27] packing, [R28] normal
-algorithm, [R53] counter continuation, [R55] integer ranges, [R58]-[R59]
+algorithm, [R53] counter continuation, [R62] logical word order,
+[R55] integer ranges, [R58]-[R59]
 sampling, and the fixed-work rule [R61].
 
 - [R44] The package defines a stream-law identifier, one integer constant.
@@ -537,7 +577,7 @@ The complete set of public-API throws:
 | weighted `randsample`/`randsample_next` | weights have a non-agnostic device differing from the generator device | `ArgumentError` |
 | `rand!`/`randn!` and continuation forms | destination device differs from generator device | `ArgumentError` |
 | primitive draw or fill | result type or destination eltype is not a result type | `MethodError` (no method) |
-| allocating draw, fill, or kernel draw on Metal | `Float64` result or 64-bit-word family ([R41]) | `ArgumentError`, names Metal |
+| allocating draw, fill, or kernel draw on Metal | `Float64` result or 64-bit-word family, any size including zero ([R41]) | `ArgumentError`, names Metal |
 | deserialization | unsupported law identifier | `ArgumentError`, names stored and supported identifiers |
 | deserialization | family tag, key payload, or counter position is invalid for the framed type | `ArgumentError` |
 | `Random.AbstractRNG` consumer on an immutable generator | any such call | `MethodError` (designed, [R31]) |
@@ -577,7 +617,7 @@ the R41 preview tier and do not block.
 | --- | --- | --- |
 | Random123 KATs, all eight shapes, listed rounds | R11 | CPU |
 | Testbed oracle: bits, `Bool`, uniform, normal, integer ranges, cursor continuation, `splitrng`, and `subrng` for `Philox4x32` and `Threefry2x32` | R2, R9, R12a, R12b, R13, R17, R18, R25, R27, R28, R33, R53, R55 | CPU |
-| Golden vectors for the six non-testbed families, frozen in-repo | R12, R13, R19 | CPU |
+| Golden vectors for the six non-testbed families, frozen in-repo | R12, R13, R19, R62 | CPU |
 | Seed mapping values and bounds sweep | R15, R16 | CPU |
 | Construction gives CPU binding and zero position; flat concrete `isbits` hierarchy | R4, R14 | CPU |
 | `Bool` scalar, array, `BitArray`, and continuation agreement | R25, R26 | CPU+CUDA |
@@ -603,7 +643,7 @@ the R41 preview tier and do not block.
 | Method-surface audit: typed pure draws, continuation defaults, no default generator, dynamic and `Val` splits, return order, bridge hooks, and no extra foreign methods | R1, R14, R21-R24, R34, R49, R52 | CPU |
 | Wrong-device destination, population, and weights throw before generation; device-agnostic ranges work | R39, R57, R59 | CUDA |
 | Empty fill launches no kernel | R40 | CPU+CUDA |
-| Metal exclusion errors | R41 | Metal |
+| Metal exclusion errors, including zero-size requests | R41, R54 | Metal |
 | Serialization round-trip preserves key, exact position, and exhaustion; device resets; malformed payloads reject | R44-R46 | CPU |
 | Reactant: changed keys and positions use one compilation | R42 | Reactant |
 | Export list equals [R48] exactly | R48 | CPU |
