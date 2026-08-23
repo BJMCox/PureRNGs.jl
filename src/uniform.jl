@@ -189,10 +189,25 @@ end
 @inline _same_fill_device(generator_device, destination_device) =
     generator_device == destination_device
 
-@inline function _check_fill_device(rng::_ScalarUniform32Family, destination)
+@inline function _check_fill_device(
+    rng::Union{_ScalarUniform32Family,_ScalarUniform64Family},
+    destination,
+)
     _same_fill_device(rng.device, MLDataDevices.get_device(destination)) ||
         _fill_device_mismatch()
     return nothing
+end
+
+@inline _native_block_at(rng::_TwoWord64Family, position::_Position64) =
+    _block(rng, FAMILY_BITS, position.block)
+@inline _native_block_at(rng::_FourWord64Family, position::_Position128) =
+    _block(rng, FAMILY_BITS, position.lo, position.hi)
+
+@inline _next_native_position(position::_Position64) =
+    _Position64(position.block + UInt64(1), UInt8(0))
+@inline function _next_native_position(position::_Position128)
+    lo = position.lo + UInt64(1)
+    return _Position128(lo, position.hi + UInt64(iszero(lo)), UInt8(0))
 end
 
 @inline _check_fill_serviceability(rng, destination, ::Type) = nothing
@@ -218,6 +233,58 @@ end
             block_index += UInt64(1)
             lane = UInt8(0)
             block = _block(rng, FAMILY_BITS, block_index)
+        end
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_unchecked!(
+    rng::_ScalarUniform64Family,
+    destination,
+    ::Type{T},
+    indices,
+) where {T<:_ScalarUniformWordType}
+    position = rng.position
+    lane = position.lane
+    width = _words_per_block(rng)
+    block = _native_block_at(rng, position)
+    remaining = length(indices)
+
+    @inbounds for index in indices
+        word = _select_native_word(block, lane >> 1)
+        raw = ifelse(iszero(lane & UInt8(1)), (word >> 32) % UInt32, word % UInt32)
+        destination[index] = _from_word(T, raw)
+        remaining -= 1
+        lane += UInt8(1)
+        if lane == width && remaining != 0
+            position = _next_native_position(position)
+            lane = UInt8(0)
+            block = _native_block_at(rng, position)
+        end
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_unchecked!(
+    rng::_ScalarUniform64Family,
+    destination,
+    ::Type{T},
+    indices,
+) where {T<:Union{UInt64,Float64}}
+    position = rng.position
+    lane = position.lane
+    width = _words_per_block(rng)
+    block = _native_block_at(rng, position)
+    remaining = length(indices)
+
+    @inbounds for index in indices
+        destination[index] = _from_word(T, _select_native_word(block, lane >> 1))
+        remaining -= 1
+        lane += UInt8(2)
+        if lane == width && remaining != 0
+            position = _next_native_position(position)
+            lane = UInt8(0)
+            block = _native_block_at(rng, position)
         end
     end
     return nothing
@@ -335,7 +402,7 @@ end
 end
 
 @inline function _rand_next_fill!(
-    rng::_ScalarUniform32Family,
+    rng::Union{_ScalarUniform32Family,_ScalarUniform64Family},
     destination::AbstractArray{T},
 ) where {T}
     _check_fill_device(rng, destination)
@@ -359,6 +426,17 @@ for T in (Bool, UInt32, UInt64, Float32, Float64)
         end
 
         @inline rand_next!(rng::_ScalarUniform32Family, destination::AbstractArray{$T}) =
+            _rand_next_fill!(rng, destination)
+
+        @inline function Random.rand!(
+            rng::_ScalarUniform64Family,
+            destination::AbstractArray{$T},
+        )
+            _, result = _rand_next_fill!(rng, destination)
+            return result
+        end
+
+        @inline rand_next!(rng::_ScalarUniform64Family, destination::AbstractArray{$T}) =
             _rand_next_fill!(rng, destination)
     end
 end

@@ -46,6 +46,14 @@ function scalar_chain(rng, ::Type{T}, count) where {T}
     return cursor, values
 end
 
+fill_position(rng, block::UInt64, lane::Integer) =
+    rng.position isa IR._Position64 ? IR._Position64(block, lane) :
+    IR._Position128(block, UInt64(7), lane)
+
+terminal_fill_position(rng, lane::Integer) =
+    rng.position isa IR._Position64 ? IR._Position64(typemax(UInt64), lane) :
+    IR._Position128(typemax(UInt64), typemax(UInt64), lane)
+
 sync_cpu() = KA.synchronize(KA.CPU())
 
 @testset "draw block mapping" begin
@@ -918,5 +926,183 @@ end
         @test !applicable(rand_next!, rng, destination)
         @test_throws MethodError rand!(rng, destination)
         @test_throws MethodError rand_next!(rng, destination)
+    end
+end
+
+@testset "R24, R26, R27, and R62 native-64 CPU fills" begin
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        width = Int(IR._words_per_block(F(0)))
+        for lane = 0:(width-1), count in (0, 1, width - lane, width - lane + 1, 9)
+            base = F(123)
+            rng = IR._rebuild(base, fill_position(base, UInt64(7), lane), base.device)
+            expected_rng, expected = scalar_chain(rng, T, count)
+
+            destination = Vector{T}(undef, count)
+            @test rand!(rng, destination) === destination
+            sync_cpu()
+            @test destination == expected
+            @test rng.position == fill_position(base, UInt64(7), lane)
+
+            replay = Vector{T}(undef, count)
+            next_rng, returned = rand_next!(rng, replay)
+            sync_cpu()
+            @test returned === replay
+            @test replay == expected
+            @test next_rng === expected_rng
+        end
+    end
+end
+
+@testset "R26 and R53 aligned native-64 CPU fills" begin
+    for F in SCALAR_64_FAMILIES
+        base = F(31)
+        rng = IR._rebuild(base, fill_position(base, UInt64(8), 1), base.device)
+        destination = Vector{UInt64}(undef, 2)
+        next_rng, _ = rand_next!(rng, destination)
+        sync_cpu()
+
+        aligned, expected_next = IR._reserve_aligned(rng, UInt64(4), UInt64(2))
+        @test destination == scalar_chain(aligned, UInt64, 2)[2]
+        @test next_rng === expected_next
+    end
+end
+
+@testset "R26 native-64 block carry" begin
+    for F in (Philox4x64, Threefry4x64)
+        base = F(41)
+        position = IR._Position128(typemax(UInt64), UInt64(6), 7)
+        rng = IR._rebuild(base, position, base.device)
+        expected_rng, expected = scalar_chain(rng, UInt32, 2)
+        destination = Vector{UInt32}(undef, 2)
+        next_rng, _ = rand_next!(rng, destination)
+        sync_cpu()
+        @test destination == expected
+        @test next_rng === expected_rng
+        @test next_rng.position == IR._Position128(0, 7, 1)
+    end
+end
+
+@testset "R25 native-64 Bool fills" begin
+    for F in SCALAR_64_FAMILIES, count in (0, 1, 2, 3, 7, 9, 65, 67)
+        base = F(91)
+        rng = IR._rebuild(base, fill_position(base, UInt64(4), 1), base.device)
+        next_rng, expected = scalar_chain(rng, Bool, count)
+
+        plain = Array{Bool}(undef, count)
+        packed = BitArray(undef, count)
+        @test rand!(rng, plain) === plain
+        @test rand!(rng, packed) === packed
+        sync_cpu()
+        @test plain == expected
+        @test packed == expected
+
+        packed_next, returned = rand_next!(rng, packed)
+        sync_cpu()
+        @test returned === packed
+        @test packed == expected
+        @test packed_next === next_rng
+    end
+end
+
+@testset "R26 native-64 CPU fill shapes and views" begin
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(22)
+        expected_rng, expected = scalar_chain(rng, T, 12)
+
+        matrix = Matrix{T}(undef, 3, 4)
+        next_rng, returned = rand_next!(rng, matrix)
+        sync_cpu()
+        @test returned === matrix
+        @test vec(matrix) == expected
+        @test next_rng === expected_rng
+
+        storage = fill(zero(T), 24)
+        destination = @view storage[2:2:24]
+        @test rand!(rng, destination) === destination
+        sync_cpu()
+        @test collect(destination) == expected
+        @test all(iszero, @view storage[1:2:23])
+    end
+end
+
+@testset "R26 native-64 parallel dense CPU fills" begin
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        chunk = IR._dense_fill_chunk_elements(T)
+        parallel_start = (IR._CPU_FILL_MIN_WORKITEMS - 1) * chunk + 1
+        for count in (chunk + 1, parallel_start, parallel_start + chunk)
+            base = F(0x531)
+            rng = IR._rebuild(base, fill_position(base, UInt64(11), 1), base.device)
+            expected_rng, expected = scalar_chain(rng, T, count)
+
+            dense = Vector{T}(undef, count)
+            next_rng, returned = rand_next!(rng, dense)
+            sync_cpu()
+            @test returned === dense
+            @test dense == expected
+            @test next_rng === expected_rng
+
+            fallback_data = Vector{T}(undef, count)
+            fallback = BackendProbe(fallback_data, Ref(0))
+            fallback_rng, returned_fallback = rand_next!(rng, fallback)
+            sync_cpu()
+            @test returned_fallback === fallback
+            @test fallback_data == dense
+            @test fallback_rng === next_rng
+        end
+    end
+end
+
+@testset "R39 and R40 native-64 CPU fill validation" begin
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(7)
+        wrong = WrongDeviceArray(Vector{T}(undef, 0))
+        @test_throws ArgumentError rand!(rng, wrong)
+        @test_throws ArgumentError rand_next!(rng, wrong)
+
+        exhausted = IR._rebuild(
+            rng,
+            terminal_fill_position(rng, IR._words_per_block(rng) - 1),
+            rng.device,
+        )
+        exhausted = IR._reserve(exhausted, UInt64(1))
+        lookups = Ref(0)
+        empty = BackendProbe(Vector{T}(undef, 0), lookups)
+        next_rng, returned = rand_next!(exhausted, empty)
+        @test returned === empty
+        @test next_rng === exhausted
+        @test lookups[] == 0
+    end
+end
+
+@testset "R23 and R53 native-64 CPU fill surface and preflight" begin
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(29)
+        destination = Vector{T}(undef, 1)
+        @test which(rand!, (typeof(rng), typeof(destination))).module === IR
+        @test which(rand_next!, (typeof(rng), typeof(destination))).module === IR
+        @test @inferred(rand!(rng, destination)) === destination
+        @test @inferred(rand_next!(rng, destination)) isa
+              Tuple{typeof(rng),typeof(destination)}
+        sync_cpu()
+
+        span = IR._draw_words(T)
+        last = IR._rebuild(
+            rng,
+            terminal_fill_position(rng, IR._words_per_block(rng) - span),
+            rng.device,
+        )
+        protected = fill(convert(T, T === Bool ? true : 1), 2)
+        before = copy(protected)
+        @test_throws ArgumentError rand!(last, protected)
+        @test protected == before
+        @test_throws ArgumentError rand_next!(last, protected)
+        @test protected == before
+    end
+
+    rng = Philox2x64(29)
+    for T in (Int32, Int64, Float16)
+        destination = Vector{T}(undef, 1)
+        @test !applicable(rand!, rng, destination)
+        @test !applicable(rand_next!, rng, destination)
     end
 end
