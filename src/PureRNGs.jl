@@ -1,6 +1,7 @@
 module PureRNGs
 
 import KernelAbstractions
+using KernelAbstractions: @index
 import MLDataDevices
 import Random
 import Serialization

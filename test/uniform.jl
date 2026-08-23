@@ -526,6 +526,36 @@ end
     end
 end
 
+@testset "R26 parallel dense CPU fills" begin
+    for T in SCALAR_UNIFORM_TYPES
+        chunk = IR._dense_fill_chunk_elements(T)
+        @test chunk * Int(IR._draw_words(T)) == Int(IR._CPU_FILL_CHUNK_WORDS)
+        @test IR._dense_fill_workitems(chunk, T) == 1
+        @test IR._dense_fill_workitems(2 * chunk + 1, T) == 3
+
+        for F in SCALAR_32_FAMILIES, count in (chunk - 1, chunk, chunk + 1, 2 * chunk + 3)
+            base = F(0x531)
+            rng = IR._rebuild(base, IR._Position64(11, 1), base.device)
+            expected_rng, expected = scalar_chain(rng, T, count)
+
+            dense = Vector{T}(undef, count)
+            next_rng, returned = rand_next!(rng, dense)
+            sync_cpu()
+            @test returned === dense
+            @test dense == expected
+            @test next_rng === expected_rng
+
+            fallback_data = Vector{T}(undef, count)
+            fallback = BackendProbe(fallback_data, Ref(0))
+            fallback_rng, returned_fallback = rand_next!(rng, fallback)
+            sync_cpu()
+            @test returned_fallback === fallback
+            @test fallback_data == dense
+            @test fallback_rng === next_rng
+        end
+    end
+end
+
 @testset "R39 CPU fill placement" begin
     rng = Philox4x32(7)
     for T in SCALAR_UNIFORM_TYPES

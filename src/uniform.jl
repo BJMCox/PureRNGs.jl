@@ -139,15 +139,16 @@ end
     rng::_ScalarUniform32Family,
     destination,
     ::Type{T},
+    indices,
 ) where {T<:_ScalarUniformWordType}
     position = rng.position
     block_index = position.block
     lane = position.lane
     width = _words_per_block(rng)
     block = _block(rng, FAMILY_BITS, block_index)
-    remaining = length(destination)
+    remaining = length(indices)
 
-    @inbounds for index in eachindex(destination)
+    @inbounds for index in indices
         destination[index] = _from_word(T, _select_word(block, lane))
         remaining -= 1
         lane += UInt8(1)
@@ -164,15 +165,16 @@ end
     rng::_ScalarUniform32Family,
     destination,
     ::Type{T},
+    indices,
 ) where {T<:Union{UInt64,Float64}}
     position = rng.position
     block_index = position.block
     lane = position.lane
     width = _words_per_block(rng)
     block = _block(rng, FAMILY_BITS, block_index)
-    remaining = length(destination)
+    remaining = length(indices)
 
-    @inbounds for index in eachindex(destination)
+    @inbounds for index in indices
         high = _select_word(block, lane)
         lane += UInt8(1)
         if lane == width
@@ -194,6 +196,9 @@ end
     return nothing
 end
 
+@inline _fill_uniform_unchecked!(rng, destination, ::Type{T}) where {T} =
+    _fill_uniform_unchecked!(rng, destination, T, eachindex(destination))
+
 KernelAbstractions.@kernel function _uniform_fill_kernel!(
     rng,
     destination,
@@ -202,12 +207,52 @@ KernelAbstractions.@kernel function _uniform_fill_kernel!(
     _fill_uniform_unchecked!(rng, destination, T)
 end
 
+const _CPU_FILL_CHUNK_WORDS = UInt64(4096)
+
+@inline _dense_fill_chunk_elements(::Type{T}) where {T} =
+    Int(_CPU_FILL_CHUNK_WORDS ÷ _draw_words(T))
+@inline _dense_fill_workitems(count::Int, ::Type{T}) where {T} =
+    cld(count, _dense_fill_chunk_elements(T))
+
+KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+    chunk_elements,
+) where {T}
+    workitem = @index(Global, Linear)
+    first = (workitem - 1) * chunk_elements + 1
+    last = min(workitem * chunk_elements, length(destination))
+    span = _draw_words(T)
+    chunk_rng = _reserve(rng, UInt64(first - 1) * span)
+    _fill_uniform_unchecked!(chunk_rng, destination, T, first:last)
+end
+
 @inline _fill_backend(destination) = KernelAbstractions.get_backend(destination)
 @inline _fill_backend(destination::BitArray) =
     KernelAbstractions.get_backend(destination.chunks)
 
 function _launch_uniform!(backend, rng, destination, ::Type{T}) where {T}
     _uniform_fill_kernel!(backend)(rng, destination, T; ndrange = 1)
+    return destination
+end
+
+function _launch_uniform!(
+    backend::KernelAbstractions.CPU,
+    rng,
+    destination::Array{T},
+    ::Type{T},
+) where {T}
+    chunk_elements = _dense_fill_chunk_elements(T)
+    workitems = _dense_fill_workitems(length(destination), T)
+    _uniform_fill_dense_kernel!(backend)(
+        rng,
+        destination,
+        T,
+        chunk_elements;
+        ndrange = workitems,
+        workgroupsize = 1,
+    )
     return destination
 end
 
