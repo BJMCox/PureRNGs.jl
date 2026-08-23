@@ -1,5 +1,8 @@
 const IR = PureRNGs
 
+const SCALAR_32_FAMILIES = (Philox2x32, Philox4x32, Threefry2x32, Threefry4x32)
+const SCALAR_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
+
 @testset "draw block mapping" begin
     @test IR.FAMILY_BITS === UInt32(0)
 
@@ -89,5 +92,170 @@ const IR = PureRNGs
         @test @inferred(IR._block(args...)) == IR._block(args...)
         IR._block(args...)
         @test @allocated(IR._block(args...)) == 0
+    end
+end
+
+@testset "R23 scalar method surface" begin
+    rng = Philox4x32(0)
+    error = try
+        rand(rng)
+    catch caught
+        caught
+    end
+    @test error isa ArgumentError
+    @test occursin("rand(rng, T)", sprint(showerror, error))
+    @test which(rand, (typeof(rng),)).module === IR
+    @test which(rand, (typeof(rng), Type{UInt32})).module === IR
+    @test which(rand_next, (typeof(rng),)).module === IR
+    @test which(rand_next, (typeof(rng), Type{UInt32})).module === IR
+end
+
+@testset "R2 and R25 scalar oracle" begin
+    # PureRNGsTestbed.jl 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d
+    testbed_vectors = (
+        (
+            Philox4x32((UInt32(0), UInt32(0))),
+            (0x6627e8d5, 0xe169c58d, 0xbc57ac4c, 0x9b00dbd8),
+            0x3ecc4fd0,
+            0x3fd989fa35785a70,
+        ),
+        (
+            Threefry2x32((UInt32(0), UInt32(0))),
+            (0x6b200159, 0x99ba4efe),
+            0x3ed64002,
+            0x3fdac80056666e92,
+        ),
+    )
+
+    # R13 core-plus-layout vectors for families outside the testbed.
+    additional_vectors = (
+        (
+            Philox2x32((UInt32(0),)),
+            (0xff1dae59, 0x6cd10df2),
+            0x3f7f1dae,
+            0x3fefe3b5cb2d9a21,
+        ),
+        (
+            Threefry4x32(ntuple(_ -> UInt32(0), Val(4))),
+            (0x9c6ca96a, 0xe17eae66, 0xfc10ecd4, 0x5256a7d8),
+            0x3f1c6ca9,
+            0x3fe38d952d5c2fd5,
+        ),
+    )
+
+    for (rng, words, float32_bits, float64_bits) in
+        (testbed_vectors..., additional_vectors...)
+        raw64 = (UInt64(words[1]) << 32) | UInt64(words[2])
+        @test rand(rng, UInt32) === words[1]
+        @test rand(rng, Bool) === isodd(words[1])
+        @test rand(rng, UInt64) === raw64
+        @test reinterpret(UInt32, rand(rng, Float32)) == float32_bits
+        @test reinterpret(UInt64, rand(rng, Float64)) == float64_bits
+    end
+end
+
+@testset "R5 pure scalar draws" begin
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = IR._rebuild(F(123), IR._Position64(7, 1), F(123).device)
+        position = rng.position
+        first = rand(rng, T)
+        @test rand(rng, T) === first
+        @test rng.position === position
+    end
+end
+
+@testset "R24 and R53 scalar continuation" begin
+    for F in SCALAR_32_FAMILIES
+        rng = F(0)
+        next32, value32 = rand_next(rng, UInt32)
+        @test value32 === rand(rng, UInt32)
+        @test next32.position == IR._Position64(0, 1)
+
+        next64, value64 = rand_next(rng, UInt64)
+        @test value64 === rand(rng, UInt64)
+        @test next64.position ==
+              (IR._words_per_block(rng) == 2 ? IR._Position64(1, 0) : IR._Position64(0, 2))
+
+        default_next, default_value = rand_next(rng)
+        typed_next, typed_value = rand_next(rng, Float64)
+        @test default_next === typed_next
+        @test default_value === typed_value
+        @test default_value isa Float64
+    end
+
+    p = Philox4x32(0)
+    p1, bit = rand_next(p, Bool)
+    p2, value = rand_next(p1, UInt64)
+    pblock = IR._block(p, IR.FAMILY_BITS, UInt64(0))
+    @test bit === isodd(pblock[1])
+    @test value === (UInt64(pblock[2]) << 32) | UInt64(pblock[3])
+    @test p2.position == IR._Position64(0, 3)
+
+    t = Threefry2x32(0)
+    t1, tbit = rand_next(t, Bool)
+    t2, tvalue = rand_next(t1, UInt64)
+    tblock0 = IR._block(t, IR.FAMILY_BITS, UInt64(0))
+    tblock1 = IR._block(t, IR.FAMILY_BITS, UInt64(1))
+    @test tbit === isodd(tblock0[1])
+    @test tvalue === (UInt64(tblock0[2]) << 32) | UInt64(tblock1[1])
+    @test t2.position == IR._Position64(1, 1)
+end
+
+@testset "R27 block crossings" begin
+    for F in (Philox4x32, Threefry4x32)
+        base = F(42)
+        rng = IR._rebuild(base, IR._Position64(3, 3), base.device)
+        block3 = IR._block(rng, IR.FAMILY_BITS, UInt64(3))
+        block4 = IR._block(rng, IR.FAMILY_BITS, UInt64(4))
+        next, value = rand_next(rng, UInt64)
+        @test value === (UInt64(block3[4]) << 32) | UInt64(block4[1])
+        @test next.position == IR._Position64(4, 1)
+    end
+
+    for F in (Philox2x32, Threefry2x32)
+        base = F(42)
+        rng = IR._rebuild(base, IR._Position64(3, 1), base.device)
+        block3 = IR._block(rng, IR.FAMILY_BITS, UInt64(3))
+        block4 = IR._block(rng, IR.FAMILY_BITS, UInt64(4))
+        next, value = rand_next(rng, UInt64)
+        @test value === (UInt64(block3[2]) << 32) | UInt64(block4[1])
+        @test next.position == IR._Position64(4, 1)
+    end
+end
+
+@testset "R53 and R54 terminal scalar draws" begin
+    for F in SCALAR_32_FAMILIES
+        base = F(7)
+        width = IR._words_per_block(base)
+        maximum = IR._max_block(base)
+        last = IR._rebuild(base, IR._Position64(maximum, width - 1), base.device)
+        last_word = IR._block(last, IR.FAMILY_BITS, maximum)[Int(width)]
+
+        @test rand(last, UInt32) === last_word
+        exhausted, value = rand_next(last, UInt32)
+        @test value === last_word
+        @test IR._is_exhausted(exhausted.position)
+        @test_throws ArgumentError rand(exhausted, UInt32)
+        @test_throws ArgumentError rand_next(exhausted, UInt32)
+        @test_throws ArgumentError rand(last, UInt64)
+        @test_throws ArgumentError rand_next(last, UInt64)
+
+        final_pair = IR._rebuild(base, IR._Position64(maximum, width - 2), base.device)
+        pair_end, pair = rand_next(final_pair, UInt64)
+        words = IR._block(final_pair, IR.FAMILY_BITS, maximum)
+        @test pair === (UInt64(words[Int(width)-1]) << 32) | UInt64(words[Int(width)])
+        @test IR._is_exhausted(pair_end.position)
+    end
+end
+
+@testset "R4 and R30 scalar inference and allocation" begin
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(123)
+        @test @inferred(rand(rng, T)) isa T
+        @test @inferred(rand_next(rng, T)) isa Tuple{typeof(rng),T}
+        rand(rng, T)
+        rand_next(rng, T)
+        @test @allocated(rand(rng, T)) == 0
+        @test @allocated(rand_next(rng, T)) == 0
     end
 end

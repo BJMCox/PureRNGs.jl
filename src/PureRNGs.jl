@@ -12,7 +12,8 @@ export Philox2x32,
     Threefry2x32,
     Threefry4x32,
     Threefry2x64,
-    Threefry4x64
+    Threefry4x64,
+    rand_next
 
 include("philox.jl")
 include("threefry.jl")
