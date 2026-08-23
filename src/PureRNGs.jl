@@ -4,7 +4,6 @@ import KernelAbstractions
 using KernelAbstractions: @index
 import MLDataDevices
 import Random
-import Serialization
 
 export Philox2x32,
     Philox4x32,

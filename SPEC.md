@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 10
+Status: normative specification, revision 11
 Date: 2026-08-23
 
 ## 1. Reading rules
@@ -44,7 +44,7 @@ advanced position.
   struct parameterized by device. Its contents are the native key words, the
   [R53] counter position, and the [R38] `isbits` MLDataDevices device value.
   Construction uses `CPUDevice()`. The binding never influences stream
-  values, and serialization drops it ([R45]).
+  values.
 - [R5] Draws are pure: the same call on the same generator returns the same
   values on every call and every backend, subject only to [R43]. A pure draw
   reads the held position and leaves the generator unchanged.
@@ -467,12 +467,11 @@ randsample_next(rng::R, iter,
   `Sampler`. These hooks are exempt from [R1] and MUST NOT widen behavior
   beyond this section.
 - [R35] `copy(m)` returns an independent wrapper with the same held
-  generator, giving exact replay. Serialization stores the held generator
-  as in section 10.
+  generator, giving exact replay.
 
-- [R52] The bridge's complete method set is [R34] plus `copy` ([R35]) and
-  serialization (section 10). Pure code creates a `StatefulRNG` and hands
-  it derived children; keys stay pure-side.
+- [R52] The bridge's complete method set is [R34] plus `copy` ([R35]). Pure
+  code creates a `StatefulRNG` and hands it derived children; keys stay
+  pure-side.
 
 ## 8. Device placement
 
@@ -532,7 +531,7 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   one backend; across backends they MAY differ through transcendental
   functions, and the documentation states this single exception.
 
-## 10. Stream law and serialization
+## 10. Stream law
 
 The stream law is the set of value-determining rules: [R9] tags and
 regions, [R11] cores and rounds, [R12]-[R12b] layouts and narrow
@@ -544,34 +543,7 @@ rule [R61]. Rules that equate one public operation with a composition
 of stream-law rules — [R26] batch shape, [R29] addressed indexing,
 [R33] the bridge, [R60] sampling order and prefix stability — are
 consistency laws: they introduce no value of their own, and a change to
-one that changes any value is a change to a stream-law rule and
-increments the identifier through [R44].
-
-- [R44] The package defines a stream-law identifier, one integer constant.
-  Version 0 ships identifier 1. Any change to a value-determining rule
-  increments it.
-- [R45] The serialized form of an immutable generator is exactly (law
-  identifier, family tag, key words, counter position). The position
-  encoding distinguishes every block and lane and the exhausted value.
-  Family tags, frozen: `Philox2x32` =
-  1, `Philox4x32` = 2, `Philox2x64` = 3, `Philox4x64` = 4, `Threefry2x32`
-  = 5, `Threefry4x32` = 6, `Threefry2x64` = 7, `Threefry4x64` = 8. A
-  `StatefulRNG` serializes the same payload for its held generator. Deserialized
-  generators are CPU-bound; callers rebind explicitly. The hooks are the
-  stdlib methods
-  `Serialization.serialize(s::Serialization.AbstractSerializer, x::F)` and
-  `Serialization.deserialize(s::Serialization.AbstractSerializer,
-  ::Type{F})` for the eight family types and `StatefulRNG`. `serialize`
-  writes the stdlib type framing via `Serialization.serialize_type(s, F)`
-  and then the payload, so a plain `deserialize(io)` dispatches to the
-  package's `deserialize(s, ::Type{F})`, which reads the payload, validates
-  it ([R46]), and returns the generator — never a raw tuple. The stdlib
-  framing carries the Julia type; the tuple is the logical payload. These
-  are the only serialization methods in the package.
-- [R46] Deserialization of an unsupported law identifier throws
-  `ArgumentError` naming the stored and supported identifiers. A family tag,
-  key payload, or counter position invalid for the framed type also throws
-  `ArgumentError`. Restoration never resumes with a silently changed stream.
+one that changes any value is a change to a stream-law rule.
 
 ## 11. Errors, closed list
 
@@ -597,8 +569,6 @@ The complete set of public-API throws:
 | `rand!`/`randn!` and continuation forms | destination device differs from generator device | `ArgumentError` |
 | primitive draw or fill | result type or destination eltype is not a result type | `MethodError` (no method) |
 | allocating draw, fill, or kernel draw on Metal | `Float64` result or 64-bit-word family, any size including zero ([R41]) | `ArgumentError`, names Metal |
-| deserialization | unsupported law identifier | `ArgumentError`, names stored and supported identifiers |
-| deserialization | family tag, key payload, or counter position is invalid for the framed type | `ArgumentError` |
 | `Random.AbstractRNG` consumer on an immutable generator | any such call | `MethodError` (designed, [R31]) |
 
 - [R47] The public API throws exactly these deterministic contract errors.
@@ -618,10 +588,9 @@ The complete set of public-API throws:
   `randnat`, `StatefulRNG`.
 - [R49] Non-exported public surface: the `Base` and `Random` draw methods
   of section 5,
-  the `Random` methods of [R34], `copy(::StatefulRNG)`, the serialization
-  hooks of section 10, and MLDataDevices device application. Every method
-  extension of a foreign function has a package-owned type in a dispatch
-  position.
+  the `Random` methods of [R34], `copy(::StatefulRNG)`, and MLDataDevices
+  device application. Every method extension of a foreign function has a
+  package-owned type in a dispatch position.
 
 ## 13. Conformance
 
@@ -663,7 +632,6 @@ the R41 preview tier and do not block.
 | Wrong-device destination, population, and weights throw before generation; device-agnostic ranges work | R39, R57, R59 | CUDA |
 | Validated empty fill launches no kernel and keeps the position; validation order is device, serviceability, size | R40 | CPU+CUDA |
 | Metal exclusion errors, including zero-size requests | R41, R54 | Metal |
-| Serialization round-trip preserves key, exact position, and exhaustion; device resets; malformed payloads reject | R44-R46 | CPU |
 | Reactant: changed keys and positions use one compilation | R42 | Reactant |
 | Export list equals [R48] exactly | R48 | CPU |
 | Dependency and extension audit equals R36-R37 | R36, R37 | CPU |
