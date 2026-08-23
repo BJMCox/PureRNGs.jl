@@ -25,6 +25,24 @@ function KA.get_backend(array::BackendProbe)
     return KA.get_backend(array.data)
 end
 
+mutable struct DeviceBackendProbe{T,N,A<:AbstractArray{T,N},D} <: AbstractArray{T,N}
+    data::A
+    device::D
+    lookups::Base.RefValue{Int}
+end
+
+Base.size(array::DeviceBackendProbe) = size(array.data)
+Base.axes(array::DeviceBackendProbe) = axes(array.data)
+Base.IndexStyle(::Type{<:DeviceBackendProbe{T,N,A}}) where {T,N,A} = IndexStyle(A)
+Base.getindex(array::DeviceBackendProbe, indices...) = getindex(array.data, indices...)
+Base.setindex!(array::DeviceBackendProbe, value, indices...) =
+    setindex!(array.data, value, indices...)
+MLD.get_device(array::DeviceBackendProbe) = array.device
+function KA.get_backend(array::DeviceBackendProbe)
+    array.lookups[] += 1
+    return KA.get_backend(array.data)
+end
+
 struct WrongDeviceArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
     data::A
 end
@@ -51,7 +69,7 @@ fill_position(rng, block::UInt64, lane::Integer) =
     IR._Position128(block, UInt64(7), lane)
 
 terminal_fill_position(rng, lane::Integer) =
-    rng.position isa IR._Position64 ? IR._Position64(typemax(UInt64), lane) :
+    rng.position isa IR._Position64 ? IR._Position64(IR._max_block(rng), lane) :
     IR._Position128(typemax(UInt64), typemax(UInt64), lane)
 
 function dense_word_fill_allocations(rng, destination, ::Type{T}) where {T}
@@ -1150,5 +1168,140 @@ end
         destination = Vector{T}(undef, 10)
         IR._fill_uniform_dense_words_cpu!(rng, destination, T, eachindex(destination))
         @test destination == scalar_chain(rng, T, length(destination))[2]
+    end
+end
+
+@testset "revision 12 serial CPU fill policy" begin
+    families = (SCALAR_32_FAMILIES..., SCALAR_64_FAMILIES...)
+
+    @testset "ordinary and serial agreement" begin
+        for F in families, T in SCALAR_UNIFORM_TYPES
+            chunk = IR._dense_fill_chunk_elements(T)
+            count = (IR._CPU_FILL_MIN_WORKITEMS - 1) * chunk + 1
+            base = F(0x721)
+            rng = IR._rebuild(base, fill_position(base, UInt64(13), 1), base.device)
+
+            ordinary = Vector{T}(undef, count)
+            explicit = similar(ordinary)
+            serial = similar(ordinary)
+            ordinary_next, ordinary_result = rand_next!(rng, ordinary)
+            explicit_next, explicit_result = rand_next!(rng, explicit; threaded = true)
+            serial_next, serial_result = rand_next!(rng, serial; threaded = false)
+            sync_cpu()
+
+            @test ordinary_result === ordinary
+            @test explicit_result === explicit
+            @test serial_result === serial
+            @test ordinary == explicit == serial
+            @test ordinary_next === explicit_next === serial_next
+
+            pure = similar(ordinary)
+            @test rand!(rng, pure; threaded = false) === pure
+            @test pure == ordinary
+            @test rng.position == fill_position(base, UInt64(13), 1)
+        end
+    end
+
+    @testset "serial validation and backend independence" begin
+        for F in families, T in SCALAR_UNIFORM_TYPES
+            rng = F(0x722)
+            expected_next, expected = scalar_chain(rng, T, 17)
+            lookups = Ref(0)
+            destination = BackendProbe(Vector{T}(undef, 17), lookups)
+            next_rng, returned = rand_next!(rng, destination; threaded = false)
+            @test returned === destination
+            @test destination.data == expected
+            @test next_rng === expected_next
+            @test lookups[] == 0
+
+            rand!(rng, destination; threaded = true)
+            sync_cpu()
+            @test destination.data == expected
+            @test lookups[] == 1
+
+            exhausted = IR._rebuild(
+                rng,
+                terminal_fill_position(rng, IR._words_per_block(rng) - 1),
+                rng.device,
+            )
+            exhausted = IR._reserve(exhausted, UInt64(1))
+            empty_lookups = Ref(0)
+            empty = BackendProbe(Vector{T}(undef, 0), empty_lookups)
+            @test rand!(exhausted, empty; threaded = false) === empty
+            empty_next, empty_result = rand_next!(exhausted, empty; threaded = false)
+            @test empty_result === empty
+            @test empty_next === exhausted
+            @test empty_lookups[] == 0
+
+            span = IR._draw_words(T)
+            last = IR._rebuild(
+                rng,
+                terminal_fill_position(rng, IR._words_per_block(rng) - span),
+                rng.device,
+            )
+            protected_data = fill(convert(T, T === Bool ? true : 1), 2)
+            protected = BackendProbe(protected_data, Ref(0))
+            before = copy(protected_data)
+            @test_throws ArgumentError rand!(last, protected; threaded = false)
+            @test protected_data == before
+            @test_throws ArgumentError rand_next!(last, protected; threaded = false)
+            @test protected_data == before
+            @test protected.lookups[] == 0
+        end
+
+        for F in families, T in SCALAR_UNIFORM_TYPES
+            rng = F(0x723)
+            _, expected = scalar_chain(rng, T, 17)
+            storage = fill(zero(T), 34)
+            destination = @view storage[2:2:34]
+            @test rand!(rng, destination; threaded = false) === destination
+            @test collect(destination) == expected
+            @test all(iszero, @view storage[1:2:33])
+        end
+
+        for F in families
+            rng = F(0x724)
+            _, expected = scalar_chain(rng, Bool, 67)
+            destination = BitArray(undef, 67)
+            @test rand!(rng, destination; threaded = false) === destination
+            @test destination == expected
+        end
+
+        rng = Philox4x32(0x725)
+        unknown = MLD.UnknownDevice()
+        unknown_rng = IR._rebuild(rng, rng.position, unknown)
+        lookups = Ref(0)
+        destination = DeviceBackendProbe(Vector{UInt32}(undef, 7), unknown, lookups)
+        @test rand!(unknown_rng, destination; threaded = false) === destination
+        sync_cpu()
+        @test destination.data == scalar_chain(unknown_rng, UInt32, 7)[2]
+        @test lookups[] == 1
+    end
+
+    @testset "serial keyword surface, inference, and allocation" begin
+        for F in families, T in SCALAR_UNIFORM_TYPES
+            rng = F(0x724)
+            destination = Vector{T}(undef, 7)
+            @test @inferred(rand!(rng, destination; threaded = false)) === destination
+            @test @inferred(rand_next!(rng, destination; threaded = false)) isa
+                  Tuple{typeof(rng),typeof(destination)}
+            rand!(rng, destination; threaded = false)
+            rand_next!(rng, destination; threaded = false)
+            @test @allocated(rand!(rng, destination; threaded = false)) == 0
+        end
+
+        rng = Philox4x32(0x725)
+        destination = Vector{UInt32}(undef, 1)
+        @test Base.kwarg_decl(which(rand!, (typeof(rng), typeof(destination)))) ==
+              [:threaded]
+        @test Base.kwarg_decl(which(rand_next!, (typeof(rng), typeof(destination)))) ==
+              [:threaded]
+        @test !applicable(rand!, rng, destination, false)
+        @test !applicable(rand_next!, rng, destination, false)
+        @test_throws TypeError rand!(rng, destination; threaded = 1)
+        @test_throws TypeError rand_next!(rng, destination; threaded = 1)
+        @test_throws MethodError rand!(rng, destination; serial = false)
+        @test_throws MethodError rand_next!(rng, destination; serial = false)
+        @test_throws MethodError rand(rng, UInt32; threaded = false)
     end
 end

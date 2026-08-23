@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 11
+Status: normative specification, revision 12
 Date: 2026-08-23
 
 ## 1. Reading rules
@@ -16,7 +16,10 @@ acceptance tests.
 - [R1] Closed world. The package contains exactly what this document
   states. The implementation MUST NOT add any exported name, public method,
   default value, or convenience overload beyond those stated here. Section
-  12 lists every exported symbol. Section 11 lists every public error.
+  12 lists every exported symbol. Section 11 lists every public error. The
+  sole destination-fill keyword is `threaded::Bool = true`, accepted only by
+  the four `rand!`, `rand_next!`, `randn!`, and `randn_next!` forms in
+  section 5.
 - [R2] Value oracle. `PureRNGsTestbed.jl` (local checkout,
   `~/Code/scratch/PureRNGsTestbed.jl`) at commit
   `7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d` fixes stream values. Every
@@ -216,14 +219,16 @@ package-owned types:
 Random.rand(rng, ::Type{T})                   :: T
 Random.rand(rng, ::Type{T}, dim1::Integer,
           dims::Integer...)                   :: Array{T}
-Random.rand!(rng, dest::AbstractArray{T})     :: typeof(dest)
+Random.rand!(rng, dest::AbstractArray{T};
+             threaded::Bool=true)             :: typeof(dest)
 Random.rand(rng, range::AbstractRange{T})     :: T
 Random.rand(rng, range::AbstractRange{T},
           dim1::Integer, dims::Integer...)     :: Array{T}
 Random.randn(rng, ::Type{T})                  :: T   # T float
 Random.randn(rng, ::Type{T}, dim1::Integer,
            dims::Integer...)                  :: Array{T}
-Random.randn!(rng, dest::AbstractArray{T})    :: typeof(dest)
+Random.randn!(rng, dest::AbstractArray{T};
+              threaded::Bool=true)            :: typeof(dest)
 rand_next(rng::R)                             :: Tuple{R,Float64}
 rand_next(rng::R, dim1::Integer,
           dims::Integer...)                   :: Tuple{R,Array{Float64}}
@@ -233,14 +238,16 @@ rand_next(rng::R, ::Type{T}, dim1::Integer,
 rand_next(rng::R, range::AbstractRange{T})    :: Tuple{R,T}
 rand_next(rng::R, range::AbstractRange{T},
           dim1::Integer, dims::Integer...)     :: Tuple{R,Array{T}}
-rand_next!(rng::R, dest::AbstractArray{T})    :: Tuple{R,typeof(dest)}
+rand_next!(rng::R, dest::AbstractArray{T};
+           threaded::Bool=true)                :: Tuple{R,typeof(dest)}
 randn_next(rng::R)                            :: Tuple{R,Float64}
 randn_next(rng::R, dim1::Integer,
            dims::Integer...)                  :: Tuple{R,Array{Float64}}
 randn_next(rng::R, ::Type{T})                 :: Tuple{R,T}
 randn_next(rng::R, ::Type{T}, dim1::Integer,
            dims::Integer...)                  :: Tuple{R,Array{T}}
-randn_next!(rng::R, dest::AbstractArray{T})   :: Tuple{R,typeof(dest)}
+randn_next!(rng::R, dest::AbstractArray{T};
+            threaded::Bool=true)               :: Tuple{R,typeof(dest)}
 randat(rng, ::Type{T}, i::Integer)           :: T
 randnat(rng, ::Type{T}, i::Integer)          :: T
 ```
@@ -271,6 +278,8 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   then consecutive elements, which chained same-width scalars reproduce
   because each element leaves the position aligned for the next.
   Pure array draws have the same values but leave the input generator unchanged.
+  `threaded = true` and `threaded = false` produce identical values and
+  continuation positions.
 - [R27] Element packing equals the testbed `_draw` packing rule. A core
   block of `N` words of `W` bits holds `(N * W) / e` elements of bit width
   `e`; each element occupies consecutive `e`-bit lanes of the block
@@ -495,15 +504,21 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   `rand!`/`randn!` require the destination on the generator's device and
   throw `ArgumentError` on mismatch. Scalar draws, `randat`, `randnat`,
   `splitrng`, `subrng`, and scalar continuation draws compute where they are
-  called — kernel registers or host arithmetic — and no generator operation
-  performs a device-to-host copy or forces synchronization. Section 6
+  called — kernel registers or host arithmetic — and these operations perform
+  no device-to-host copy or synchronization. Section 6
   sampling requires device-aligned inputs and allocates its result on the
-  generator device.
+  generator device. The `threaded` fill keyword controls CPU task use only.
+  On non-CPU backends both values preserve the ordinary backend launch path.
 - [R40] Fills validate in fixed order: destination device ([R39]),
   [R41] serviceability, then size. A fill that passes validation with an
   empty destination performs no backend lookup and no kernel launch and
-  leaves the position unchanged. Nonempty fills launch asynchronously
-  with the ordering semantics of the KernelAbstractions backend queue.
+  leaves the position unchanged. On CPU, `threaded = false` performs the
+  full preflight and reservation, then fills serially on the calling thread with
+  no KernelAbstractions backend lookup or task launch; it returns after the
+  fill completes. Every other nonempty fill uses the KernelAbstractions
+  backend. Completion follows that backend's semantics: the CPU call returns
+  after its synchronous work, while an asynchronous backend may return after
+  enqueueing work with its queue ordering.
 - [R41] Backend tiers. CPU and CUDA pass the full section 13 suite and
   block release. AMDGPU is a preview: the suite runs and failures are
   documented without blocking. Metal is experimental and serves the 32-bit
@@ -567,6 +582,7 @@ The complete set of public-API throws:
 | `randsample`/`randsample_next` | population has a non-agnostic device differing from the generator device | `ArgumentError` |
 | weighted `randsample`/`randsample_next` | weights have a non-agnostic device differing from the generator device | `ArgumentError` |
 | `rand!`/`randn!` and continuation forms | destination device differs from generator device | `ArgumentError` |
+| `rand!`/`randn!` and continuation forms | `threaded` is not a `Bool` | `TypeError` |
 | primitive draw or fill | result type or destination eltype is not a result type | `MethodError` (no method) |
 | allocating draw, fill, or kernel draw on Metal | `Float64` result or 64-bit-word family, any size including zero ([R41]) | `ArgumentError`, names Metal |
 | `Random.AbstractRNG` consumer on an immutable generator | any such call | `MethodError` (designed, [R31]) |
@@ -585,9 +601,10 @@ The complete set of public-API throws:
   `Threefry2x32`, `Threefry4x32`, `Threefry2x64`, `Threefry4x64`, and the
   eleven names `splitrng`, `subrng`, `rand_next`, `rand_next!`,
   `randn_next`, `randn_next!`, `randsample`, `randsample_next`, `randat`,
-  `randnat`, `StatefulRNG`.
+  `randnat`, `StatefulRNG`. The `threaded` keyword adds no exported name.
 - [R49] Non-exported public surface: the `Base` and `Random` draw methods
-  of section 5,
+  of section 5, including the exact `threaded::Bool = true` destination-fill
+  keyword surface,
   the `Random` methods of [R34], `copy(::StatefulRNG)`, and MLDataDevices
   device application. Every method extension of a foreign function has a
   package-owned type in a dispatch position.
@@ -611,6 +628,7 @@ the R41 preview tier and do not block.
 | `Bool` scalar, array, `BitArray`, and continuation agreement | R25, R26 | CPU+CUDA |
 | Shape and prefix stability: several dims, all families and result types | R26 | CPU+CUDA |
 | Batch continuation equals chained scalar continuation with exact mixed-width counter advances | R24, R26, R53 | CPU+CUDA |
+| Ordinary and serial CPU fills agree for every family and result type; serial fills preserve preflight, avoid backend lookup and tasks, infer, and allocate zero where viable | R1, R26, R39, R40, R49 | CPU |
 | Fixed-work audit: every random path has input-determined raw-word use and no random retry | R61 | CPU+CUDA |
 | Default `rand_next(rng, dims...)` and `randn_next(rng, dims...)` return `Float64` and the generator first | R23, R24 | CPU |
 | Last valid reservation returns exhausted; later draw throws; zero-size draw succeeds; destination remains unchanged after failed fixed reservation | R53, R54 | CPU+CUDA |
@@ -628,7 +646,7 @@ the R41 preview tier and do not block.
 | CPU/CUDA bitwise equality, integer and uniform draws | R43 | CPU+CUDA |
 | GPU kernel compiles addressed, derivation, scalar pure, and scalar continuation draws with zero allocation | R30 | CUDA |
 | Launch-shape and lane independence for addressed draws | R51 | CUDA |
-| Method-surface audit: typed pure draws, continuation defaults, no default generator, dynamic and `Val` splits, return order, bridge hooks, and no extra foreign methods | R1, R14, R21-R24, R34, R49, R52 | CPU |
+| Method-surface audit: typed pure draws, continuation defaults, exact destination-fill keyword, no default generator, dynamic and `Val` splits, return order, bridge hooks, and no extra foreign methods | R1, R14, R21-R24, R34, R49, R52 | CPU |
 | Wrong-device destination, population, and weights throw before generation; device-agnostic ranges work | R39, R57, R59 | CUDA |
 | Validated empty fill launches no kernel and keeps the position; validation order is device, serviceability, size | R40 | CPU+CUDA |
 | Metal exclusion errors, including zero-size requests | R41, R54 | Metal |

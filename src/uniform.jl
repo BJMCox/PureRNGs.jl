@@ -503,15 +503,28 @@ end
     return UInt64(count) * span
 end
 
+@inline _use_serial_cpu_fill(rng, threaded::Bool) =
+    !threaded && rng.device isa MLDataDevices.CPUDevice
+
+@inline _fill_uniform_serial_cpu!(rng, destination, ::Type{T}) where {T} =
+    _fill_uniform_unchecked!(rng, destination, T)
+@inline _fill_uniform_serial_cpu!(rng, destination::Array{T}, ::Type{T}) where {T} =
+    _fill_uniform_dense_cpu!(rng, destination, T, eachindex(destination))
+
 @inline function _rand_next_fill!(
     rng::Union{_ScalarUniform32Family,_ScalarUniform64Family},
     destination::AbstractArray{T},
+    threaded::Bool,
 ) where {T}
     _check_fill_device(rng, destination)
     _check_fill_serviceability(rng, destination, T)
     words = _fill_word_count(length(destination), _draw_words(T))
     read_rng, next_rng = _reserve_aligned(rng, words, _draw_words(T))
     isempty(destination) && return next_rng, destination
+    if _use_serial_cpu_fill(rng, threaded)
+        _fill_uniform_serial_cpu!(read_rng, destination, T)
+        return next_rng, destination
+    end
     backend = _fill_backend(destination)
     _launch_uniform!(backend, read_rng, destination, T)
     return next_rng, destination
@@ -522,24 +535,40 @@ for T in (Bool, UInt32, UInt64, Float32, Float64)
         @inline function Random.rand!(
             rng::_ScalarUniform32Family,
             destination::AbstractArray{$T},
+            ;
+            threaded::Bool = true,
         )
-            _, result = _rand_next_fill!(rng, destination)
+            _, result = _rand_next_fill!(rng, destination, threaded)
             return result
         end
 
-        @inline rand_next!(rng::_ScalarUniform32Family, destination::AbstractArray{$T}) =
-            _rand_next_fill!(rng, destination)
+        @inline function rand_next!(
+            rng::_ScalarUniform32Family,
+            destination::AbstractArray{$T},
+            ;
+            threaded::Bool = true,
+        )
+            return _rand_next_fill!(rng, destination, threaded)
+        end
 
         @inline function Random.rand!(
             rng::_ScalarUniform64Family,
             destination::AbstractArray{$T},
+            ;
+            threaded::Bool = true,
         )
-            _, result = _rand_next_fill!(rng, destination)
+            _, result = _rand_next_fill!(rng, destination, threaded)
             return result
         end
 
-        @inline rand_next!(rng::_ScalarUniform64Family, destination::AbstractArray{$T}) =
-            _rand_next_fill!(rng, destination)
+        @inline function rand_next!(
+            rng::_ScalarUniform64Family,
+            destination::AbstractArray{$T},
+            ;
+            threaded::Bool = true,
+        )
+            return _rand_next_fill!(rng, destination, threaded)
+        end
     end
 end
 
