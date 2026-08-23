@@ -1,7 +1,51 @@
+using Random: rand!
+
 const IR = PureRNGs
+const KA = PureRNGs.KernelAbstractions
+const MLD = PureRNGs.MLDataDevices
 
 const SCALAR_32_FAMILIES = (Philox2x32, Philox4x32, Threefry2x32, Threefry4x32)
 const SCALAR_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
+
+mutable struct BackendProbe{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
+    data::A
+    lookups::Base.RefValue{Int}
+end
+
+Base.size(array::BackendProbe) = size(array.data)
+Base.axes(array::BackendProbe) = axes(array.data)
+Base.IndexStyle(::Type{<:BackendProbe{T,N,A}}) where {T,N,A} = IndexStyle(A)
+Base.getindex(array::BackendProbe, indices...) = getindex(array.data, indices...)
+Base.setindex!(array::BackendProbe, value, indices...) =
+    setindex!(array.data, value, indices...)
+MLD.get_device(array::BackendProbe) = MLD.get_device(array.data)
+function KA.get_backend(array::BackendProbe)
+    array.lookups[] += 1
+    return KA.get_backend(array.data)
+end
+
+struct WrongDeviceArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
+    data::A
+end
+
+Base.size(array::WrongDeviceArray) = size(array.data)
+Base.axes(array::WrongDeviceArray) = axes(array.data)
+Base.IndexStyle(::Type{<:WrongDeviceArray{T,N,A}}) where {T,N,A} = IndexStyle(A)
+Base.getindex(array::WrongDeviceArray, indices...) = getindex(array.data, indices...)
+Base.setindex!(array::WrongDeviceArray, value, indices...) =
+    setindex!(array.data, value, indices...)
+MLD.get_device(::WrongDeviceArray) = MLD.UnknownDevice()
+
+function scalar_chain(rng, ::Type{T}, count) where {T}
+    values = Vector{T}(undef, count)
+    cursor = rng
+    for index in eachindex(values)
+        cursor, values[index] = rand_next(cursor, T)
+    end
+    return cursor, values
+end
+
+sync_cpu() = KA.synchronize(KA.CPU())
 
 @testset "draw block mapping" begin
     @test IR.FAMILY_BITS === UInt32(0)
@@ -389,4 +433,166 @@ end
         @test_throws MethodError randat(rng, unsupported, 1)
     end
     @test !applicable(randat, rng, UInt32, 1.0)
+end
+
+@testset "R24, R26, and R27 CPU fills" begin
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        width = Int(IR._words_per_block(F(0)))
+        for lane = 0:(width-1), count in (0, 1, width - lane, width - lane + 1, 9)
+            base = F(123)
+            rng = IR._rebuild(base, IR._Position64(7, lane), base.device)
+            expected_rng, expected = scalar_chain(rng, T, count)
+
+            destination = Vector{T}(undef, count)
+            @test rand!(rng, destination) === destination
+            sync_cpu()
+            @test destination == expected
+            @test rng.position == IR._Position64(7, lane)
+
+            replay = Vector{T}(undef, count)
+            next_rng, returned = rand_next!(rng, replay)
+            @test returned === replay
+            sync_cpu()
+            @test replay == expected
+            @test next_rng === expected_rng
+        end
+    end
+end
+
+@testset "R25 Bool CPU fills" begin
+    for F in SCALAR_32_FAMILIES, count in (0, 1, 2, 3, 7, 9, 65, 67)
+        base = F(91)
+        rng = IR._rebuild(base, IR._Position64(4, 1), base.device)
+        next_rng, expected = scalar_chain(rng, Bool, count)
+
+        plain = Array{Bool}(undef, count)
+        packed = BitArray(undef, count)
+        @test rand!(rng, plain) === plain
+        @test rand!(rng, packed) === packed
+        sync_cpu()
+        @test plain == expected
+        @test packed == expected
+
+        packed_next, returned = rand_next!(rng, packed)
+        sync_cpu()
+        @test returned === packed
+        @test packed == expected
+        @test packed_next === next_rng
+    end
+end
+
+@testset "R26 CPU fill shapes and views" begin
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(22)
+        expected_rng, expected = scalar_chain(rng, T, 12)
+
+        matrix = Matrix{T}(undef, 3, 4)
+        next_rng, returned = rand_next!(rng, matrix)
+        sync_cpu()
+        @test returned === matrix
+        @test vec(matrix) == expected
+        @test next_rng === expected_rng
+
+        storage = fill(zero(T), 24)
+        destination = @view storage[2:2:24]
+        @test rand!(rng, destination) === destination
+        sync_cpu()
+        @test collect(destination) == expected
+        @test all(iszero, @view storage[1:2:23])
+    end
+end
+
+@testset "R39 CPU fill placement" begin
+    rng = Philox4x32(7)
+    for T in SCALAR_UNIFORM_TYPES
+        wrong = WrongDeviceArray(Vector{T}(undef, 1))
+        @test_throws ArgumentError rand!(rng, wrong)
+        @test_throws ArgumentError rand_next!(rng, wrong)
+
+        empty_wrong = WrongDeviceArray(Vector{T}(undef, 0))
+        @test_throws ArgumentError rand!(rng, empty_wrong)
+        @test_throws ArgumentError rand_next!(rng, empty_wrong)
+    end
+
+    adapted_rng = MLD.CPUDevice{Nothing}()(rng)
+    @test adapted_rng.device != MLD.get_device(UInt32[])
+    empty = UInt32[]
+    @test rand!(adapted_rng, empty) === empty
+    destination = Vector{UInt32}(undef, 3)
+    @test rand!(adapted_rng, destination) === destination
+    sync_cpu()
+    @test destination == scalar_chain(adapted_rng, UInt32, 3)[2]
+end
+
+@testset "R40 KernelAbstractions launch path" begin
+    rng = Philox4x32(13)
+    lookups = Ref(0)
+    destination = BackendProbe(Vector{UInt32}(undef, 5), lookups)
+    expected_rng, expected = scalar_chain(rng, UInt32, length(destination))
+
+    next_rng, returned = rand_next!(rng, destination)
+    sync_cpu()
+    @test returned === destination
+    @test destination.data == expected
+    @test next_rng === expected_rng
+    @test lookups[] == 1
+
+    width = IR._words_per_block(rng)
+    maximum = IR._max_block(rng)
+    last = IR._rebuild(rng, IR._Position64(maximum, width - 1), rng.device)
+    exhausted = IR._reserve(last, UInt64(1))
+    empty_lookups = Ref(0)
+    empty = BackendProbe(UInt32[], empty_lookups)
+    @test rand!(exhausted, empty) === empty
+    next_empty, returned_empty = rand_next!(exhausted, empty)
+    @test next_empty === exhausted
+    @test returned_empty === empty
+    @test empty_lookups[] == 0
+
+    empty_bits = BitArray(undef, 0)
+    @test rand!(exhausted, empty_bits) === empty_bits
+    bit_next, returned_bits = rand_next!(exhausted, empty_bits)
+    @test bit_next === exhausted
+    @test returned_bits === empty_bits
+end
+
+@testset "R53 CPU fill preflight" begin
+    maximum_count = typemax(Int)
+    @test IR._fill_word_count(maximum_count, UInt64(2)) ÷ UInt64(2) == UInt64(maximum_count)
+
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(17)
+        width = IR._words_per_block(rng)
+        maximum = IR._max_block(rng)
+        span = IR._draw_words(T)
+        position = IR._Position64(maximum, width - span)
+        last = IR._rebuild(rng, position, rng.device)
+        destination = fill(convert(T, T === Bool ? true : 1), 2)
+        before = copy(destination)
+        @test_throws ArgumentError rand!(last, destination)
+        @test destination == before
+        @test_throws ArgumentError rand_next!(last, destination)
+        @test destination == before
+    end
+end
+
+@testset "R23 CPU fill method surface" begin
+    rng = Philox4x32(29)
+    for T in SCALAR_UNIFORM_TYPES
+        destination = Vector{T}(undef, 1)
+        @test which(rand!, (typeof(rng), typeof(destination))).module === IR
+        @test which(rand_next!, (typeof(rng), typeof(destination))).module === IR
+        @test @inferred(rand!(rng, destination)) === destination
+        @test @inferred(rand_next!(rng, destination)) isa
+              Tuple{typeof(rng),typeof(destination)}
+        sync_cpu()
+    end
+
+    for T in (Int32, Int64, Float16)
+        destination = Vector{T}(undef, 1)
+        @test !applicable(rand!, rng, destination)
+        @test !applicable(rand_next!, rng, destination)
+        @test_throws MethodError rand!(rng, destination)
+        @test_throws MethodError rand_next!(rng, destination)
+    end
 end

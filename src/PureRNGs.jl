@@ -14,6 +14,7 @@ export Philox2x32,
     Threefry2x64,
     Threefry4x64,
     rand_next,
+    rand_next!,
     randat
 
 include("philox.jl")

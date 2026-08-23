@@ -119,6 +119,130 @@ for T in (Bool, UInt32, UInt64, Float32, Float64)
     end
 end
 
+@noinline function _fill_device_mismatch()
+    throw(ArgumentError("destination device differs from the generator device"))
+end
+
+@inline _same_fill_device(::MLDataDevices.CPUDevice, ::MLDataDevices.CPUDevice) = true
+@inline _same_fill_device(generator_device, destination_device) =
+    generator_device == destination_device
+
+@inline function _check_fill_device(rng::_ScalarUniform32Family, destination)
+    _same_fill_device(rng.device, MLDataDevices.get_device(destination)) ||
+        _fill_device_mismatch()
+    return nothing
+end
+
+@inline function _fill_uniform_unchecked!(
+    rng::_ScalarUniform32Family,
+    destination,
+    ::Type{T},
+) where {T<:_ScalarUniformWordType}
+    position = rng.position
+    block_index = position.block
+    lane = position.lane
+    width = _words_per_block(rng)
+    block = _block(rng, FAMILY_BITS, block_index)
+    remaining = length(destination)
+
+    @inbounds for index in eachindex(destination)
+        destination[index] = _from_word(T, _select_word(block, lane))
+        remaining -= 1
+        lane += UInt8(1)
+        if lane == width && remaining != 0
+            block_index += UInt64(1)
+            lane = UInt8(0)
+            block = _block(rng, FAMILY_BITS, block_index)
+        end
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_unchecked!(
+    rng::_ScalarUniform32Family,
+    destination,
+    ::Type{T},
+) where {T<:Union{UInt64,Float64}}
+    position = rng.position
+    block_index = position.block
+    lane = position.lane
+    width = _words_per_block(rng)
+    block = _block(rng, FAMILY_BITS, block_index)
+    remaining = length(destination)
+
+    @inbounds for index in eachindex(destination)
+        high = _select_word(block, lane)
+        lane += UInt8(1)
+        if lane == width
+            block_index += UInt64(1)
+            lane = UInt8(0)
+            block = _block(rng, FAMILY_BITS, block_index)
+        end
+
+        low = _select_word(block, lane)
+        destination[index] = _from_word(T, (UInt64(high) << 32) | UInt64(low))
+        remaining -= 1
+        lane += UInt8(1)
+        if lane == width && remaining != 0
+            block_index += UInt64(1)
+            lane = UInt8(0)
+            block = _block(rng, FAMILY_BITS, block_index)
+        end
+    end
+    return nothing
+end
+
+KernelAbstractions.@kernel function _uniform_fill_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+) where {T}
+    _fill_uniform_unchecked!(rng, destination, T)
+end
+
+@inline _fill_backend(destination) = KernelAbstractions.get_backend(destination)
+@inline _fill_backend(destination::BitArray) =
+    KernelAbstractions.get_backend(destination.chunks)
+
+function _launch_uniform!(backend, rng, destination, ::Type{T}) where {T}
+    _uniform_fill_kernel!(backend)(rng, destination, T; ndrange = 1)
+    return destination
+end
+
+@inline function _fill_word_count(count::Int, span::UInt64)
+    # Array length is at most typemax(Int), and uniform spans are at most two words.
+    # The product is therefore at most typemax(UInt64) - 1 on a 64-bit host.
+    return UInt64(count) * span
+end
+
+@inline function _rand_next_fill!(
+    rng::_ScalarUniform32Family,
+    destination::AbstractArray{T},
+) where {T}
+    _check_fill_device(rng, destination)
+    words = _fill_word_count(length(destination), _draw_words(T))
+    next_rng = _reserve(rng, words)
+    isempty(destination) && return next_rng, destination
+    backend = _fill_backend(destination)
+    _launch_uniform!(backend, rng, destination, T)
+    return next_rng, destination
+end
+
+for T in (Bool, UInt32, UInt64, Float32, Float64)
+    @eval begin
+        @inline function Random.rand!(
+            rng::_ScalarUniform32Family,
+            destination::AbstractArray{$T},
+        )
+            _, result = _rand_next_fill!(rng, destination)
+            return result
+        end
+
+        @inline rand_next!(rng::_ScalarUniform32Family, destination::AbstractArray{$T}) =
+            _rand_next_fill!(rng, destination)
+    end
+end
+
 const _AddressIndex64 = Union{Bool,Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
 
 @noinline function _invalid_address_index()
