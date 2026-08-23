@@ -66,6 +66,18 @@ end
             @test applicable(rand_next, rng, range)
             @test which(rand, (typeof(rng), typeof(range))).module === RangeIR
             @test which(rand_next, (typeof(rng), typeof(range))).module === RangeIR
+
+            linear = LinRange{T}(T(1), T(5), 5)
+            @test applicable(rand, rng, linear)
+            @test applicable(rand_next, rng, linear)
+            @test rand(rng, linear) === reference_scalar_range(rng, linear)
+            @test last(rand_next(rng, linear)) === reference_scalar_range(rng, linear)
+            @test @inferred(rand(rng, linear)) isa T
+            @test @inferred(rand_next(rng, linear)) isa Tuple{typeof(rng),T}
+
+            descending_linear = LinRange{T}(T(5), T(1), 5)
+            @test rand(rng, descending_linear) ===
+                  reference_scalar_range(rng, descending_linear)
         end
         for range in (
             false:true,
@@ -248,6 +260,7 @@ end
         ranges = (
             Int8(-2):Int8(3),
             UInt16(9):Int16(-2):UInt16(1),
+            LinRange{Int32}(Int32(-3), Int32(9), 5),
             UInt64(0):(UInt64(1)<<32),
             UInt64(0):typemax(UInt64),
         )

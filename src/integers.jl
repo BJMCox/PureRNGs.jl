@@ -23,8 +23,8 @@ end
 @inline function _range_parameters(range::AbstractRange{T}) where {T<:_RangeInteger}
     isempty(range) && throw(ArgumentError("range must be non-empty"))
     base = first(range) % UInt64
-    stride = step(range) % UInt64
     span = length(range) % UInt64
+    stride = span == UInt64(1) ? UInt64(0) : range[2] % UInt64 - base
     return base, stride, span
 end
 
