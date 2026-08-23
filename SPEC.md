@@ -509,7 +509,8 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   sampling requires device-aligned inputs and allocates its result on the
   generator device. The `threaded` fill keyword controls CPU task use only.
   On non-CPU backends both values preserve the ordinary backend launch path.
-- [R40] Fills validate in fixed order: destination device ([R39]),
+- [R40] The typed `threaded` keyword is validated before fill preflight.
+  After it passes, fills validate in fixed order: destination device ([R39]),
   [R41] serviceability, then size. A fill that passes validation with an
   empty destination performs no backend lookup and no kernel launch and
   leaves the position unchanged. On CPU, `threaded = false` performs the
@@ -628,7 +629,7 @@ the R41 preview tier and do not block.
 | `Bool` scalar, array, `BitArray`, and continuation agreement | R25, R26 | CPU+CUDA |
 | Shape and prefix stability: several dims, all families and result types | R26 | CPU+CUDA |
 | Batch continuation equals chained scalar continuation with exact mixed-width counter advances | R24, R26, R53 | CPU+CUDA |
-| Ordinary and serial CPU fills agree for every family and result type; serial fills preserve preflight, avoid backend lookup and tasks, infer, and allocate zero where viable | R1, R26, R39, R40, R49 | CPU |
+| Ordinary and serial CPU fills agree for every family and result type; a write-task probe confirms serial fills run on the caller task; serial fills preserve preflight, avoid backend lookup and tasks, infer, and allocate zero where viable | R1, R26, R39, R40, R49 | CPU |
 | Fixed-work audit: every random path has input-determined raw-word use and no random retry | R61 | CPU+CUDA |
 | Default `rand_next(rng, dims...)` and `randn_next(rng, dims...)` return `Float64` and the generator first | R23, R24 | CPU |
 | Last valid reservation returns exhausted; later draw throws; zero-size draw succeeds; destination remains unchanged after failed fixed reservation | R53, R54 | CPU+CUDA |
@@ -648,7 +649,7 @@ the R41 preview tier and do not block.
 | Launch-shape and lane independence for addressed draws | R51 | CUDA |
 | Method-surface audit: typed pure draws, continuation defaults, exact destination-fill keyword, no default generator, dynamic and `Val` splits, return order, bridge hooks, and no extra foreign methods | R1, R14, R21-R24, R34, R49, R52 | CPU |
 | Wrong-device destination, population, and weights throw before generation; device-agnostic ranges work | R39, R57, R59 | CUDA |
-| Validated empty fill launches no kernel and keeps the position; validation order is device, serviceability, size | R40 | CPU+CUDA |
+| Validated empty fill launches no kernel and keeps the position; validation order is `threaded` type, device, serviceability, size | R40 | CPU+CUDA |
 | Metal exclusion errors, including zero-size requests | R41, R54 | Metal |
 | Reactant: changed keys and positions use one compilation | R42 | Reactant |
 | Export list equals [R48] exactly | R48 | CPU |

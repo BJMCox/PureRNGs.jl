@@ -43,6 +43,24 @@ function KA.get_backend(array::DeviceBackendProbe)
     return KA.get_backend(array.data)
 end
 
+mutable struct TaskWriteProbe{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
+    data::A
+    writers::Array{Task,N}
+end
+
+TaskWriteProbe(data::AbstractArray{T,N}) where {T,N} =
+    TaskWriteProbe(data, Array{Task}(undef, size(data)))
+Base.size(array::TaskWriteProbe) = size(array.data)
+Base.axes(array::TaskWriteProbe) = axes(array.data)
+Base.IndexStyle(::Type{<:TaskWriteProbe{T,N,A}}) where {T,N,A} = IndexStyle(A)
+Base.getindex(array::TaskWriteProbe, indices...) = getindex(array.data, indices...)
+function Base.setindex!(array::TaskWriteProbe, value, indices...)
+    array.writers[indices...] = current_task()
+    return setindex!(array.data, value, indices...)
+end
+MLD.get_device(array::TaskWriteProbe) = MLD.get_device(array.data)
+KA.get_backend(array::TaskWriteProbe) = KA.get_backend(array.data)
+
 struct WrongDeviceArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
     data::A
 end
@@ -76,6 +94,11 @@ function dense_word_fill_allocations(rng, destination, ::Type{T}) where {T}
     indices = eachindex(destination)
     IR._fill_uniform_dense_words_cpu!(rng, destination, T, indices)
     return @allocated IR._fill_uniform_dense_words_cpu!(rng, destination, T, indices)
+end
+
+function serial_next_fill_allocations(rng, destination)
+    rand_next!(rng, destination; threaded = false)
+    return @allocated rand_next!(rng, destination; threaded = false)
 end
 
 sync_cpu() = KA.synchronize(KA.CPU())
@@ -1278,6 +1301,25 @@ end
         @test lookups[] == 1
     end
 
+    @testset "serial writes stay on the calling task" begin
+        rng = Philox4x32(0x726)
+        caller = current_task()
+
+        dense_storage = Vector{UInt32}(undef, 37)
+        dense_probe = TaskWriteProbe(dense_storage)
+        @test rand!(rng, dense_probe; threaded = false) === dense_probe
+        @test all(task -> task === caller, dense_probe.writers)
+        @test dense_probe.data == scalar_chain(rng, UInt32, 37)[2]
+
+        strided_storage = fill(UInt32(0), 74)
+        generic_probe = TaskWriteProbe(@view strided_storage[2:2:74])
+        next_rng, result = rand_next!(rng, generic_probe; threaded = false)
+        @test result === generic_probe
+        @test all(task -> task === caller, generic_probe.writers)
+        @test generic_probe.data == scalar_chain(rng, UInt32, 37)[2]
+        @test next_rng === scalar_chain(rng, UInt32, 37)[1]
+    end
+
     @testset "serial keyword surface, inference, and allocation" begin
         for F in families, T in SCALAR_UNIFORM_TYPES
             rng = F(0x724)
@@ -1288,6 +1330,7 @@ end
             rand!(rng, destination; threaded = false)
             rand_next!(rng, destination; threaded = false)
             @test @allocated(rand!(rng, destination; threaded = false)) == 0
+            @test serial_next_fill_allocations(rng, destination) == 0
         end
 
         rng = Philox4x32(0x725)
@@ -1300,6 +1343,20 @@ end
         @test !applicable(rand_next!, rng, destination, false)
         @test_throws TypeError rand!(rng, destination; threaded = 1)
         @test_throws TypeError rand_next!(rng, destination; threaded = 1)
+
+        wrong = WrongDeviceArray(Vector{UInt32}(undef, 1))
+        @test_throws TypeError rand!(rng, wrong; threaded = 1)
+        @test_throws TypeError rand_next!(rng, wrong; threaded = 1)
+
+        terminal = IR._rebuild(
+            rng,
+            terminal_fill_position(rng, IR._words_per_block(rng) - 1),
+            rng.device,
+        )
+        oversized = Vector{UInt32}(undef, 2)
+        @test_throws TypeError rand!(terminal, oversized; threaded = 1)
+        @test_throws TypeError rand_next!(terminal, oversized; threaded = 1)
+
         @test_throws MethodError rand!(rng, destination; serial = false)
         @test_throws MethodError rand_next!(rng, destination; serial = false)
         @test_throws MethodError rand(rng, UInt32; threaded = false)
