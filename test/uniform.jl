@@ -54,6 +54,12 @@ terminal_fill_position(rng, lane::Integer) =
     rng.position isa IR._Position64 ? IR._Position64(typemax(UInt64), lane) :
     IR._Position128(typemax(UInt64), typemax(UInt64), lane)
 
+function dense_word_fill_allocations(rng, destination, ::Type{T}) where {T}
+    indices = eachindex(destination)
+    IR._fill_uniform_dense_words_cpu!(rng, destination, T, indices)
+    return @allocated IR._fill_uniform_dense_words_cpu!(rng, destination, T, indices)
+end
+
 sync_cpu() = KA.synchronize(KA.CPU())
 
 @testset "draw block mapping" begin
@@ -1104,5 +1110,45 @@ end
         destination = Vector{T}(undef, 1)
         @test !applicable(rand!, rng, destination)
         @test !applicable(rand_next!, rng, destination)
+    end
+end
+
+@testset "dense CPU logical-word block path" begin
+    families = (SCALAR_32_FAMILIES..., SCALAR_64_FAMILIES...)
+    for F in families, T in (Bool, UInt32, Float32)
+        base = F(0x6a5)
+        width = Int(IR._words_per_block(base))
+        for lane = 0:(width-1)
+            rng = IR._rebuild(base, fill_position(base, UInt64(17), lane), base.device)
+            lengths = (1, width - lane, width - lane + 1, 2width + 1, 3width - 1)
+            for count in lengths
+                _, expected = scalar_chain(rng, T, count)
+                destination = Vector{T}(undef, count)
+                IR._fill_uniform_dense_words_cpu!(
+                    rng,
+                    destination,
+                    T,
+                    eachindex(destination),
+                )
+                @test destination == expected
+                @test rng.position == fill_position(base, UInt64(17), lane)
+            end
+        end
+
+        destination = Vector{T}(undef, 17)
+        indices = eachindex(destination)
+        @test @inferred(
+            IR._fill_uniform_dense_words_cpu!(base, destination, T, indices)
+        ) === nothing
+        @test dense_word_fill_allocations(base, destination, T) == 0
+    end
+
+    for F in (Philox4x64, Threefry4x64), T in (Bool, UInt32, Float32)
+        base = F(0x74)
+        position = IR._Position128(typemax(UInt64), UInt64(6), 7)
+        rng = IR._rebuild(base, position, base.device)
+        destination = Vector{T}(undef, 10)
+        IR._fill_uniform_dense_words_cpu!(rng, destination, T, eachindex(destination))
+        @test destination == scalar_chain(rng, T, length(destination))[2]
     end
 end

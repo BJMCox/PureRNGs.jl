@@ -238,6 +238,100 @@ end
     return nothing
 end
 
+@inline _logical_word_block_at(rng::_ScalarUniform32Family, position::_Position64) =
+    _block(rng, FAMILY_BITS, position.block)
+
+@inline function _logical_words(block::NTuple{N,UInt64}) where {N}
+    return ntuple(Val(2N)) do lane
+        word = block[(lane+1)>>1]
+        return ifelse(isodd(lane), (word >> 32) % UInt32, word % UInt32)
+    end
+end
+
+@inline _logical_word_block_at(rng::_ScalarUniform64Family, position) =
+    _logical_words(_native_block_at(rng, position))
+
+@inline function _store_full_word_block!(
+    destination,
+    ::Type{T},
+    block::NTuple{N,UInt32},
+    base::Int,
+) where {T,N}
+    ntuple(Val(N)) do lane
+        @inbounds destination[base+lane] = _from_word(T, block[lane])
+        return nothing
+    end
+    return nothing
+end
+
+@inline function _store_tail_word_block!(
+    destination,
+    ::Type{T},
+    block::NTuple{N,UInt32},
+    base::Int,
+    last::Int,
+) where {T,N}
+    ntuple(Val(N)) do lane
+        if lane <= last - base
+            @inbounds destination[base+lane] = _from_word(T, block[lane])
+        end
+        return nothing
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_dense_words_cpu!(
+    rng::Union{_ScalarUniform32Family,_ScalarUniform64Family},
+    destination,
+    ::Type{T},
+    indices,
+) where {T<:_ScalarUniformWordType}
+    index = first(indices)
+    last_index = last(indices)
+    index > last_index && return nothing
+
+    position = rng.position
+    lane = Int(position.lane)
+    width = Int(_words_per_block(rng))
+
+    if !iszero(lane)
+        block = _logical_word_block_at(rng, position)
+        while lane < width && index <= last_index
+            @inbounds destination[index] = _from_word(T, block[lane+1])
+            index == last_index && return nothing
+            lane += 1
+            index += 1
+        end
+        position = _next_native_position(position)
+    end
+
+    while last_index - index + 1 >= width
+        block = _logical_word_block_at(rng, position)
+        _store_full_word_block!(destination, T, block, index - 1)
+        last_index - index + 1 == width && return nothing
+        index += width
+        position = _next_native_position(position)
+    end
+
+    block = _logical_word_block_at(rng, position)
+    _store_tail_word_block!(destination, T, block, index - 1, last_index)
+    return nothing
+end
+
+@inline _fill_uniform_dense_cpu!(rng, destination, ::Type{T}, indices) where {T} =
+    _fill_uniform_unchecked!(rng, destination, T, indices)
+
+const _DenseWordBlockFamily =
+    Union{Philox2x32,Philox4x32,Philox2x64,Philox4x64,Threefry2x64,Threefry4x64}
+
+@inline _fill_uniform_dense_cpu!(
+    rng::_DenseWordBlockFamily,
+    destination,
+    ::Type{T},
+    indices,
+) where {T<:_ScalarUniformWordType} =
+    _fill_uniform_dense_words_cpu!(rng, destination, T, indices)
+
 @inline function _fill_uniform_unchecked!(
     rng::_ScalarUniform64Family,
     destination,
@@ -360,7 +454,15 @@ KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
     first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
     span = _draw_words(T)
     chunk_rng = _reserve(rng, UInt64(first - 1) * span)
-    _fill_uniform_unchecked!(chunk_rng, destination, T, first:last)
+    _fill_uniform_dense_cpu!(chunk_rng, destination, T, first:last)
+end
+
+KernelAbstractions.@kernel function _uniform_fill_dense_serial_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+) where {T}
+    _fill_uniform_dense_cpu!(rng, destination, T, eachindex(destination))
 end
 
 @inline _fill_backend(destination) = KernelAbstractions.get_backend(destination)
@@ -381,7 +483,7 @@ function _launch_uniform!(
     chunk_elements = _dense_fill_chunk_elements(T)
     workitems = _dense_fill_workitems(length(destination), T)
     if !_use_parallel_dense_fill(workitems)
-        _uniform_fill_kernel!(backend)(rng, destination, T; ndrange = 1)
+        _uniform_fill_dense_serial_kernel!(backend)(rng, destination, T; ndrange = 1)
         return destination
     end
     _uniform_fill_dense_kernel!(backend)(
