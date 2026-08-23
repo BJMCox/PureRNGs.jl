@@ -6,3 +6,6 @@ using PureRNGs
     @test nameof(PureRNGs) === :PureRNGs
     @test !isdefined(PureRNGs, :greet)
 end
+
+include("philox.jl")
+include("threefry.jl")
