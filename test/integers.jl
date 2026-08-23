@@ -43,11 +43,12 @@ end
             examples = (
                 T(3):T(3),
                 T(1):T(2):T(7),
-                T(7):Int64(-2):T(1),
+                T(7):signed(T)(-2):T(1),
                 typemin(T):typemax(T),
-                typemax(T):Int64(-1):typemin(T),
+                typemax(T):signed(T)(-1):typemin(T),
             )
             for range in examples
+                @test eltype(range) === T
                 base, stride, span = @inferred RangeIR._range_parameters(range)
                 @test span == UInt64(length(range))
                 @test RangeIR._range_words(span) ==
