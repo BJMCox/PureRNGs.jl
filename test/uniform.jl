@@ -270,7 +270,7 @@ end
     for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
         rng = F(123)
         cursor = rng
-        for i in 1:9
+        for i = 1:9
             cursor, expected = rand_next(cursor, T)
             @test randat(rng, T, i) === expected
             @test rng.position == IR._Position64(0, 0)
@@ -281,7 +281,7 @@ end
         base = F(47)
         rng = IR._rebuild(base, IR._Position64(5, 1), base.device)
         cursor = rng
-        for i in 1:7
+        for i = 1:7
             cursor, expected = rand_next(cursor, T)
             @test randat(rng, T, i) === expected
         end
@@ -349,7 +349,10 @@ end
 @testset "R29 addressed method surface and performance" begin
     rng = Philox4x32(29)
     for T in SCALAR_UNIFORM_TYPES
-        @test which(randat, (typeof(rng), Type{T}, Int)).module === IR
+        int_method = which(randat, (typeof(rng), Type{T}, Int))
+        @test int_method.module === IR
+        @test which(randat, (typeof(rng), Type{T}, UInt64)) === int_method
+        @test which(randat, (typeof(rng), Type{T}, BigInt)) === int_method
         @test @inferred(randat(rng, T, 3)) isa T
         @test @inferred(randat(rng, T, UInt64(3))) isa T
         randat(rng, T, 3)

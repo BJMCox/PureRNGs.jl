@@ -155,9 +155,7 @@ end
 
 for T in (Bool, UInt32, UInt64, Float32, Float64)
     @eval begin
-        @inline randat(rng::_ScalarUniform32Family, ::Type{$T}, i::_AddressIndex64) =
-            rand(_addressed_rng(rng, _draw_words($T), i), $T)
-        randat(rng::_ScalarUniform32Family, ::Type{$T}, i::Integer) =
+        @inline randat(rng::_ScalarUniform32Family, ::Type{$T}, i::Integer) =
             rand(_addressed_rng(rng, _draw_words($T), i), $T)
     end
 end
