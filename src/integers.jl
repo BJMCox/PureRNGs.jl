@@ -1,4 +1,5 @@
 const _RangeInteger = Union{Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
+const _ScalarRangeFamily = Union{_ScalarUniform32Family,_ScalarUniform64Family}
 const FAMILY_RANGE = UInt32(0x00000003)
 
 @inline _range_words(span::UInt64) =
@@ -60,7 +61,7 @@ end
     return iszero(index) ? last(range) : range[index]
 end
 
-@inline function _range_offset(rng::_ScalarUniform32Family, span::UInt64)
+@inline function _range_offset(rng::_ScalarRangeFamily, span::UInt64)
     if span == zero(UInt64)
         return _raw64(rng, FAMILY_RANGE)
     elseif span <= UInt64(1) << 32
@@ -71,14 +72,14 @@ end
 end
 
 @inline function _draw_range_unchecked(
-    rng::_ScalarUniform32Family,
+    rng::_ScalarRangeFamily,
     range::AbstractRange{T},
     span::UInt64,
 ) where {T<:_RangeInteger}
     return _range_value(range, _range_offset(rng, span))
 end
 
-@inline function _rand_range(rng::_ScalarUniform32Family, range::AbstractRange{T}) where {T}
+@inline function _rand_range(rng::_ScalarRangeFamily, range::AbstractRange{T}) where {T}
     span = _range_span(range)
     words = _range_words(span)
     start, _ = _reserve_aligned(rng, words, words)
@@ -86,7 +87,7 @@ end
 end
 
 @inline function _rand_next_range(
-    rng::_ScalarUniform32Family,
+    rng::_ScalarRangeFamily,
     range::AbstractRange{T},
 ) where {T}
     span = _range_span(range)
@@ -97,9 +98,9 @@ end
 
 for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
     @eval begin
-        @inline Random.rand(rng::_ScalarUniform32Family, range::AbstractRange{$T}) =
+        @inline Random.rand(rng::_ScalarRangeFamily, range::AbstractRange{$T}) =
             _rand_range(rng, range)
-        @inline rand_next(rng::_ScalarUniform32Family, range::AbstractRange{$T}) =
+        @inline rand_next(rng::_ScalarRangeFamily, range::AbstractRange{$T}) =
             _rand_next_range(rng, range)
     end
 end

@@ -13,6 +13,17 @@ const RANGE_FAMILIES = (
         UInt32(0x76543210),
     )),
 )
+const NATIVE64_RANGE_FAMILIES = (
+    Philox2x64((UInt64(0x13579bdf2468ace0),)),
+    Philox4x64((UInt64(0x0123456789abcdef), UInt64(0xfedcba9876543210))),
+    Threefry2x64((UInt64(0x0123456789abcdef), UInt64(0xfedcba9876543210))),
+    Threefry4x64((
+        UInt64(0x0123456789abcdef),
+        UInt64(0xfedcba9876543210),
+        UInt64(0x0f1e2d3c4b5a6978),
+        UInt64(0x8877665544332211),
+    )),
+)
 
 struct UnionIntegerRange <: AbstractRange{Union{Int8,UInt8}} end
 
@@ -37,9 +48,13 @@ end
 
 function reference_alignment_padding(rng, words::UInt64)
     width = BigInt(RangeIR._words_per_block(rng))
-    position = BigInt(rng.position.block) * width + BigInt(rng.position.lane)
+    position = reference_logical_position(rng) * width + BigInt(rng.position.lane)
     return UInt64(mod(-position, BigInt(words)))
 end
+
+reference_logical_position(rng::RangeIR._Position64Family) = BigInt(rng.position.block)
+reference_logical_position(rng::RangeIR._Position128Family) =
+    (BigInt(rng.position.hi) << 64) + BigInt(rng.position.lo)
 
 function reference_scalar_range(rng, range)
     span = length(range) % UInt64
@@ -57,6 +72,26 @@ function reference_scalar_range(rng, range)
         UInt64((((BigInt(high) << 64) + BigInt(low)) * BigInt(span)) >> 128)
     end
     return reference_range_value(range, offset)
+end
+
+
+function reference_native64_scalar_range(rng, range)
+    span = length(range) % UInt64
+    count = span != 0 && span <= UInt64(1) << 32 ? UInt64(2) : UInt64(4)
+    padding = reference_alignment_padding(rng, count)
+    start = RangeIR._reserve(rng, padding)
+    block = RangeIR._native_block(start, RangeIR.FAMILY_RANGE)
+    lane = Int(start.position.lane >> 1) + 1
+    high = block[lane]
+    offset = if span == 0
+        high
+    elseif span <= UInt64(1) << 32
+        UInt64((BigInt(high) * BigInt(span)) >> 64)
+    else
+        low = block[lane+1]
+        UInt64((((BigInt(high) << 64) + BigInt(low)) * BigInt(span)) >> 128)
+    end
+    return RangeIR._range_value(range, offset)
 end
 
 @testset "scalar integer-range draws" begin
@@ -293,6 +328,155 @@ end
             rand_next(rng, range)
             @test @allocated(rand(rng, range)) == 0
             @test @allocated(rand_next(rng, range)) == 0
+        end
+    end
+end
+
+
+@testset "native-64 scalar integer-range draws" begin
+    cases = (
+        UInt8(3):UInt8(17),
+        Int16(-23):Int16(41),
+        UInt32(7):(UInt32(7)+(UInt32(1)<<31)),
+        UInt64(9):(UInt64(9)+(UInt64(1)<<32)),
+        UInt64(0):typemax(UInt64),
+        typemin(Int64):typemax(Int64),
+    )
+
+    @testset "method surface and frozen vectors" begin
+        expected = (
+            (
+                UInt8(0x08),
+                Int16(1),
+                UInt32(0x300c5195),
+                UInt64(0x000000006018a326),
+                UInt64(0x6018a31ceba5d5fd),
+                Int64(-2298908265164712451),
+            ),
+            (
+                UInt8(0x07),
+                Int16(-5),
+                UInt32(0x24777b8f),
+                UInt64(0x0000000048eef719),
+                UInt64(0x48eef70fc4fc842a),
+                Int64(-3967962574565374934),
+            ),
+            (
+                UInt8(0x11),
+                Int16(40),
+                UInt32(0x7c694e75),
+                UInt64(0x00000000f8d29ce4),
+                UInt64(0xf8d29cda5278ebea),
+                Int64(8706193491161050090),
+            ),
+            (
+                UInt8(0x11),
+                Int16(38),
+                UInt32(0x79bc69e7),
+                UInt64(0x00000000f378d3c8),
+                UInt64(0xf378d3befed61eda),
+                Int64(8320633128839683802),
+            ),
+        )
+        for (rng, values) in zip(NATIVE64_RANGE_FAMILIES, expected)
+            for T in RANGE_INTS
+                range = T(1):T(3)
+                @test applicable(rand, rng, range)
+                @test applicable(rand_next, rng, range)
+            end
+            @test map(range -> rand(rng, range), cases) == values
+            @test map(range -> reference_native64_scalar_range(rng, range), cases) == values
+            @test !applicable(randat, rng, first(cases), 1)
+        end
+    end
+
+    @testset "logical order, alignment, and fixed work" begin
+        ranges = (
+            Int16(21):Int16(-3):Int16(-18),
+            UInt32(91):Int32(-9):UInt32(1),
+            UInt64(9):(UInt64(9)+(UInt64(1)<<32)-UInt64(1)),
+            UInt64(9):(UInt64(9)+(UInt64(1)<<32)),
+            UInt64(0):typemax(UInt64),
+        )
+        for base in NATIVE64_RANGE_FAMILIES
+            width = Int(RangeIR._words_per_block(base))
+            for lane = 0:(width-1), range in ranges
+                position = if base.position isa RangeIR._Position64
+                    RangeIR._Position64(UInt64(5), UInt8(lane))
+                else
+                    RangeIR._Position128(UInt64(5), UInt64(7), UInt8(lane))
+                end
+                rng = RangeIR._rebuild(base, position, base.device)
+                words = RangeIR._range_words(length(range) % UInt64)
+                padding = reference_alignment_padding(rng, words)
+                expected = reference_native64_scalar_range(rng, range)
+                original = rng.position
+                @test rand(rng, range) === expected
+                @test rng.position === original
+                next, value = rand_next(rng, range)
+                @test value === expected
+                @test next.position === RangeIR._reserve(rng, padding + words).position
+            end
+        end
+    end
+
+    @testset "capacity, errors, inference, and allocations" begin
+        small = UInt8(1):UInt8(7)
+        wide = UInt64(0):(UInt64(1)<<32)
+        for base in NATIVE64_RANGE_FAMILIES
+            width = Int(RangeIR._words_per_block(base))
+            small_position, wide_position, insufficient_position, terminal =
+                if base.position isa RangeIR._Position64
+                    maximum = RangeIR._max_block(base)
+                    (
+                        RangeIR._Position64(maximum, UInt8(width - 2)),
+                        RangeIR._Position64(maximum, UInt8(width - 4)),
+                        RangeIR._Position64(maximum, UInt8(width - 1)),
+                        RangeIR._terminal64(maximum),
+                    )
+                else
+                    maximum = typemax(UInt64)
+                    (
+                        RangeIR._Position128(maximum, maximum, UInt8(width - 2)),
+                        RangeIR._Position128(maximum, maximum, UInt8(width - 4)),
+                        RangeIR._Position128(maximum, maximum, UInt8(width - 1)),
+                        RangeIR._terminal128(),
+                    )
+                end
+
+            small_rng = RangeIR._rebuild(base, small_position, base.device)
+            small_next, small_value = rand_next(small_rng, small)
+            @test small_value === reference_native64_scalar_range(small_rng, small)
+            @test RangeIR._is_exhausted(small_next.position)
+
+            wide_rng = RangeIR._rebuild(base, wide_position, base.device)
+            wide_next, wide_value = rand_next(wide_rng, wide)
+            @test wide_value === reference_native64_scalar_range(wide_rng, wide)
+            @test RangeIR._is_exhausted(wide_next.position)
+
+            exhausted = RangeIR._rebuild(base, terminal, base.device)
+            insufficient = RangeIR._rebuild(base, insufficient_position, base.device)
+            for range in (small, wide)
+                @test_throws ArgumentError rand(exhausted, range)
+                @test_throws ArgumentError rand_next(exhausted, range)
+            end
+            @test_throws ArgumentError rand(insufficient, small)
+            @test_throws ArgumentError rand_next(insufficient, small)
+
+            for range in cases
+                @test @inferred(rand(base, range)) isa eltype(range)
+                @test @inferred(rand_next(base, range)) isa
+                      Tuple{typeof(base),eltype(range)}
+                rand(base, range)
+                rand_next(base, range)
+                @test @allocated(rand(base, range)) == 0
+                @test @allocated(rand_next(base, range)) == 0
+            end
+        end
+
+        for base in NATIVE64_RANGE_FAMILIES, range in (Int8(2):Int8(1), UInt64(1):UInt64(0))
+            @test_throws ArgumentError rand(base, range)
+            @test_throws ArgumentError rand_next(base, range)
         end
     end
 end

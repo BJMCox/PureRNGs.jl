@@ -82,10 +82,12 @@ const _ScalarUniformPosition64Family = Union{_ScalarUniform32Family,_TwoWord64Fa
     return ifelse(iszero(lane & UInt8(1)), (word >> 32) % UInt32, word % UInt32)
 end
 
-@inline function _raw64(rng::_ScalarUniform64Family)
+@inline function _raw64(rng::_ScalarUniform64Family, family::UInt32)
     lane = rng.position.lane
-    return _select_native_word(_native_block(rng, FAMILY_BITS), lane >> 1)
+    return _select_native_word(_native_block(rng, family), lane >> 1)
 end
+
+@inline _raw64(rng::_ScalarUniform64Family) = _raw64(rng, FAMILY_BITS)
 
 const _TwoWord32Family = Union{Philox2x32,Threefry2x32}
 const _FourWord32Family = Union{Philox4x32,Threefry4x32}
@@ -105,6 +107,13 @@ end
     high = (UInt64(block[1]) << 32) | UInt64(block[2])
     low = (UInt64(block[3]) << 32) | UInt64(block[4])
     return high, low
+end
+
+
+@inline function _raw128(rng::_ScalarUniform64Family, family::UInt32)
+    block = _native_block(rng, family)
+    lane = rng.position.lane >> 1
+    return _select_native_word(block, lane), _select_native_word(block, lane + UInt8(1))
 end
 
 @inline _from_word(::Type{UInt32}, word::UInt32) = word
