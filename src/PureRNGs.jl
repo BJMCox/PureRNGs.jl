@@ -14,6 +14,8 @@ export Philox2x32,
     Threefry4x32,
     Threefry2x64,
     Threefry4x64,
+    splitrng,
+    subrng,
     rand_next,
     rand_next!,
     randat
@@ -21,6 +23,7 @@ export Philox2x32,
 include("philox.jl")
 include("threefry.jl")
 include("families.jl")
+include("derive.jl")
 include("uniform.jl")
 include("integers.jl")
 

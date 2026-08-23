@@ -10,5 +10,6 @@ end
 include("philox.jl")
 include("threefry.jl")
 include("families.jl")
+include("derive.jl")
 include("uniform.jl")
 include("integers.jl")
