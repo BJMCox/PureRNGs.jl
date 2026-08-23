@@ -265,3 +265,102 @@ end
         @test @allocated(rand_next(rng, T)) == 0
     end
 end
+
+@testset "R29 addressed scalar draws" begin
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(123)
+        cursor = rng
+        for i in 1:9
+            cursor, expected = rand_next(cursor, T)
+            @test randat(rng, T, i) === expected
+            @test rng.position == IR._Position64(0, 0)
+        end
+    end
+
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        base = F(47)
+        rng = IR._rebuild(base, IR._Position64(5, 1), base.device)
+        cursor = rng
+        for i in 1:7
+            cursor, expected = rand_next(cursor, T)
+            @test randat(rng, T, i) === expected
+        end
+    end
+
+    for F in SCALAR_32_FAMILIES
+        base = F(91)
+        width = IR._words_per_block(base)
+        rng = IR._rebuild(base, IR._Position64(3, width - 1), base.device)
+        for T in SCALAR_UNIFORM_TYPES
+            @test randat(rng, T, 1) === rand(rng, T)
+        end
+    end
+end
+
+@testset "R29 addressed bounds" begin
+    for F in SCALAR_32_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(7)
+        @test_throws ArgumentError randat(rng, T, 0)
+        @test_throws ArgumentError randat(rng, T, -1)
+    end
+
+    for F in SCALAR_32_FAMILIES
+        base = F(13)
+        width = IR._words_per_block(base)
+        maximum = IR._max_block(base)
+        last = IR._rebuild(base, IR._Position64(maximum, width - 1), base.device)
+        @test randat(last, UInt32, 1) === rand(last, UInt32)
+        @test_throws ArgumentError randat(last, UInt32, 2)
+        @test_throws ArgumentError randat(last, UInt64, 1)
+
+        exhausted = IR._reserve(last, UInt64(1))
+        @test_throws ArgumentError randat(exhausted, UInt32, 1)
+    end
+
+    for F in (Philox2x32, Threefry2x32)
+        rng = F(19)
+        final_index = UInt64(1) << 57
+        final_block = IR._block(rng, IR.FAMILY_BITS, IR._max_block(rng))
+        @test randat(rng, UInt32, final_index) === final_block[2]
+        @test_throws ArgumentError randat(rng, UInt32, final_index + 1)
+        @test_throws ArgumentError randat(rng, UInt32, big(final_index) + 1)
+    end
+end
+
+@testset "R29 large wide addresses" begin
+    index = big(typemax(UInt64)) + 2
+    offset = index - 1
+    for F in (Philox4x32, Threefry4x32)
+        rng = F(23)
+        width = Int(IR._words_per_block(rng))
+        block, lane = divrem(offset, width)
+        expected = IR._block(rng, IR.FAMILY_BITS, UInt64(block))[Int(lane)+1]
+        @test randat(rng, UInt32, index) === expected
+
+        pair_block, pair_slot = divrem(offset, width ÷ 2)
+        pair_words = IR._block(rng, IR.FAMILY_BITS, UInt64(pair_block))
+        first_lane = 2 * Int(pair_slot) + 1
+        expected64 =
+            (UInt64(pair_words[first_lane]) << 32) | UInt64(pair_words[first_lane+1])
+        @test randat(rng, UInt64, index) === expected64
+    end
+end
+
+@testset "R29 addressed method surface and performance" begin
+    rng = Philox4x32(29)
+    for T in SCALAR_UNIFORM_TYPES
+        @test which(randat, (typeof(rng), Type{T}, Int)).module === IR
+        @test @inferred(randat(rng, T, 3)) isa T
+        @test @inferred(randat(rng, T, UInt64(3))) isa T
+        randat(rng, T, 3)
+        randat(rng, T, UInt64(3))
+        @test @allocated(randat(rng, T, 3)) == 0
+        @test @allocated(randat(rng, T, UInt64(3))) == 0
+    end
+
+    for unsupported in (Union{UInt32,Float32}, Int32, Int64, Float16)
+        @test !applicable(randat, rng, unsupported, 1)
+        @test_throws MethodError randat(rng, unsupported, 1)
+    end
+    @test !applicable(randat, rng, UInt32, 1.0)
+end

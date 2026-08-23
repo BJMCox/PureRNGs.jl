@@ -99,3 +99,65 @@ for T in (Bool, UInt32, UInt64, Float32, Float64)
             _rand_next_scalar(rng, $T)
     end
 end
+
+const _AddressIndex64 = Union{Bool,Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
+
+@noinline function _invalid_address_index()
+    throw(ArgumentError("addressed draw index must be positive"))
+end
+
+@noinline function _address_capacity_error()
+    throw(ArgumentError("draw exceeds the generator counter capacity"))
+end
+
+@inline function _addressed_rng(
+    rng::_ScalarUniform32Family,
+    span::UInt64,
+    i::_AddressIndex64,
+)
+    i < 1 && _invalid_address_index()
+    position = rng.position
+    _is_exhausted(position) && _address_capacity_error()
+
+    width = UInt64(_words_per_block(rng))
+    elements_per_block = width ÷ span
+    block_delta, element_lane = divrem(UInt64(i) - 1, elements_per_block)
+    lane_words = UInt64(position.lane) + element_lane * span
+    carry = UInt64(lane_words >= width)
+    lane = ifelse(carry == 1, lane_words - width, lane_words)
+
+    available = _max_block(rng) - position.block
+    block_delta > available && _address_capacity_error()
+    carry > available - block_delta && _address_capacity_error()
+    block = position.block + block_delta + carry
+    return _rebuild(rng, _Position64(block, UInt8(lane)), rng.device)
+end
+
+function _addressed_rng(rng::_ScalarUniform32Family, span::UInt64, i::Integer)
+    i < 1 && _invalid_address_index()
+    position = rng.position
+    _is_exhausted(position) && _address_capacity_error()
+
+    width = UInt64(_words_per_block(rng))
+    elements_per_block = width ÷ span
+    block_delta, element_lane = divrem(BigInt(i) - 1, elements_per_block)
+    lane_words = UInt64(position.lane) + UInt64(element_lane) * span
+    carry = UInt64(lane_words >= width)
+    lane = ifelse(carry == 1, lane_words - width, lane_words)
+
+    available = BigInt(_max_block(rng) - position.block)
+    block_delta > available && _address_capacity_error()
+    block_delta += carry
+    block_delta > available && _address_capacity_error()
+    block = position.block + UInt64(block_delta)
+    return _rebuild(rng, _Position64(block, UInt8(lane)), rng.device)
+end
+
+for T in (Bool, UInt32, UInt64, Float32, Float64)
+    @eval begin
+        @inline randat(rng::_ScalarUniform32Family, ::Type{$T}, i::_AddressIndex64) =
+            rand(_addressed_rng(rng, _draw_words($T), i), $T)
+        randat(rng::_ScalarUniform32Family, ::Type{$T}, i::Integer) =
+            rand(_addressed_rng(rng, _draw_words($T), i), $T)
+    end
+end
