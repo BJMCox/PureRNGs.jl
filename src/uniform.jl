@@ -30,6 +30,7 @@ const FAMILY_BITS = UInt32(0x00000000)
 
 const _ScalarUniform32Family = Union{Philox2x32,Philox4x32,Threefry2x32,Threefry4x32}
 const _ScalarUniform64Family = Union{Philox2x64,Philox4x64,Threefry2x64,Threefry4x64}
+const _ScalarUniformFamily = Union{_ScalarUniform32Family,_ScalarUniform64Family}
 const _ScalarUniformWordType = Union{Bool,UInt32,Float32}
 
 @inline _draw_words(::Type{<:_ScalarUniformWordType}) = UInt64(1)
@@ -123,19 +124,11 @@ end
 @inline _from_word(::Type{Float64}, word::UInt64) = Float64(word >> 11) * 0x1p-53
 
 @inline _draw_unchecked(
-    rng::_ScalarUniform32Family,
+    rng::_ScalarUniformFamily,
     ::Type{T},
 ) where {T<:_ScalarUniformWordType} = _from_word(T, _raw32(rng))
 @inline _draw_unchecked(
-    rng::_ScalarUniform32Family,
-    ::Type{T},
-) where {T<:Union{UInt64,Float64}} = _from_word(T, _raw64(rng))
-@inline _draw_unchecked(
-    rng::_ScalarUniform64Family,
-    ::Type{T},
-) where {T<:_ScalarUniformWordType} = _from_word(T, _raw32(rng))
-@inline _draw_unchecked(
-    rng::_ScalarUniform64Family,
+    rng::_ScalarUniformFamily,
     ::Type{T},
 ) where {T<:Union{UInt64,Float64}} = _from_word(T, _raw64(rng))
 
@@ -143,28 +136,15 @@ function Random.rand(::AbstractPureRNG)
     throw(ArgumentError("untyped immutable draws are forbidden; use rand(rng, T)"))
 end
 
-@inline function _rand_scalar(rng::_ScalarUniform32Family, ::Type{T}) where {T}
+@inline function _rand_scalar(rng::_ScalarUniformFamily, ::Type{T}) where {T}
     words = _draw_words(T)
     start, _ = _reserve_aligned(rng, words, words)
     return _draw_unchecked(start, T)
 end
 
-@inline function _rand_scalar(rng::_ScalarUniform64Family, ::Type{T}) where {T}
-    words = _draw_words(T)
-    start, _ = _reserve_aligned(rng, words, words)
-    return _draw_unchecked(start, T)
-end
+@inline rand_next(rng::_ScalarUniformFamily) = rand_next(rng, Float64)
 
-@inline rand_next(rng::_ScalarUniform32Family) = rand_next(rng, Float64)
-@inline rand_next(rng::_ScalarUniform64Family) = rand_next(rng, Float64)
-
-@inline function _rand_next_scalar(rng::_ScalarUniform32Family, ::Type{T}) where {T}
-    words = _draw_words(T)
-    start, next_rng = _reserve_aligned(rng, words, words)
-    return next_rng, _draw_unchecked(start, T)
-end
-
-@inline function _rand_next_scalar(rng::_ScalarUniform64Family, ::Type{T}) where {T}
+@inline function _rand_next_scalar(rng::_ScalarUniformFamily, ::Type{T}) where {T}
     words = _draw_words(T)
     start, next_rng = _reserve_aligned(rng, words, words)
     return next_rng, _draw_unchecked(start, T)
@@ -172,11 +152,8 @@ end
 
 for T in (Bool, UInt32, UInt64, Float32, Float64)
     @eval begin
-        @inline Random.rand(rng::_ScalarUniform32Family, ::Type{$T}) = _rand_scalar(rng, $T)
-        @inline rand_next(rng::_ScalarUniform32Family, ::Type{$T}) =
-            _rand_next_scalar(rng, $T)
-        @inline Random.rand(rng::_ScalarUniform64Family, ::Type{$T}) = _rand_scalar(rng, $T)
-        @inline rand_next(rng::_ScalarUniform64Family, ::Type{$T}) =
+        @inline Random.rand(rng::_ScalarUniformFamily, ::Type{$T}) = _rand_scalar(rng, $T)
+        @inline rand_next(rng::_ScalarUniformFamily, ::Type{$T}) =
             _rand_next_scalar(rng, $T)
     end
 end
@@ -190,7 +167,7 @@ end
     generator_device == destination_device
 
 @inline function _check_fill_device(
-    rng::Union{_ScalarUniform32Family,_ScalarUniform64Family},
+    rng::_ScalarUniformFamily,
     destination,
 )
     _same_fill_device(rng.device, MLDataDevices.get_device(destination)) ||
@@ -281,7 +258,7 @@ end
 end
 
 @inline function _fill_uniform_dense_words_cpu!(
-    rng::Union{_ScalarUniform32Family,_ScalarUniform64Family},
+    rng::_ScalarUniformFamily,
     destination,
     ::Type{T},
     indices,
@@ -512,7 +489,7 @@ end
     _fill_uniform_dense_cpu!(rng, destination, T, eachindex(destination))
 
 @inline function _rand_next_fill!(
-    rng::Union{_ScalarUniform32Family,_ScalarUniform64Family},
+    rng::_ScalarUniformFamily,
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
@@ -533,7 +510,7 @@ end
 for T in (Bool, UInt32, UInt64, Float32, Float64)
     @eval begin
         @inline function Random.rand!(
-            rng::_ScalarUniform32Family,
+            rng::_ScalarUniformFamily,
             destination::AbstractArray{$T},
             ;
             threaded::Bool = true,
@@ -543,26 +520,7 @@ for T in (Bool, UInt32, UInt64, Float32, Float64)
         end
 
         @inline function rand_next!(
-            rng::_ScalarUniform32Family,
-            destination::AbstractArray{$T},
-            ;
-            threaded::Bool = true,
-        )
-            return _rand_next_fill!(rng, destination, threaded)
-        end
-
-        @inline function Random.rand!(
-            rng::_ScalarUniform64Family,
-            destination::AbstractArray{$T},
-            ;
-            threaded::Bool = true,
-        )
-            _, result = _rand_next_fill!(rng, destination, threaded)
-            return result
-        end
-
-        @inline function rand_next!(
-            rng::_ScalarUniform64Family,
+            rng::_ScalarUniformFamily,
             destination::AbstractArray{$T},
             ;
             threaded::Bool = true,
@@ -673,9 +631,7 @@ end
 
 for T in (Bool, UInt32, UInt64, Float32, Float64)
     @eval begin
-        @inline randat(rng::_ScalarUniform32Family, ::Type{$T}, i::Integer) =
-            _draw_unchecked(_addressed_rng(rng, _draw_words($T), i), $T)
-        @inline randat(rng::_ScalarUniform64Family, ::Type{$T}, i::Integer) =
+        @inline randat(rng::_ScalarUniformFamily, ::Type{$T}, i::Integer) =
             _draw_unchecked(_addressed_rng(rng, _draw_words($T), i), $T)
     end
 end
