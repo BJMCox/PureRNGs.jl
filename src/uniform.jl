@@ -52,12 +52,7 @@ end
     position = rng.position
     block = _block(rng, family, position.block)
     high = _select_word(block, position.lane)
-    next_lane = position.lane + UInt8(1)
-    low = if next_lane < _words_per_block(rng)
-        _select_word(block, next_lane)
-    else
-        _select_word(_block(rng, family, position.block + UInt64(1)), UInt8(0))
-    end
+    low = _select_word(block, position.lane + UInt8(1))
     return (UInt64(high) << 32) | UInt64(low)
 end
 
@@ -103,15 +98,17 @@ function Random.rand(::AbstractPureRNG)
 end
 
 @inline function _rand_scalar(rng::_ScalarUniform32Family, ::Type{T}) where {T}
-    _reserve(rng, _draw_words(T))
-    return _draw_unchecked(rng, T)
+    words = _draw_words(T)
+    start, _ = _reserve_aligned(rng, words, words)
+    return _draw_unchecked(start, T)
 end
 
 @inline rand_next(rng::_ScalarUniform32Family) = rand_next(rng, Float64)
 
 @inline function _rand_next_scalar(rng::_ScalarUniform32Family, ::Type{T}) where {T}
-    next_rng = _reserve(rng, _draw_words(T))
-    return next_rng, _draw_unchecked(rng, T)
+    words = _draw_words(T)
+    start, next_rng = _reserve_aligned(rng, words, words)
+    return next_rng, _draw_unchecked(start, T)
 end
 
 for T in (Bool, UInt32, UInt64, Float32, Float64)
@@ -138,46 +135,46 @@ end
     i::_AddressIndex64,
 )
     i < 1 && _invalid_address_index()
-    position = rng.position
-    _is_exhausted(position) && _address_capacity_error()
+    start, _ = _reserve_aligned(rng, span, span)
+    position = start.position
 
-    width = UInt64(_words_per_block(rng))
+    width = UInt64(_words_per_block(start))
     elements_per_block = width ÷ span
     block_delta, element_lane = divrem(UInt64(i) - 1, elements_per_block)
     lane_words = UInt64(position.lane) + element_lane * span
     carry = UInt64(lane_words >= width)
     lane = ifelse(carry == 1, lane_words - width, lane_words)
 
-    available = _max_block(rng) - position.block
+    available = _max_block(start) - position.block
     block_delta > available && _address_capacity_error()
     carry > available - block_delta && _address_capacity_error()
     block = position.block + block_delta + carry
-    return _rebuild(rng, _Position64(block, UInt8(lane)), rng.device)
+    return _rebuild(start, _Position64(block, UInt8(lane)), start.device)
 end
 
 function _addressed_rng(rng::_ScalarUniform32Family, span::UInt64, i::Integer)
     i < 1 && _invalid_address_index()
-    position = rng.position
-    _is_exhausted(position) && _address_capacity_error()
+    start, _ = _reserve_aligned(rng, span, span)
+    position = start.position
 
-    width = UInt64(_words_per_block(rng))
+    width = UInt64(_words_per_block(start))
     elements_per_block = width ÷ span
     block_delta, element_lane = divrem(BigInt(i) - 1, elements_per_block)
     lane_words = UInt64(position.lane) + UInt64(element_lane) * span
     carry = UInt64(lane_words >= width)
     lane = ifelse(carry == 1, lane_words - width, lane_words)
 
-    available = BigInt(_max_block(rng) - position.block)
+    available = BigInt(_max_block(start) - position.block)
     block_delta > available && _address_capacity_error()
     block_delta += carry
     block_delta > available && _address_capacity_error()
     block = position.block + UInt64(block_delta)
-    return _rebuild(rng, _Position64(block, UInt8(lane)), rng.device)
+    return _rebuild(start, _Position64(block, UInt8(lane)), start.device)
 end
 
 for T in (Bool, UInt32, UInt64, Float32, Float64)
     @eval begin
         @inline randat(rng::_ScalarUniform32Family, ::Type{$T}, i::Integer) =
-            rand(_addressed_rng(rng, _draw_words($T), i), $T)
+            _draw_unchecked(_addressed_rng(rng, _draw_words($T), i), $T)
     end
 end

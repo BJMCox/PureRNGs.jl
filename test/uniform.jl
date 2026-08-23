@@ -194,38 +194,39 @@ end
     p2, value = rand_next(p1, UInt64)
     pblock = IR._block(p, IR.FAMILY_BITS, UInt64(0))
     @test bit === isodd(pblock[1])
-    @test value === (UInt64(pblock[2]) << 32) | UInt64(pblock[3])
-    @test p2.position == IR._Position64(0, 3)
+    @test value === (UInt64(pblock[3]) << 32) | UInt64(pblock[4])
+    @test p2.position == IR._Position64(1, 0)
 
     t = Threefry2x32(0)
     t1, tbit = rand_next(t, Bool)
     t2, tvalue = rand_next(t1, UInt64)
-    tblock0 = IR._block(t, IR.FAMILY_BITS, UInt64(0))
     tblock1 = IR._block(t, IR.FAMILY_BITS, UInt64(1))
-    @test tbit === isodd(tblock0[1])
-    @test tvalue === (UInt64(tblock0[2]) << 32) | UInt64(tblock1[1])
-    @test t2.position == IR._Position64(1, 1)
+    @test tbit === isodd(IR._block(t, IR.FAMILY_BITS, UInt64(0))[1])
+    @test tvalue === (UInt64(tblock1[1]) << 32) | UInt64(tblock1[2])
+    @test t2.position == IR._Position64(2, 0)
 end
 
-@testset "R27 block crossings" begin
+@testset "R27 and R53 aligned scalar words" begin
     for F in (Philox4x32, Threefry4x32)
         base = F(42)
         rng = IR._rebuild(base, IR._Position64(3, 3), base.device)
-        block3 = IR._block(rng, IR.FAMILY_BITS, UInt64(3))
         block4 = IR._block(rng, IR.FAMILY_BITS, UInt64(4))
         next, value = rand_next(rng, UInt64)
-        @test value === (UInt64(block3[4]) << 32) | UInt64(block4[1])
-        @test next.position == IR._Position64(4, 1)
+        @test value === (UInt64(block4[1]) << 32) | UInt64(block4[2])
+        @test rand(rng, UInt64) === value
+        @test rng.position == IR._Position64(3, 3)
+        @test next.position == IR._Position64(4, 2)
     end
 
     for F in (Philox2x32, Threefry2x32)
         base = F(42)
         rng = IR._rebuild(base, IR._Position64(3, 1), base.device)
-        block3 = IR._block(rng, IR.FAMILY_BITS, UInt64(3))
         block4 = IR._block(rng, IR.FAMILY_BITS, UInt64(4))
         next, value = rand_next(rng, UInt64)
-        @test value === (UInt64(block3[2]) << 32) | UInt64(block4[1])
-        @test next.position == IR._Position64(4, 1)
+        @test value === (UInt64(block4[1]) << 32) | UInt64(block4[2])
+        @test rand(rng, UInt64) === value
+        @test rng.position == IR._Position64(3, 1)
+        @test next.position == IR._Position64(5, 0)
     end
 end
 
@@ -245,6 +246,14 @@ end
         @test_throws ArgumentError rand_next(exhausted, UInt32)
         @test_throws ArgumentError rand(last, UInt64)
         @test_throws ArgumentError rand_next(last, UInt64)
+
+        if width == 4
+            before_pair = IR._rebuild(base, IR._Position64(maximum, width - 3), base.device)
+            pair_end, pair = rand_next(before_pair, UInt64)
+            words = IR._block(before_pair, IR.FAMILY_BITS, maximum)
+            @test pair === (UInt64(words[3]) << 32) | UInt64(words[4])
+            @test IR._is_exhausted(pair_end.position)
+        end
 
         final_pair = IR._rebuild(base, IR._Position64(maximum, width - 2), base.device)
         pair_end, pair = rand_next(final_pair, UInt64)
@@ -288,6 +297,14 @@ end
     end
 
     for F in SCALAR_32_FAMILIES
+        base = F(53)
+        rng = IR._rebuild(base, IR._Position64(5, 1), base.device)
+        aligned, _ = IR._reserve_aligned(rng, UInt64(2), UInt64(2))
+        @test randat(rng, UInt64, 1) === rand(aligned, UInt64)
+        @test randat(rng, Float64, 1) === rand(aligned, Float64)
+    end
+
+    for F in SCALAR_32_FAMILIES
         base = F(91)
         width = IR._words_per_block(base)
         rng = IR._rebuild(base, IR._Position64(3, width - 1), base.device)
@@ -312,6 +329,12 @@ end
         @test randat(last, UInt32, 1) === rand(last, UInt32)
         @test_throws ArgumentError randat(last, UInt32, 2)
         @test_throws ArgumentError randat(last, UInt64, 1)
+
+        if width == 4
+            before_pair = IR._rebuild(base, IR._Position64(maximum, width - 3), base.device)
+            @test randat(before_pair, UInt64, 1) === rand(before_pair, UInt64)
+            @test_throws ArgumentError randat(before_pair, UInt64, 2)
+        end
 
         exhausted = IR._reserve(last, UInt64(1))
         @test_throws ArgumentError randat(exhausted, UInt32, 1)
