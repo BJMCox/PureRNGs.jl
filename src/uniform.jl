@@ -29,12 +29,21 @@ const FAMILY_BITS = UInt32(0x00000000)
     _threefry4x64((block_lo, block_hi, UInt64(family), UInt64(0)), rng.key)
 
 const _ScalarUniform32Family = Union{Philox2x32,Philox4x32,Threefry2x32,Threefry4x32}
+const _ScalarUniform64Family = Union{Philox2x64,Philox4x64,Threefry2x64,Threefry4x64}
 const _ScalarUniformWordType = Union{Bool,UInt32,Float32}
 
 @inline _draw_words(::Type{<:_ScalarUniformWordType}) = UInt64(1)
 @inline _draw_words(::Type{<:Union{UInt64,Float64}}) = UInt64(2)
 
 @inline function _select_word(block::NTuple{N,UInt32}, lane::UInt8) where {N}
+    word = block[1]
+    for index = 2:N
+        word = ifelse(lane == index - 1, block[index], word)
+    end
+    return word
+end
+
+@inline function _select_native_word(block::NTuple{N,UInt64}, lane::UInt8) where {N}
     word = block[1]
     for index = 2:N
         word = ifelse(lane == index - 1, block[index], word)
@@ -57,6 +66,26 @@ end
 end
 
 @inline _raw64(rng::_ScalarUniform32Family) = _raw64(rng, FAMILY_BITS)
+
+const _TwoWord64Family = Union{Philox2x64,Threefry2x64}
+const _FourWord64Family = Union{Philox4x64,Threefry4x64}
+const _ScalarUniformPosition64Family = Union{_ScalarUniform32Family,_TwoWord64Family}
+
+@inline _native_block(rng::_TwoWord64Family, family::UInt32) =
+    _block(rng, family, rng.position.block)
+@inline _native_block(rng::_FourWord64Family, family::UInt32) =
+    _block(rng, family, rng.position.lo, rng.position.hi)
+
+@inline function _raw32(rng::_ScalarUniform64Family)
+    lane = rng.position.lane
+    word = _select_native_word(_native_block(rng, FAMILY_BITS), lane >> 1)
+    return ifelse(iszero(lane & UInt8(1)), (word >> 32) % UInt32, word % UInt32)
+end
+
+@inline function _raw64(rng::_ScalarUniform64Family)
+    lane = rng.position.lane
+    return _select_native_word(_native_block(rng, FAMILY_BITS), lane >> 1)
+end
 
 const _TwoWord32Family = Union{Philox2x32,Threefry2x32}
 const _FourWord32Family = Union{Philox4x32,Threefry4x32}
@@ -92,6 +121,14 @@ end
     rng::_ScalarUniform32Family,
     ::Type{T},
 ) where {T<:Union{UInt64,Float64}} = _from_word(T, _raw64(rng))
+@inline _draw_unchecked(
+    rng::_ScalarUniform64Family,
+    ::Type{T},
+) where {T<:_ScalarUniformWordType} = _from_word(T, _raw32(rng))
+@inline _draw_unchecked(
+    rng::_ScalarUniform64Family,
+    ::Type{T},
+) where {T<:Union{UInt64,Float64}} = _from_word(T, _raw64(rng))
 
 function Random.rand(::AbstractPureRNG)
     throw(ArgumentError("untyped immutable draws are forbidden; use rand(rng, T)"))
@@ -103,9 +140,22 @@ end
     return _draw_unchecked(start, T)
 end
 
+@inline function _rand_scalar(rng::_ScalarUniform64Family, ::Type{T}) where {T}
+    words = _draw_words(T)
+    start, _ = _reserve_aligned(rng, words, words)
+    return _draw_unchecked(start, T)
+end
+
 @inline rand_next(rng::_ScalarUniform32Family) = rand_next(rng, Float64)
+@inline rand_next(rng::_ScalarUniform64Family) = rand_next(rng, Float64)
 
 @inline function _rand_next_scalar(rng::_ScalarUniform32Family, ::Type{T}) where {T}
+    words = _draw_words(T)
+    start, next_rng = _reserve_aligned(rng, words, words)
+    return next_rng, _draw_unchecked(start, T)
+end
+
+@inline function _rand_next_scalar(rng::_ScalarUniform64Family, ::Type{T}) where {T}
     words = _draw_words(T)
     start, next_rng = _reserve_aligned(rng, words, words)
     return next_rng, _draw_unchecked(start, T)
@@ -115,6 +165,9 @@ for T in (Bool, UInt32, UInt64, Float32, Float64)
     @eval begin
         @inline Random.rand(rng::_ScalarUniform32Family, ::Type{$T}) = _rand_scalar(rng, $T)
         @inline rand_next(rng::_ScalarUniform32Family, ::Type{$T}) =
+            _rand_next_scalar(rng, $T)
+        @inline Random.rand(rng::_ScalarUniform64Family, ::Type{$T}) = _rand_scalar(rng, $T)
+        @inline rand_next(rng::_ScalarUniform64Family, ::Type{$T}) =
             _rand_next_scalar(rng, $T)
     end
 end
@@ -312,7 +365,7 @@ end
 end
 
 @inline function _addressed_rng(
-    rng::_ScalarUniform32Family,
+    rng::_ScalarUniformPosition64Family,
     span::UInt64,
     i::_AddressIndex64,
 )
@@ -334,7 +387,7 @@ end
     return _rebuild(start, _Position64(block, UInt8(lane)), start.device)
 end
 
-function _addressed_rng(rng::_ScalarUniform32Family, span::UInt64, i::Integer)
+function _addressed_rng(rng::_ScalarUniformPosition64Family, span::UInt64, i::Integer)
     i < 1 && _invalid_address_index()
     start, _ = _reserve_aligned(rng, span, span)
     position = start.position
@@ -354,9 +407,57 @@ function _addressed_rng(rng::_ScalarUniform32Family, span::UInt64, i::Integer)
     return _rebuild(start, _Position64(block, UInt8(lane)), start.device)
 end
 
+@inline function _addressed_rng(rng::_FourWord64Family, span::UInt64, i::_AddressIndex64)
+    i < 1 && _invalid_address_index()
+    start, _ = _reserve_aligned(rng, span, span)
+    position = start.position
+
+    width = UInt64(_words_per_block(start))
+    elements_per_block = width ÷ span
+    block_delta, element_lane = divrem(UInt64(i) - 1, elements_per_block)
+    lane_words = UInt64(position.lane) + element_lane * span
+    lane_carry = UInt64(lane_words >= width)
+    lane = ifelse(lane_carry == 1, lane_words - width, lane_words)
+    block_delta += lane_carry
+
+    block_lo = position.lo + block_delta
+    block_carry = UInt64(block_lo < position.lo)
+    block_hi = position.hi + block_carry
+    block_hi < position.hi && _address_capacity_error()
+    return _rebuild(start, _Position128(block_lo, block_hi, UInt8(lane)), start.device)
+end
+
+function _addressed_rng(rng::_FourWord64Family, span::UInt64, i::Integer)
+    i < 1 && _invalid_address_index()
+    start, _ = _reserve_aligned(rng, span, span)
+    position = start.position
+
+    width = UInt64(_words_per_block(start))
+    elements_per_block = width ÷ span
+    block_delta, element_lane = divrem(BigInt(i) - 1, elements_per_block)
+    lane_words = UInt64(position.lane) + UInt64(element_lane) * span
+    lane_carry = UInt64(lane_words >= width)
+    lane = ifelse(lane_carry == 1, lane_words - width, lane_words)
+    block_delta += lane_carry
+
+    mask = BigInt(typemax(UInt64))
+    available =
+        (BigInt(typemax(UInt64) - position.hi) << 64) +
+        BigInt(typemax(UInt64) - position.lo)
+    block_delta > available && _address_capacity_error()
+    delta_lo = UInt64(block_delta & mask)
+    delta_hi = UInt64(block_delta >> 64)
+    block_lo = position.lo + delta_lo
+    block_carry = UInt64(block_lo < position.lo)
+    block_hi = position.hi + delta_hi + block_carry
+    return _rebuild(start, _Position128(block_lo, block_hi, UInt8(lane)), start.device)
+end
+
 for T in (Bool, UInt32, UInt64, Float32, Float64)
     @eval begin
         @inline randat(rng::_ScalarUniform32Family, ::Type{$T}, i::Integer) =
+            _draw_unchecked(_addressed_rng(rng, _draw_words($T), i), $T)
+        @inline randat(rng::_ScalarUniform64Family, ::Type{$T}, i::Integer) =
             _draw_unchecked(_addressed_rng(rng, _draw_words($T), i), $T)
     end
 end

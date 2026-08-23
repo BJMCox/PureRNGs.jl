@@ -5,6 +5,7 @@ const KA = PureRNGs.KernelAbstractions
 const MLD = PureRNGs.MLDataDevices
 
 const SCALAR_32_FAMILIES = (Philox2x32, Philox4x32, Threefry2x32, Threefry4x32)
+const SCALAR_64_FAMILIES = (Philox2x64, Philox4x64, Threefry2x64, Threefry4x64)
 const SCALAR_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
 
 mutable struct BackendProbe{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
@@ -201,6 +202,251 @@ end
         @test rand(rng, UInt64) === raw64
         @test reinterpret(UInt32, rand(rng, Float32)) == float32_bits
         @test reinterpret(UInt64, rand(rng, Float64)) == float64_bits
+    end
+end
+
+@testset "R25, R27, and R62 native-64 scalar oracle" begin
+    # Frozen from the core outputs at family zero, block zero.
+    vectors = (
+        (
+            Philox2x64(0),
+            0xca00a045,
+            true,
+            0xca00a0459843d731,
+            0x3f4a00a0,
+            0x3fe9401408b3087a,
+        ),
+        (
+            Philox4x64(0),
+            0x16554d9e,
+            false,
+            0x16554d9eca36314c,
+            0x3db2aa68,
+            0x3fb6554d9eca3630,
+        ),
+        (
+            Threefry2x64(0),
+            0xc2b6e3a8,
+            false,
+            0xc2b6e3a8c2c69865,
+            0x3f42b6e3,
+            0x3fe856dc751858d3,
+        ),
+        (
+            Threefry4x64(0),
+            0x09218ebd,
+            true,
+            0x09218ebde6c85537,
+            0x3d1218e0,
+            0x3fa2431d7bcd90a0,
+        ),
+    )
+
+    for (rng, word32, bit, word64, float32_bits, float64_bits) in vectors
+        @test rand(rng, UInt32) === word32
+        @test rand(rng, Bool) === bit
+        @test rand(rng, UInt64) === word64
+        @test reinterpret(UInt32, rand(rng, Float32)) === float32_bits
+        @test reinterpret(UInt64, rand(rng, Float64)) === float64_bits
+    end
+end
+
+@testset "R62 native-64 logical lane order" begin
+    vectors = (
+        (Philox2x64(0), IR._Position64(7, 1), 0xa5a91b11, true, 0x3f25a91b, 0xad605ce0),
+        (Philox4x64(0), IR._Position128(7, 9, 1), 0x9b05a583, true, 0x3f1b05a5, 0x641004f0),
+        (Threefry2x64(0), IR._Position64(7, 1), 0xa9653714, false, 0x3f296537, 0xb977e699),
+        (
+            Threefry4x64(0),
+            IR._Position128(7, 9, 1),
+            0x3dee0db8,
+            false,
+            0x3e77b834,
+            0xa1e4dde9,
+        ),
+    )
+
+    for (base, position, low_half, bit, float32_bits, next_high_half) in vectors
+        rng = IR._rebuild(base, position, base.device)
+        next, first = rand_next(rng, UInt32)
+        after, second = rand_next(next, UInt32)
+        @test first === low_half
+        @test rand(rng, Bool) === bit
+        @test reinterpret(UInt32, rand(rng, Float32)) === float32_bits
+        @test second === next_high_half
+        @test rand(rng, UInt32) === low_half
+        @test rng.position === position
+        @test after.position.lane == UInt8(3)
+    end
+end
+
+@testset "R53 native-64 mixed-width continuation" begin
+    for F in SCALAR_64_FAMILIES
+        base = F(73)
+        position =
+            base.position isa IR._Position64 ? IR._Position64(5, 1) :
+            IR._Position128(5, 7, 1)
+        rng = IR._rebuild(base, position, base.device)
+        next32, word32 = rand_next(rng, UInt32)
+        next64, word64 = rand_next(next32, UInt64)
+        aligned, expected_next = IR._reserve_aligned(next32, UInt64(2), UInt64(2))
+        @test word32 === rand(rng, UInt32)
+        @test word64 === rand(aligned, UInt64)
+        @test next64 === expected_next
+    end
+end
+
+@testset "R53 and R54 native-64 terminal scalar draws" begin
+    for F in SCALAR_64_FAMILIES
+        base = F(7)
+        width = IR._words_per_block(base)
+        last_position =
+            base.position isa IR._Position64 ? IR._Position64(typemax(UInt64), width - 1) :
+            IR._Position128(typemax(UInt64), typemax(UInt64), width - 1)
+        last = IR._rebuild(base, last_position, base.device)
+
+        exhausted, value = rand_next(last, UInt32)
+        @test value === rand(last, UInt32)
+        @test IR._is_exhausted(exhausted.position)
+        @test_throws ArgumentError rand(exhausted, UInt32)
+        @test_throws ArgumentError rand_next(exhausted, UInt32)
+        @test_throws ArgumentError rand(last, UInt64)
+        @test_throws ArgumentError rand_next(last, UInt64)
+
+        pair_position =
+            base.position isa IR._Position64 ? IR._Position64(typemax(UInt64), width - 2) :
+            IR._Position128(typemax(UInt64), typemax(UInt64), width - 2)
+        final_pair = IR._rebuild(base, pair_position, base.device)
+        pair_end, pair = rand_next(final_pair, UInt64)
+        @test pair === rand(final_pair, UInt64)
+        @test IR._is_exhausted(pair_end.position)
+    end
+end
+
+@testset "R29 native-64 addressed scalar draws" begin
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(123)
+        cursor = rng
+        for i = 1:9
+            cursor, expected = rand_next(cursor, T)
+            @test randat(rng, T, i) === expected
+            @test rng.position == IR._zero_position(F)
+        end
+    end
+
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        base = F(47)
+        position =
+            base.position isa IR._Position64 ? IR._Position64(5, 1) :
+            IR._Position128(5, 7, 1)
+        rng = IR._rebuild(base, position, base.device)
+        cursor = rng
+        for i = 1:7
+            cursor, expected = rand_next(cursor, T)
+            @test randat(rng, T, i) === expected
+        end
+    end
+end
+
+@testset "R29 native-64 addressed bounds" begin
+    for F in SCALAR_64_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        rng = F(7)
+        @test_throws ArgumentError randat(rng, T, 0)
+        @test_throws ArgumentError randat(rng, T, -1)
+    end
+
+    for F in SCALAR_64_FAMILIES
+        base = F(13)
+        width = IR._words_per_block(base)
+        last_position =
+            base.position isa IR._Position64 ? IR._Position64(typemax(UInt64), width - 1) :
+            IR._Position128(typemax(UInt64), typemax(UInt64), width - 1)
+        last = IR._rebuild(base, last_position, base.device)
+        @test randat(last, UInt32, 1) === rand(last, UInt32)
+        @test_throws ArgumentError randat(last, UInt32, 2)
+        @test_throws ArgumentError randat(last, UInt64, 1)
+
+        pair_position =
+            base.position isa IR._Position64 ? IR._Position64(typemax(UInt64), width - 2) :
+            IR._Position128(typemax(UInt64), typemax(UInt64), width - 2)
+        final_pair = IR._rebuild(base, pair_position, base.device)
+        @test randat(final_pair, UInt64, 1) === rand(final_pair, UInt64)
+        @test_throws ArgumentError randat(final_pair, UInt64, 2)
+    end
+
+    for F in (Philox2x64, Threefry2x64)
+        rng = F(19)
+        final_index = big(1) << 66
+        final_word = IR._block(rng, IR.FAMILY_BITS, typemax(UInt64))[2]
+        @test randat(rng, UInt32, final_index) === final_word % UInt32
+        @test randat(rng, UInt64, big(1) << 65) === final_word
+        @test_throws ArgumentError randat(rng, UInt32, final_index + 1)
+        @test_throws ArgumentError randat(rng, UInt64, (big(1) << 65) + 1)
+    end
+
+    for F in (Philox4x64, Threefry4x64)
+        base = F(17)
+        near_end = IR._rebuild(
+            base,
+            IR._Position128(typemax(UInt64) - 1, typemax(UInt64), 0),
+            base.device,
+        )
+        @test randat(near_end, UInt32, UInt64(16)) isa UInt32
+        @test randat(near_end, UInt64, UInt64(8)) isa UInt64
+        @test_throws ArgumentError randat(near_end, UInt32, UInt64(17))
+        @test_throws ArgumentError randat(near_end, UInt64, UInt64(9))
+    end
+
+    for F in (Philox4x64, Threefry4x64)
+        rng = F(19)
+        final_block = IR._block(rng, IR.FAMILY_BITS, typemax(UInt64), typemax(UInt64))
+        @test randat(rng, UInt32, big(1) << 131) === final_block[4] % UInt32
+        @test randat(rng, UInt64, big(1) << 130) === final_block[4]
+        @test_throws ArgumentError randat(rng, UInt32, (big(1) << 131) + 1)
+        @test_throws ArgumentError randat(rng, UInt64, (big(1) << 130) + 1)
+    end
+end
+
+@testset "R23, R29, and R30 native-64 method surface and performance" begin
+    for F in SCALAR_64_FAMILIES
+        rng = F(29)
+        default_next, default_value = rand_next(rng)
+        typed_next, typed_value = rand_next(rng, Float64)
+        @test default_next === typed_next
+        @test default_value === typed_value
+        @test which(rand_next, (typeof(rng),)).module === IR
+
+        for T in SCALAR_UNIFORM_TYPES
+            @test which(rand, (typeof(rng), Type{T})).module === IR
+            @test which(rand_next, (typeof(rng), Type{T})).module === IR
+            int_method = which(randat, (typeof(rng), Type{T}, Int))
+            @test int_method.module === IR
+            @test which(randat, (typeof(rng), Type{T}, UInt64)) === int_method
+            @test which(randat, (typeof(rng), Type{T}, BigInt)) === int_method
+
+            @test @inferred(rand(rng, T)) isa T
+            @test @inferred(rand_next(rng, T)) isa Tuple{typeof(rng),T}
+            @test @inferred(randat(rng, T, 3)) isa T
+            @test @inferred(randat(rng, T, UInt64(3))) isa T
+            rand(rng, T)
+            rand_next(rng, T)
+            randat(rng, T, 3)
+            randat(rng, T, UInt64(3))
+            @test @allocated(rand(rng, T)) == 0
+            @test @allocated(rand_next(rng, T)) == 0
+            @test @allocated(randat(rng, T, 3)) == 0
+            @test @allocated(randat(rng, T, UInt64(3))) == 0
+        end
+
+        for unsupported in (Union{UInt32,Float32}, Int32, Int64, Float16)
+            @test !applicable(rand, rng, unsupported)
+            @test !applicable(rand_next, rng, unsupported)
+            @test !applicable(randat, rng, unsupported, 1)
+            @test_throws MethodError rand(rng, unsupported)
+            @test_throws MethodError rand_next(rng, unsupported)
+            @test_throws MethodError randat(rng, unsupported, 1)
+        end
+        @test !applicable(randat, rng, UInt32, 1.0)
     end
 end
 
