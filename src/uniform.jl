@@ -48,17 +48,39 @@ end
     return _select_word(block, position.lane)
 end
 
-@inline function _raw64(rng::_ScalarUniform32Family)
+@inline function _raw64(rng::_ScalarUniform32Family, family::UInt32)
     position = rng.position
-    block = _block(rng, FAMILY_BITS, position.block)
+    block = _block(rng, family, position.block)
     high = _select_word(block, position.lane)
     next_lane = position.lane + UInt8(1)
     low = if next_lane < _words_per_block(rng)
         _select_word(block, next_lane)
     else
-        _select_word(_block(rng, FAMILY_BITS, position.block + UInt64(1)), UInt8(0))
+        _select_word(_block(rng, family, position.block + UInt64(1)), UInt8(0))
     end
     return (UInt64(high) << 32) | UInt64(low)
+end
+
+@inline _raw64(rng::_ScalarUniform32Family) = _raw64(rng, FAMILY_BITS)
+
+const _TwoWord32Family = Union{Philox2x32,Threefry2x32}
+const _FourWord32Family = Union{Philox4x32,Threefry4x32}
+
+@inline function _raw128(rng::_TwoWord32Family, family::UInt32)
+    position = rng.position
+    first_block = _block(rng, family, position.block)
+    second_block = _block(rng, family, position.block + UInt64(1))
+    high = (UInt64(first_block[1]) << 32) | UInt64(first_block[2])
+    low = (UInt64(second_block[1]) << 32) | UInt64(second_block[2])
+    return high, low
+end
+
+@inline function _raw128(rng::_FourWord32Family, family::UInt32)
+    position = rng.position
+    block = _block(rng, family, position.block)
+    high = (UInt64(block[1]) << 32) | UInt64(block[2])
+    low = (UInt64(block[3]) << 32) | UInt64(block[4])
+    return high, low
 end
 
 @inline _from_word(::Type{UInt32}, word::UInt32) = word
