@@ -20,11 +20,15 @@ end
     return high_high + UInt64(sum < high_low)
 end
 
-@inline function _range_parameters(range::AbstractRange{T}) where {T<:_RangeInteger}
+@inline function _range_span(range::AbstractRange{T}) where {T<:_RangeInteger}
     isempty(range) && throw(ArgumentError("range must be non-empty"))
+    return length(range) % UInt64
+end
+
+@inline function _range_parameters(range::OrdinalRange{T}) where {T<:_RangeInteger}
     base = first(range) % UInt64
     stride = step(range) % UInt64
-    span = length(range) % UInt64
+    span = _range_span(range)
     return base, stride, span
 end
 
@@ -38,6 +42,20 @@ end
     return reinterpret(T, bits)
 end
 
+@inline function _range_value(
+    range::OrdinalRange{T},
+    offset::UInt64,
+) where {T<:_RangeInteger}
+    base = first(range) % UInt64
+    stride = step(range) % UInt64
+    return _range_value(T, base, stride, offset)
+end
+
+# Base non-ordinal ranges have Int lengths. Their selected offsets therefore
+# fit an Int index, and indexing preserves range-specific rounding semantics.
+@inline _range_value(range::AbstractRange{T}, offset::UInt64) where {T<:_RangeInteger} =
+    range[Int(offset)+1]
+
 @inline function _range_offset(rng::_ScalarUniform32Family, span::UInt64)
     if span == zero(UInt64)
         return _raw64(rng, FAMILY_RANGE)
@@ -50,29 +68,27 @@ end
 
 @inline function _draw_range_unchecked(
     rng::_ScalarUniform32Family,
-    ::Type{T},
-    base::UInt64,
-    stride::UInt64,
+    range::AbstractRange{T},
     span::UInt64,
 ) where {T<:_RangeInteger}
-    return _range_value(T, base, stride, _range_offset(rng, span))
+    return _range_value(range, _range_offset(rng, span))
 end
 
 @inline function _rand_range(rng::_ScalarUniform32Family, range::AbstractRange{T}) where {T}
-    base, stride, span = _range_parameters(range)
+    span = _range_span(range)
     words = _range_words(span)
     start, _ = _reserve_aligned(rng, words, words)
-    return _draw_range_unchecked(start, T, base, stride, span)
+    return _draw_range_unchecked(start, range, span)
 end
 
 @inline function _rand_next_range(
     rng::_ScalarUniform32Family,
     range::AbstractRange{T},
 ) where {T}
-    base, stride, span = _range_parameters(range)
+    span = _range_span(range)
     words = _range_words(span)
     start, next_rng = _reserve_aligned(rng, words, words)
-    return next_rng, _draw_range_unchecked(start, T, base, stride, span)
+    return next_rng, _draw_range_unchecked(start, range, span)
 end
 
 for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
