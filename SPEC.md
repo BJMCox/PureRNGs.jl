@@ -514,7 +514,7 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   [R41] serviceability, then size. A fill that passes validation with an
   empty destination performs no backend lookup and no kernel launch and
   leaves the position unchanged. On CPU, `threaded = false` performs the
-  full preflight and reservation, then fills serially on the calling thread with
+  full preflight and reservation, then fills serially on the calling task with
   no KernelAbstractions backend lookup or task launch; it returns after the
   fill completes. Every other nonempty fill uses the KernelAbstractions
   backend. Completion follows that backend's semantics: the CPU call returns
