@@ -51,10 +51,14 @@ end
     return _range_value(T, base, stride, offset)
 end
 
-# Base non-ordinal ranges have Int lengths. Their selected offsets therefore
-# fit an Int index, and indexing preserves range-specific rounding semantics.
-@inline _range_value(range::AbstractRange{T}, offset::UInt64) where {T<:_RangeInteger} =
-    range[Int(offset)+1]
+# Non-ordinal ranges use their own indexing rule, including its rounding.
+@inline function _range_value(
+    range::AbstractRange{T},
+    offset::UInt64,
+) where {T<:_RangeInteger}
+    index = offset + UInt64(1)
+    return iszero(index) ? last(range) : range[index]
+end
 
 @inline function _range_offset(rng::_ScalarUniform32Family, span::UInt64)
     if span == zero(UInt64)

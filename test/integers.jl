@@ -95,6 +95,25 @@ end
         rounded_rng = Philox2x32(3)
         @test rand(rounded_rng, rounded_linear) === last(rounded_linear)
         @test last(rand_next(rounded_rng, rounded_linear)) === last(rounded_linear)
+
+        long_linear = LinRange{Int64}(0, 0, typemax(UInt64))
+        high_offset = (UInt64(1) << 63) - UInt64(1)
+        final_offset = typemax(UInt64) - UInt64(1)
+        @test length(long_linear) === typemax(UInt64)
+        @test RangeIR._range_value(long_linear, high_offset) === Int64(0)
+        @test RangeIR._range_value(long_linear, final_offset) === last(long_linear)
+        @test @inferred(RangeIR._range_value(long_linear, high_offset)) isa Int64
+        RangeIR._range_value(long_linear, high_offset)
+        @test @allocated(RangeIR._range_value(long_linear, high_offset)) == 0
+        @test rand(rounded_rng, long_linear) === Int64(0)
+        @test last(rand_next(rounded_rng, long_linear)) === Int64(0)
+        @test @inferred(rand(rounded_rng, long_linear)) isa Int64
+        rand(rounded_rng, long_linear)
+        @test @allocated(rand(rounded_rng, long_linear)) == 0
+
+        full_linear = LinRange{Int64}(0, 0, UInt128(1)<<64)
+        @test length(full_linear) === UInt128(1) << 64
+        @test RangeIR._range_value(full_linear, typemax(UInt64)) === last(full_linear)
         for range in (
             false:true,
             Int128(1):Int128(3),
