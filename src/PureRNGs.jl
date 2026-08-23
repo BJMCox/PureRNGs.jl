@@ -1,5 +1,6 @@
 module PureRNGs
 
-greet() = print("Hello World!")
+include("philox.jl")
+include("threefry.jl")
 
 end # module PureRNGs
