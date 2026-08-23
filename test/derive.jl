@@ -162,6 +162,8 @@ end
 end
 
 @testset "R13 derivation golden vectors" begin
+    # Philox4x32 and Threefry2x32 were captured from testbed commit 7a6d2cfe06c6.
+    # The other families are frozen vectors from the revision 9 stream law.
     cases = (
         (
             Philox2x32((0x01234567,)),
