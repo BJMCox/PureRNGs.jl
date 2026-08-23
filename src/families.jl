@@ -238,3 +238,33 @@ end
     ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
     return _rebuild(rng, position, rng.device)
 end
+
+@inline _low_block(position::_Position64) = position.block
+@inline _low_block(position::_Position128) = position.lo
+
+@inline function _alignment_padding(rng::AbstractPureRNG, alignment::UInt64)
+    mask = alignment - UInt64(1)
+    position = rng.position
+    block_residue = _low_block(position) & mask
+    width_residue = UInt64(_words_per_block(rng)) & mask
+    residue = (block_residue * width_residue + UInt64(position.lane)) & mask
+    return (alignment - residue) & mask
+end
+
+@inline function _reserve_aligned(
+    rng::AbstractPureRNG,
+    words::UInt64,
+    alignment::UInt64,
+)
+    words == 0 && return rng, rng
+    (alignment == 1 || alignment == 2 || alignment == 4) ||
+        throw(ArgumentError("alignment must be one, two, or four logical words"))
+
+    padding = _alignment_padding(rng, alignment)
+    start_position, padding_ok = _try_advance(rng, padding)
+    padding_ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
+    start = _rebuild(rng, start_position, rng.device)
+    next_position, draw_ok = _try_advance(start, words)
+    draw_ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
+    return start, _rebuild(rng, next_position, rng.device)
+end

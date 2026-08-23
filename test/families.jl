@@ -129,3 +129,79 @@ end
         @test @allocated(PureRNGs._reserve(rng, UInt64(2))) == 0
     end
 end
+
+@testset "R53 aligned reservation" begin
+    narrow = Threefry2x32(1)
+    narrow_odd =
+        PureRNGs._rebuild(narrow, PureRNGs._Position64(1, 0), narrow.device)
+    narrow_start, narrow_next =
+        PureRNGs._reserve_aligned(narrow_odd, UInt64(4), UInt64(4))
+    @test narrow_start.position == PureRNGs._Position64(2, 0)
+    @test narrow_next.position == PureRNGs._Position64(4, 0)
+
+    narrow_last = PureRNGs._rebuild(
+        narrow,
+        PureRNGs._Position64(0x00fffffffffffffd, 0),
+        narrow.device,
+    )
+    last_start, last_next =
+        PureRNGs._reserve_aligned(narrow_last, UInt64(4), UInt64(4))
+    @test last_start.position == PureRNGs._Position64(0x00fffffffffffffe, 0)
+    @test PureRNGs._is_exhausted(last_next.position)
+    @test_throws ArgumentError PureRNGs._reserve_aligned(
+        PureRNGs._rebuild(
+            narrow,
+            PureRNGs._Position64(0x00ffffffffffffff, 0),
+            narrow.device,
+        ),
+        UInt64(4),
+        UInt64(4),
+    )
+
+    wide64 = Philox4x32(1)
+    wide64_unaligned =
+        PureRNGs._rebuild(wide64, PureRNGs._Position64(3, 1), wide64.device)
+    pair_start, pair_next =
+        PureRNGs._reserve_aligned(wide64_unaligned, UInt64(2), UInt64(2))
+    @test pair_start.position == PureRNGs._Position64(3, 2)
+    @test pair_next.position == PureRNGs._Position64(4, 0)
+    quad_start, quad_next =
+        PureRNGs._reserve_aligned(wide64_unaligned, UInt64(4), UInt64(4))
+    @test quad_start.position == PureRNGs._Position64(4, 0)
+    @test quad_next.position == PureRNGs._Position64(5, 0)
+
+    wide128 = Threefry4x64(1)
+    wide128_crossing = PureRNGs._rebuild(
+        wide128,
+        PureRNGs._Position128(typemax(UInt64), 0, 7),
+        wide128.device,
+    )
+    crossing_start, crossing_next =
+        PureRNGs._reserve_aligned(wide128_crossing, UInt64(4), UInt64(4))
+    @test crossing_start.position == PureRNGs._Position128(0, 1, 0)
+    @test crossing_next.position == PureRNGs._Position128(0, 1, 4)
+
+    exhausted = PureRNGs._reserve(
+        PureRNGs._rebuild(
+            wide128,
+            PureRNGs._Position128(typemax(UInt64), typemax(UInt64), 7),
+            wide128.device,
+        ),
+        UInt64(1),
+    )
+    zero_start, zero_next = PureRNGs._reserve_aligned(exhausted, UInt64(0), UInt64(4))
+    @test zero_start === exhausted
+    @test zero_next === exhausted
+    @test PureRNGs._reserve_aligned(exhausted, UInt64(0), UInt64(0)) ===
+          (exhausted, exhausted)
+
+    for rng in (narrow_odd, wide64_unaligned, wide128_crossing)
+        result = @inferred PureRNGs._reserve_aligned(rng, UInt64(4), UInt64(4))
+        @test result isa Tuple{typeof(rng),typeof(rng)}
+        PureRNGs._reserve_aligned(rng, UInt64(4), UInt64(4))
+        @test @allocated(PureRNGs._reserve_aligned(rng, UInt64(4), UInt64(4))) == 0
+    end
+
+    @test_throws ArgumentError PureRNGs._reserve_aligned(narrow, UInt64(1), UInt64(0))
+    @test_throws ArgumentError PureRNGs._reserve_aligned(narrow, UInt64(1), UInt64(3))
+end
