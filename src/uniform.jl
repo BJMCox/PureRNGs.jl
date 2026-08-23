@@ -208,11 +208,18 @@ KernelAbstractions.@kernel function _uniform_fill_kernel!(
 end
 
 const _CPU_FILL_CHUNK_WORDS = UInt64(4096)
+const _CPU_FILL_MIN_WORKITEMS = 4
 
 @inline _dense_fill_chunk_elements(::Type{T}) where {T} =
     Int(_CPU_FILL_CHUNK_WORDS ÷ _draw_words(T))
 @inline _dense_fill_workitems(count::Int, ::Type{T}) where {T} =
     cld(count, _dense_fill_chunk_elements(T))
+@inline _use_parallel_dense_fill(workitems::Int) = workitems >= _CPU_FILL_MIN_WORKITEMS
+@inline function _dense_fill_bounds(workitem::Int, count::Int, chunk_elements::Int)
+    first = (workitem - 1) * chunk_elements + 1
+    chunk_count = min(chunk_elements, count - first + 1)
+    return first, first + chunk_count - 1
+end
 
 KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
     rng,
@@ -221,8 +228,7 @@ KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
     chunk_elements,
 ) where {T}
     workitem = @index(Global, Linear)
-    first = (workitem - 1) * chunk_elements + 1
-    last = min(workitem * chunk_elements, length(destination))
+    first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
     span = _draw_words(T)
     chunk_rng = _reserve(rng, UInt64(first - 1) * span)
     _fill_uniform_unchecked!(chunk_rng, destination, T, first:last)
@@ -245,6 +251,10 @@ function _launch_uniform!(
 ) where {T}
     chunk_elements = _dense_fill_chunk_elements(T)
     workitems = _dense_fill_workitems(length(destination), T)
+    if !_use_parallel_dense_fill(workitems)
+        _uniform_fill_kernel!(backend)(rng, destination, T; ndrange = 1)
+        return destination
+    end
     _uniform_fill_dense_kernel!(backend)(
         rng,
         destination,

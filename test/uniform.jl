@@ -533,7 +533,31 @@ end
         @test IR._dense_fill_workitems(chunk, T) == 1
         @test IR._dense_fill_workitems(2 * chunk + 1, T) == 3
 
-        for F in SCALAR_32_FAMILIES, count in (chunk - 1, chunk, chunk + 1, 2 * chunk + 3)
+        parallel_start = (IR._CPU_FILL_MIN_WORKITEMS - 1) * chunk + 1
+        @test !IR._use_parallel_dense_fill(IR._dense_fill_workitems(parallel_start - 1, T))
+        @test IR._use_parallel_dense_fill(IR._dense_fill_workitems(parallel_start, T))
+
+        maximum_count = typemax(Int)
+        final_workitem = IR._dense_fill_workitems(maximum_count, T)
+        first, last = IR._dense_fill_bounds(final_workitem, maximum_count, chunk)
+        @test first <= last
+        @test last == maximum_count
+        @test last - first + 1 <= chunk
+
+        previous_first, previous_last =
+            IR._dense_fill_bounds(final_workitem - 1, maximum_count, chunk)
+        @test previous_first <= previous_last
+        @test previous_last + 1 == first
+
+        counts = (
+            chunk - 1,
+            chunk,
+            chunk + 1,
+            parallel_start - 1,
+            parallel_start,
+            parallel_start + chunk,
+        )
+        for F in SCALAR_32_FAMILIES, count in counts
             base = F(0x531)
             rng = IR._rebuild(base, IR._Position64(11, 1), base.device)
             expected_rng, expected = scalar_chain(rng, T, count)
