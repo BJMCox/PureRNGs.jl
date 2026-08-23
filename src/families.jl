@@ -1,16 +1,16 @@
 abstract type AbstractPureRNG end
 
-const _EXHAUSTED_LANE = typemax(UInt8)
+const _EXHAUSTED_BIT = typemax(UInt16)
 
 struct _Position64
     block::UInt64
-    lane::UInt8
+    bit::UInt16
 end
 
 struct _Position128
     lo::UInt64
     hi::UInt64
-    lane::UInt8
+    bit::UInt16
 end
 
 struct _ConstructionToken end
@@ -148,49 +148,99 @@ end
 @inline (device::MLDataDevices.CPUDevice)(rng::AbstractPureRNG) =
     _rebuild(rng, rng.position, device)
 
-@inline _words_per_block(::_NarrowFamily) = UInt8(2)
-@inline _words_per_block(::Union{Philox4x32,Philox2x64,Threefry4x32,Threefry2x64}) =
-    UInt8(4)
-@inline _words_per_block(::_Position128Family) = UInt8(8)
+@inline _block_shift(::_NarrowFamily) = UInt8(6)
+@inline _block_shift(::Union{Philox4x32,Philox2x64,Threefry4x32,Threefry2x64}) = UInt8(7)
+@inline _block_shift(::_Position128Family) = UInt8(8)
+@inline _block_bits(rng::AbstractPureRNG) = UInt16(1) << _block_shift(rng)
 
 @inline _max_block(::_NarrowFamily) = UInt64(0x00ffffffffffffff)
 @inline _max_block(::_Position64Family) = typemax(UInt64)
 
-@inline _is_exhausted(position::_Position64) = position.lane == _EXHAUSTED_LANE
-@inline _is_exhausted(position::_Position128) = position.lane == _EXHAUSTED_LANE
+@inline _terminal64(maximum::UInt64) = _Position64(maximum, _EXHAUSTED_BIT)
+@inline _terminal128() = _Position128(typemax(UInt64), typemax(UInt64), _EXHAUSTED_BIT)
 
-@inline _terminal64(maximum::UInt64) = _Position64(maximum, _EXHAUSTED_LANE)
-@inline _terminal128() = _Position128(typemax(UInt64), typemax(UInt64), _EXHAUSTED_LANE)
+@inline _is_terminal(position::_Position64, maximum::UInt64) =
+    position.block == maximum && position.bit == _EXHAUSTED_BIT
+@inline _is_terminal(position::_Position128, ::Nothing) =
+    position.lo == typemax(UInt64) &&
+    position.hi == typemax(UInt64) &&
+    position.bit == _EXHAUSTED_BIT
+
+@inline _valid_position(position::_Position64, shift::UInt8, maximum::UInt64) =
+    position.block <= maximum && UInt64(position.bit) < (UInt64(1) << shift)
+@inline _valid_position(position::_Position128, shift::UInt8, ::Nothing) =
+    UInt64(position.bit) < (UInt64(1) << shift)
+
+@inline function _bit_span(count::UInt64, width::UInt16)
+    hi, lo = _mulhilo64(count, UInt64(width))
+    return lo, hi
+end
+
+@inline function _split_bit_advance(
+    bit::UInt16,
+    bits_lo::UInt64,
+    bits_hi::UInt64,
+    shift::UInt8,
+)
+    sum_lo = bits_lo + UInt64(bit)
+    carry = UInt64(sum_lo < bits_lo)
+    sum_hi = bits_hi + carry
+    top = UInt64(sum_hi < bits_hi)
+    mask = (UInt64(1) << shift) - UInt64(1)
+    block_lo = (sum_lo >> shift) | (sum_hi << (UInt8(64) - shift))
+    block_hi = (sum_hi >> shift) | (top << (UInt8(64) - shift))
+    return block_lo, block_hi, UInt16(sum_lo & mask)
+end
+
+@inline function _advance_position_unchecked(
+    position::_Position64,
+    bits_lo::UInt64,
+    bits_hi::UInt64,
+    shift::UInt8,
+)
+    block_lo, _, bit = _split_bit_advance(position.bit, bits_lo, bits_hi, shift)
+    return _Position64(position.block + block_lo, bit)
+end
+
+@inline function _advance_position_unchecked(
+    position::_Position128,
+    bits_lo::UInt64,
+    bits_hi::UInt64,
+    shift::UInt8,
+)
+    block_lo, block_hi, bit = _split_bit_advance(position.bit, bits_lo, bits_hi, shift)
+    lo = position.lo + block_lo
+    carry = UInt64(lo < position.lo)
+    return _Position128(lo, position.hi + block_hi + carry, bit)
+end
+
+@inline _advance_position_unchecked(
+    rng::AbstractPureRNG,
+    bits_lo::UInt64,
+    bits_hi::UInt64,
+) = _advance_position_unchecked(rng.position, bits_lo, bits_hi, _block_shift(rng))
 
 @inline function _try_advance(
     position::_Position64,
-    words::UInt64,
-    width::UInt8,
+    bits_lo::UInt64,
+    bits_hi::UInt64,
+    shift::UInt8,
     maximum::UInt64,
 )
-    words == 0 && return position, true
     terminal = _terminal64(maximum)
-    _is_exhausted(position) && return terminal, false
-
-    block = position.block
-    lane = UInt64(position.lane)
-    block_width = UInt64(width)
-    in_block = block_width - lane
-    if words < in_block
-        return _Position64(block, UInt8(lane + words)), true
-    elseif words == in_block
-        block == maximum && return terminal, true
-        return _Position64(block + 1, 0), true
+    if _is_terminal(position, maximum)
+        return iszero(bits_lo | bits_hi) ? (position, true) : (terminal, false)
     end
+    _valid_position(position, shift, maximum) || return terminal, false
+    iszero(bits_lo | bits_hi) && return position, true
 
-    block == maximum && return terminal, false
-    remaining = words - in_block
-    first_block = block + 1
-    full_blocks, next_lane = divrem(remaining, block_width)
-    blocks_left = maximum - first_block
-    if full_blocks <= blocks_left
-        return _Position64(first_block + full_blocks, UInt8(next_lane)), true
-    elseif full_blocks == blocks_left + 1 && next_lane == 0
+    delta_lo, delta_hi, next_bit = _split_bit_advance(position.bit, bits_lo, bits_hi, shift)
+    available = maximum - position.block
+    available_lo = available + UInt64(1)
+    available_hi = UInt64(iszero(available_lo))
+    if delta_hi < available_hi || (delta_hi == available_hi && delta_lo < available_lo)
+        return _Position64(position.block + delta_lo, next_bit), true
+    elseif delta_lo == available_lo && delta_hi == available_hi && iszero(next_bit)
         return terminal, true
     end
     return terminal, false
@@ -198,73 +248,41 @@ end
 
 @inline function _try_advance(
     position::_Position128,
-    words::UInt64,
-    width::UInt8,
+    bits_lo::UInt64,
+    bits_hi::UInt64,
+    shift::UInt8,
     ::Nothing,
 )
-    words == 0 && return position, true
     terminal = _terminal128()
-    _is_exhausted(position) && return terminal, false
-
-    if position.hi == typemax(UInt64)
-        next, ok = _try_advance(
-            _Position64(position.lo, position.lane),
-            words,
-            width,
-            typemax(UInt64),
-        )
-        _is_exhausted(next) && return terminal, ok
-        return _Position128(next.block, position.hi, next.lane), ok
+    if _is_terminal(position, nothing)
+        return iszero(bits_lo | bits_hi) ? (position, true) : (terminal, false)
     end
+    _valid_position(position, shift, nothing) || return terminal, false
+    iszero(bits_lo | bits_hi) && return position, true
 
-    block_width = UInt64(width)
-    blocks, remainder = divrem(words, block_width)
-    lane_sum = UInt64(position.lane) + remainder
-    blocks += lane_sum >= block_width
-    next_lane = UInt8(ifelse(lane_sum >= block_width, lane_sum - block_width, lane_sum))
-    next_lo = position.lo + blocks
-    carry = next_lo < position.lo
-    return _Position128(next_lo, position.hi + UInt64(carry), next_lane), true
+    delta_lo, delta_hi, next_bit = _split_bit_advance(position.bit, bits_lo, bits_hi, shift)
+    next_lo = position.lo + delta_lo
+    carry = UInt64(next_lo < position.lo)
+    partial_hi = position.hi + delta_hi
+    overflow = partial_hi < position.hi
+    next_hi = partial_hi + carry
+    overflow |= next_hi < partial_hi
+    if !overflow
+        return _Position128(next_lo, next_hi, next_bit), true
+    elseif iszero(next_lo | next_hi | UInt64(next_bit))
+        return terminal, true
+    end
+    return terminal, false
 end
 
-@inline _try_advance(rng::_Position64Family, words::UInt64) =
-    _try_advance(rng.position, words, _words_per_block(rng), _max_block(rng))
-@inline _try_advance(rng::_Position128Family, words::UInt64) =
-    _try_advance(rng.position, words, _words_per_block(rng), nothing)
+@inline _try_advance(rng::_Position64Family, bits_lo::UInt64, bits_hi::UInt64) =
+    _try_advance(rng.position, bits_lo, bits_hi, _block_shift(rng), _max_block(rng))
+@inline _try_advance(rng::_Position128Family, bits_lo::UInt64, bits_hi::UInt64) =
+    _try_advance(rng.position, bits_lo, bits_hi, _block_shift(rng), nothing)
 
-@inline function _reserve(rng::AbstractPureRNG, words::UInt64)
-    words == 0 && return rng
-    position, ok = _try_advance(rng, words)
+@inline function _reserve(rng::AbstractPureRNG, bits_lo::UInt64, bits_hi::UInt64)
+    position, ok = _try_advance(rng, bits_lo, bits_hi)
     ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
+    position == rng.position && return rng
     return _rebuild(rng, position, rng.device)
-end
-
-@inline _low_block(position::_Position64) = position.block
-@inline _low_block(position::_Position128) = position.lo
-
-@inline function _alignment_padding(rng::AbstractPureRNG, alignment::UInt64)
-    mask = alignment - UInt64(1)
-    position = rng.position
-    block_residue = _low_block(position) & mask
-    width_residue = UInt64(_words_per_block(rng)) & mask
-    residue = (block_residue * width_residue + UInt64(position.lane)) & mask
-    return (alignment - residue) & mask
-end
-
-@inline function _reserve_aligned(
-    rng::AbstractPureRNG,
-    words::UInt64,
-    alignment::UInt64,
-)
-    words == 0 && return rng, rng
-    (alignment == 1 || alignment == 2 || alignment == 4) ||
-        throw(ArgumentError("alignment must be one, two, or four logical words"))
-
-    padding = _alignment_padding(rng, alignment)
-    start_position, padding_ok = _try_advance(rng, padding)
-    padding_ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
-    start = _rebuild(rng, start_position, rng.device)
-    next_position, draw_ok = _try_advance(start, words)
-    draw_ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
-    return start, _rebuild(rng, next_position, rng.device)
 end

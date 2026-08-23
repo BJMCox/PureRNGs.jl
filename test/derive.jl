@@ -144,7 +144,7 @@ end
 @testset "R20 derivation state law" begin
     for F in DERIVATION_FAMILIES
         rng = F(123)
-        moved = PureRNGs._reserve(rng, UInt64(7))
+        moved = PureRNGs._reserve(rng, UInt64(7), UInt64(0))
         children = splitrng(rng)
         @test children == splitrng(rng, Val(2))
         @test getfield.(children, :key) == getfield.(splitrng(moved), :key)
