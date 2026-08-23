@@ -133,6 +133,8 @@ end
     return nothing
 end
 
+@inline _check_fill_serviceability(rng, destination, ::Type) = nothing
+
 @inline function _fill_uniform_unchecked!(
     rng::_ScalarUniform32Family,
     destination,
@@ -220,11 +222,12 @@ end
     destination::AbstractArray{T},
 ) where {T}
     _check_fill_device(rng, destination)
+    _check_fill_serviceability(rng, destination, T)
     words = _fill_word_count(length(destination), _draw_words(T))
-    next_rng = _reserve(rng, words)
+    read_rng, next_rng = _reserve_aligned(rng, words, _draw_words(T))
     isempty(destination) && return next_rng, destination
     backend = _fill_backend(destination)
-    _launch_uniform!(backend, rng, destination, T)
+    _launch_uniform!(backend, read_rng, destination, T)
     return next_rng, destination
 end
 

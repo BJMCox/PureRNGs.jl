@@ -459,6 +459,30 @@ end
     end
 end
 
+@testset "R26 and R53 aligned CPU fills" begin
+    for F in (Philox4x32, Threefry4x32)
+        base = F(31)
+        rng = IR._rebuild(base, IR._Position64(8, 1), base.device)
+        destination = Vector{UInt64}(undef, 1)
+        next_rng, _ = rand_next!(rng, destination)
+        sync_cpu()
+        words = IR._block(rng, IR.FAMILY_BITS, UInt64(8))
+        @test destination[1] == (UInt64(words[3]) << 32) | UInt64(words[4])
+        @test next_rng.position == IR._Position64(9, 0)
+    end
+
+    for F in (Philox2x32, Threefry2x32)
+        base = F(31)
+        rng = IR._rebuild(base, IR._Position64(8, 1), base.device)
+        destination = Vector{UInt64}(undef, 1)
+        next_rng, _ = rand_next!(rng, destination)
+        sync_cpu()
+        words = IR._block(rng, IR.FAMILY_BITS, UInt64(9))
+        @test destination[1] == (UInt64(words[1]) << 32) | UInt64(words[2])
+        @test next_rng.position == IR._Position64(10, 0)
+    end
+end
+
 @testset "R25 Bool CPU fills" begin
     for F in SCALAR_32_FAMILIES, count in (0, 1, 2, 3, 7, 9, 65, 67)
         base = F(91)
