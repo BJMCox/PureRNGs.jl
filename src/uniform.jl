@@ -29,7 +29,6 @@ const FAMILY_BITS = UInt32(0x00000000)
     _threefry4x64((block_lo, block_hi, UInt64(family), UInt64(0)), rng.key)
 
 const _ScalarUniform32Family = Union{Philox2x32,Philox4x32,Threefry2x32,Threefry4x32}
-const _ScalarUniform32Type = Union{Bool,UInt32,UInt64,Float32,Float64}
 const _ScalarUniformWordType = Union{Bool,UInt32,Float32}
 
 @inline _draw_words(::Type{<:_ScalarUniformWordType}) = UInt64(1)
@@ -81,20 +80,22 @@ function Random.rand(::AbstractPureRNG)
     throw(ArgumentError("untyped immutable draws are forbidden; use rand(rng, T)"))
 end
 
-@inline function Random.rand(
-    rng::_ScalarUniform32Family,
-    ::Type{T},
-) where {T<:_ScalarUniform32Type}
+@inline function _rand_scalar(rng::_ScalarUniform32Family, ::Type{T}) where {T}
     _reserve(rng, _draw_words(T))
     return _draw_unchecked(rng, T)
 end
 
 @inline rand_next(rng::_ScalarUniform32Family) = rand_next(rng, Float64)
 
-@inline function rand_next(
-    rng::_ScalarUniform32Family,
-    ::Type{T},
-) where {T<:_ScalarUniform32Type}
+@inline function _rand_next_scalar(rng::_ScalarUniform32Family, ::Type{T}) where {T}
     next_rng = _reserve(rng, _draw_words(T))
     return next_rng, _draw_unchecked(rng, T)
+end
+
+for T in (Bool, UInt32, UInt64, Float32, Float64)
+    @eval begin
+        @inline Random.rand(rng::_ScalarUniform32Family, ::Type{$T}) = _rand_scalar(rng, $T)
+        @inline rand_next(rng::_ScalarUniform32Family, ::Type{$T}) =
+            _rand_next_scalar(rng, $T)
+    end
 end

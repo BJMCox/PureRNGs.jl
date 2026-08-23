@@ -108,6 +108,12 @@ end
     @test which(rand, (typeof(rng), Type{UInt32})).module === IR
     @test which(rand_next, (typeof(rng),)).module === IR
     @test which(rand_next, (typeof(rng), Type{UInt32})).module === IR
+    for unsupported in (Union{UInt32,Float32}, Int32)
+        @test !applicable(rand, rng, unsupported)
+        @test !applicable(rand_next, rng, unsupported)
+        @test_throws MethodError rand(rng, unsupported)
+        @test_throws MethodError rand_next(rng, unsupported)
+    end
 end
 
 @testset "R2 and R25 scalar oracle" begin
