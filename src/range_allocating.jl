@@ -42,7 +42,32 @@ KernelAbstractions.@kernel function _range_fill_cpu_kernel!(
     _fill_range_cpu_unchecked!(rng, position, destination, range, span, first:last)
 end
 
-@inline function _launch_range_cpu!(backend, rng, destination, range, span)
+KernelAbstractions.@kernel function _range_fill_kernel!(rng, destination, range, span)
+    index = @index(Global, Linear)
+    width = _range_bits(span)
+    bits_lo, bits_hi = _bit_span(UInt64(index - 1), width)
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    @inbounds destination[index] = _draw_range_unchecked(rng, position, range, span)
+end
+
+@inline function _launch_range!(backend, rng, destination, range, span)
+    _range_fill_kernel!(backend)(
+        rng,
+        destination,
+        range,
+        span;
+        ndrange = length(destination),
+    )
+    return destination
+end
+
+@inline function _launch_range!(
+    backend::KernelAbstractions.CPU,
+    rng::_CPUFamily,
+    destination::Array,
+    range,
+    span,
+)
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_range_bits(span)))
     workitems = cld(length(destination), chunk_elements)
     _range_fill_cpu_kernel!(backend)(
@@ -58,17 +83,22 @@ end
 end
 
 @inline function _rand_next_range_array(
-    rng::_CPUFamily,
+    rng::_ScalarUniformFamily,
     range::AbstractRange{T},
     dims::Tuple,
 ) where {T<:_RangeInteger}
     span = _range_span(range)
+    _check_serviceability(rng, T)
     destination = _allocate_array(rng.device, T, dims)
+    device = _check_fill_device(rng, destination)
+    _check_serviceability(rng, T)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _range_bits(span))
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
-    backend = _fill_backend(destination)
-    _launch_range_cpu!(backend, rng, destination, range, span)
+    _with_device(device) do
+        backend = _fill_backend(destination)
+        _launch_range!(backend, rng, destination, range, span)
+    end
     return next_rng, destination
 end
 

@@ -85,12 +85,13 @@ end
     generator_device == destination_device
 
 @inline function _check_fill_device(rng::_ScalarUniformFamily, destination)
-    _same_fill_device(rng.device, MLDataDevices.get_device(destination)) ||
-        _fill_device_mismatch()
-    return nothing
+    device = MLDataDevices.get_device(destination)
+    _same_fill_device(rng.device, device) || _fill_device_mismatch()
+    return device
 end
 
-@inline _check_fill_serviceability(rng, destination, ::Type) = nothing
+@inline _check_serviceability(rng, ::Type) = nothing
+@inline _with_device(f, ::MLDataDevices.CPUDevice) = f()
 
 @inline function _fill_uniform_unchecked!(
     rng::_ScalarUniformFamily,
@@ -473,7 +474,10 @@ KernelAbstractions.@kernel function _uniform_fill_kernel!(
     destination,
     ::Type{T},
 ) where {T}
-    _fill_uniform_unchecked!(rng, destination, T)
+    index = @index(Global, Linear)
+    bits_lo, bits_hi = _bit_span(UInt64(index - 1), _draw_bits(T))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    @inbounds destination[index] = _draw_unchecked(rng, position, T)
 end
 
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
@@ -516,7 +520,7 @@ end
     KernelAbstractions.get_backend(destination.chunks)
 
 function _launch_uniform!(backend, rng, destination, ::Type{T}) where {T}
-    _uniform_fill_kernel!(backend)(rng, destination, T; ndrange = 1)
+    _uniform_fill_kernel!(backend)(rng, destination, T; ndrange = length(destination))
     return destination
 end
 
@@ -548,8 +552,8 @@ end
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
-    _check_fill_device(rng, destination)
-    _check_fill_serviceability(rng, destination, T)
+    device = _check_fill_device(rng, destination)
+    _check_serviceability(rng, T)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _draw_bits(T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
@@ -557,8 +561,10 @@ end
         _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
         return next_rng, destination
     end
-    backend = _fill_backend(destination)
-    _launch_uniform!(backend, rng, destination, T)
+    _with_device(device) do
+        backend = _fill_backend(destination)
+        _launch_uniform!(backend, rng, destination, T)
+    end
     return next_rng, destination
 end
 
