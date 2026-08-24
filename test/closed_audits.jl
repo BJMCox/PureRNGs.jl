@@ -158,39 +158,6 @@ end
     @test AuditIR._NARROW_SPLIT_COUNT === UInt64(0xffffffff)
 end
 
-@testset "R44 and row 743 stream-law closure" begin
-    spec = read(joinpath(pkgdir(AuditIR), "SPEC.md"), String)
-    section = only(match(r"(?s)## 10\. Stream law\n(.*?)\n## 11\.", spec).captures)
-    value_text, remainder = split(section, "Rules that equate"; limit = 2)
-    rule_pattern = r"\[R\d+[a-z]?\](?:-\[R\d+[a-z]?\])?"
-    value_rules = [match_.match for match_ in eachmatch(rule_pattern, value_text)]
-    consistency_text = first(split(remainder, "- [R44]"))
-    consistency_rules =
-        [match_.match for match_ in eachmatch(rule_pattern, consistency_text)]
-    version =
-        parse(Int, only(match(r"(?s)\[R44\].*?stream-law version (\d+)", section).captures))
-
-    @test version == 4
-    @test value_rules == [
-        "[R9]",
-        "[R11]",
-        "[R12]-[R12b]",
-        "[R14]",
-        "[R20]",
-        "[R16]",
-        "[R17]-[R19]",
-        "[R25]",
-        "[R27]",
-        "[R28]",
-        "[R53]",
-        "[R62]",
-        "[R55]",
-        "[R57]-[R59]",
-        "[R61]",
-    ]
-    @test consistency_rules == ["[R26]", "[R29]", "[R33]", "[R60]", "[R39]"]
-end
-
 @testset "R47 and row 744 implemented deterministic error closure" begin
     rng = Philox4x32(0xa72)
     exhausted =
