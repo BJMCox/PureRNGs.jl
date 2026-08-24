@@ -135,6 +135,17 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, rng)
     return
 end
 
+function _k64_range_kernel!(destination, rng)
+    if CUDA.threadIdx().x == 1
+        next_rng, value = rand_next(rng, K64_RANGE)
+        @inbounds begin
+            destination[1] = value
+            destination[2] = rand(next_rng, K64_RANGE)
+        end
+    end
+    return
+end
+
 @inline function _write_group!(destination, offset, coefficients)
     @inbounds for index in eachindex(coefficients)
         destination[offset+index] = coefficients[index]
@@ -288,16 +299,31 @@ device = MLD.CUDADevice(primary)
         @test MLD.CUDADevice()(cpu_rng).device === gpu_rng.device
 
         advanced, _ = rand_next(gpu_rng, UInt64)
-        child = subrng(gpu_rng, UInt64(0x71))
-        children = splitrng(gpu_rng, Val(2))
-        @test child.key == subrng(advanced, UInt64(0x71)).key
+        child = subrng(advanced, UInt64(0x71))
+        children = splitrng(advanced, Val(2))
+        dynamic_children = splitrng(advanced, 2)
+        @test advanced.position != gpu_rng.position
+        @test child.key == subrng(gpu_rng, UInt64(0x71)).key
+        @test getfield.(children, :key) == getfield.(splitrng(gpu_rng, Val(2)), :key)
+        @test Tuple(dynamic_children) == children
         @test child.position == cpu_rng.position
         @test advanced.device == child.device == gpu_rng.device
         @test all(
             rng -> rng.position == cpu_rng.position && rng.device == gpu_rng.device,
-            children,
+            (children..., dynamic_children...),
         )
 
+    end
+end
+
+@testset "CUDA Bool scalar and array agreement" begin
+    for F in FAMILIES
+        rng = device(F(0x123456))
+        pure = rand(rng, Bool)
+        next_rng, continued = rand_next(rng, Bool)
+        array = rand(rng, Bool, 1)
+        @test pure === continued === only(Array(array))
+        @test next_rng.position != rng.position
     end
 end
 
@@ -562,6 +588,18 @@ end
         range = UInt64(0):UInt64(1):(UInt64(1)<<40)
         next_range, continued_range = rand_next(rng, range)
         @test Array(args[4]) == [continued_range, rand(next_range, range)]
+
+        k64_values = CUDA.CuArray{UInt32}(undef, 2)
+        k64_args = (k64_values, rng)
+        CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _k64_range_kernel!(k64_args...)
+        k64_signature = Tuple{map(typeof, k64_args)...}
+        k64_typed_text = sprint(show, CUDA.code_typed(_k64_range_kernel!, k64_signature))
+        k64_llvm_text = sprint(io -> CUDA.code_llvm(io, _k64_range_kernel!, k64_signature))
+        @test !occursin("UInt128", k64_typed_text)
+        @test !occursin("BigInt", k64_typed_text)
+        @test !occursin(r"\bi128\b", k64_llvm_text)
+        k64_next, k64_value = rand_next(rng, K64_RANGE)
+        @test Array(k64_values) == [k64_value, rand(k64_next, K64_RANGE)]
     end
 
 end
@@ -681,6 +719,17 @@ end
     empty_profile = CUDA.@profile raw = true rand_next!(rng, empty)
     @test count(value -> !ismissing(value), empty_profile.device.grid) == 0
 
+    empty_normal = CUDA.CuArray{Float32}(undef, 0)
+    @test_throws TypeError randn_next!(rng, empty_normal; threaded = 1)
+    @test randn!(rng, empty_normal) === empty_normal
+    empty_normal_next, returned_normal = randn_next!(rng, empty_normal)
+    @test returned_normal === empty_normal
+    @test empty_normal_next.position == rng.position
+    for operation in (randn!, randn_next!)
+        empty_normal_profile = CUDA.@profile raw = true operation(rng, empty_normal)
+        @test count(value -> !ismissing(value), empty_normal_profile.device.grid) == 0
+    end
+
     exhausted = IR._rebuild(rng, _terminal(rng), rng.device)
     for destination in (fill(UInt32(0xdeadbeef), 4), BitVector([true, false, true, false])),
         operation in (rand!, rand_next!)
@@ -696,6 +745,22 @@ end
         @test sprint(showerror, error) ==
               "ArgumentError: destination device differs from the generator device"
         @test destination == before_values
+    end
+
+    wrong_normal = fill(-123.5f0, 4)
+    for operation in (randn!, randn_next!)
+        before_values = copy(wrong_normal)
+        @test_throws TypeError operation(exhausted, wrong_normal; threaded = 1)
+        error = try
+            operation(exhausted, wrong_normal)
+            nothing
+        catch caught
+            caught
+        end
+        @test error isa ArgumentError
+        @test sprint(showerror, error) ==
+              "ArgumentError: destination device differs from the generator device"
+        @test wrong_normal == before_values
     end
 
     nonempty = CUDA.CuArray{UInt32}(undef, 1024)
