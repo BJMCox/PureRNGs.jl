@@ -31,5 +31,6 @@ include("uniform.jl")
 include("uniform_allocating.jl")
 include("normal.jl")
 include("integers.jl")
+include("range_allocating.jl")
 
 end # module PureRNGs
