@@ -22,9 +22,11 @@ export Philox2x32,
 include("philox.jl")
 include("threefry.jl")
 include("families.jl")
+include("cpu_allocation.jl")
 include("bits.jl")
 include("derive.jl")
 include("uniform.jl")
+include("uniform_allocating.jl")
 include("integers.jl")
 
 end # module PureRNGs
