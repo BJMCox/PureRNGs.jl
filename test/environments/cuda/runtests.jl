@@ -1061,7 +1061,7 @@ end
         Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0],
     )
     fold_rng = device(Philox4x32(0x9750))
-    _, fold_total = IR._prepare_weights(fold_rng, fold_weights, false)
+    _, fold_total, _ = IR._prepare_weight_scan(fold_rng, fold_weights, false)
     fold_total_host = only(Array(fold_total))
     @test reinterpret(UInt64, fold_total_host) == 0x4340000000000000
     @test IR._weighted_threshold(fold_rng, fold_rng.position, fold_total_host) ==
@@ -1073,15 +1073,24 @@ end
         randsample(fold_rng, CUDA.CuArray(Int32[10, 20, 30, 40]), fold_weights, 1),
     ) == Int32[10]
     scan_destination = CUDA.CuArray{Int32}(undef, 1)
+    scan_weights = CUDA.CuArray(Float64[0x1p53, 1.0, 1.0, 2.0])
+    _, _, scan_cumulative = IR._prepare_weight_scan(range_rng, scan_weights, false)
+    @test reinterpret.(UInt64, Array(scan_cumulative)) == UInt64[
+        0x4340000000000000,
+        0x4340000000000000,
+        0x4340000000000000,
+        0x4340000000000001,
+    ]
     IR._with_device(range_rng.device) do
         backend = IR._fill_backend(scan_destination)
         IR._launch_weighted_scan!(
             range_rng.device,
             backend,
             CUDA.CuArray(Int32[10, 20, 30, 40]),
-            CUDA.CuArray(Float64[0x1p53, 1.0, 1.0, 2.0]),
+            scan_weights,
             CUDA.CuArray(Float64[0x1p53]),
             CUDA.CuArray([1]),
+            scan_cumulative,
             scan_destination,
         )
     end

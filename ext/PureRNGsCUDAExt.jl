@@ -53,63 +53,82 @@ end
     return order
 end
 
-KernelAbstractions.@kernel function _weighted_select_sorted_kernel!(
-    population,
-    weights,
-    sorted_thresholds,
-    selected,
+KernelAbstractions.@kernel function _prepare_cumulative_weights_kernel!(
+    source,
+    total_result,
+    invalid_result,
+    cumulative,
+    validate_elements,
 )
     if KernelAbstractions.@index(Global, Linear) == 1
-        IR._scan_weighted!(
-            population,
-            weights,
-            sorted_thresholds,
-            Base.OneTo(length(sorted_thresholds)),
-            selected,
+        IR._convert_and_fold_weights!(
+            source,
+            nothing,
+            total_result,
+            invalid_result,
+            cumulative,
+            validate_elements,
         )
     end
 end
 
-KernelAbstractions.@kernel function _weighted_gather_thresholds_kernel!(
-    thresholds,
-    order,
-    sorted_thresholds,
-)
-    index = KernelAbstractions.@index(Global, Linear)
-    @inbounds sorted_thresholds[index] = thresholds[order[index]]
+function IR._prepare_weight_scan(rng::_CUDAFamily, weights, agnostic::Bool)
+    source =
+        agnostic ? IR._transfer_weights(rng.device, IR._collect_weights(weights)) : weights
+    cumulative = IR._allocate_array(rng.device, Float64, (length(source),))
+    total_result = IR._allocate_array(rng.device, Float64, (1,))
+    invalid_result = IR._allocate_array(rng.device, Bool, (1,))
+    IR._with_device(rng.device) do
+        backend = IR._fill_backend(cumulative)
+        _prepare_cumulative_weights_kernel!(backend)(
+            source,
+            total_result,
+            invalid_result,
+            cumulative,
+            Val(!agnostic);
+            ndrange = 1,
+        )
+    end
+    only(Array(invalid_result)) && IR._invalid_weights()
+    return nothing, total_result, cumulative
 end
 
-KernelAbstractions.@kernel function _weighted_scatter_kernel!(selected, order, destination)
+KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
+    population,
+    cumulative,
+    thresholds,
+    order,
+    destination,
+)
     index = KernelAbstractions.@index(Global, Linear)
-    @inbounds destination[order[index]] = selected[index]
+    threshold = @inbounds thresholds[order[index]]
+    lower = 1
+    upper = length(cumulative)
+    @inbounds while lower < upper
+        middle = lower + ((upper - lower) >>> 1)
+        if threshold < cumulative[middle]
+            upper = middle
+        else
+            lower = middle + 1
+        end
+    end
+    @inbounds destination[order[index]] = IR._population_value(population, UInt64(lower))
 end
 
 @inline function IR._launch_weighted_scan!(
     ::IR._CUDABackend,
     backend,
     population,
-    weights,
+    _weights,
     thresholds,
     order,
+    cumulative,
     destination,
 )
-    sorted_thresholds = similar(thresholds)
-    _weighted_gather_thresholds_kernel!(backend)(
-        thresholds,
-        order,
-        sorted_thresholds;
-        ndrange = length(thresholds),
-    )
-    selected = similar(destination)
-    _weighted_select_sorted_kernel!(backend)(
+    _weighted_binary_search_kernel!(backend)(
         population,
-        weights,
-        sorted_thresholds,
-        selected;
-        ndrange = 1,
-    )
-    _weighted_scatter_kernel!(backend)(
-        selected,
+        cumulative,
+        thresholds,
         order,
         destination;
         ndrange = length(destination),

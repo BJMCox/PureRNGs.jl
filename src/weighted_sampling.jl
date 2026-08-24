@@ -30,6 +30,31 @@ function _prepare_weights(rng::_CPUFamily, weights, agnostic::Bool)
     return converted, total
 end
 
+@inline function _convert_and_fold_weights!(
+    source,
+    converted,
+    total_result,
+    invalid_result,
+    cumulative,
+    ::Val{validate_elements},
+) where {validate_elements}
+    total = zero(Float64)
+    invalid = false
+    @inbounds for ordinal = 1:length(source)
+        weight = Float64(_population_value(source, UInt64(ordinal)))
+        converted === nothing || (converted[ordinal] = weight)
+        invalid |= validate_elements && (!isfinite(weight) || weight < zero(Float64))
+        total += weight
+        cumulative === nothing || (cumulative[ordinal] = total)
+    end
+    invalid |= !isfinite(total) || total <= zero(Float64)
+    @inbounds begin
+        total_result[1] = total
+        invalid_result[1] = invalid
+    end
+    return converted
+end
+
 KernelAbstractions.@kernel function _prepare_weights_kernel!(
     source,
     converted,
@@ -37,17 +62,14 @@ KernelAbstractions.@kernel function _prepare_weights_kernel!(
     invalid_result,
 )
     if @index(Global, Linear) == 1
-        total = zero(Float64)
-        invalid = false
-        @inbounds for ordinal = 1:length(converted)
-            weight = Float64(_population_value(source, UInt64(ordinal)))
-            converted[ordinal] = weight
-            invalid |= !isfinite(weight) || weight < zero(Float64)
-            total += weight
-        end
-        invalid |= !isfinite(total) || total <= zero(Float64)
-        total_result[1] = total
-        invalid_result[1] = invalid
+        _convert_and_fold_weights!(
+            source,
+            converted,
+            total_result,
+            invalid_result,
+            nothing,
+            Val(true),
+        )
     end
 end
 
@@ -101,6 +123,11 @@ function _prepare_weights(rng, weights, agnostic::Bool)
     invalid = only(Array(invalid_result))
     invalid && _invalid_weights()
     return converted, total_result
+end
+
+@inline function _prepare_weight_scan(rng, weights, agnostic::Bool)
+    converted, total = _prepare_weights(rng, weights, agnostic)
+    return converted, total, nothing
 end
 
 @inline function _weighted_threshold(rng, position, total::Float64)
@@ -198,6 +225,26 @@ end
 end
 
 @inline function _launch_weighted_scan!(
+    _device,
+    backend,
+    population,
+    weights,
+    thresholds,
+    order,
+    cumulative,
+    destination,
+)
+    return _launch_weighted_scan!(
+        backend,
+        population,
+        weights,
+        thresholds,
+        order,
+        destination,
+    )
+end
+
+@inline function _launch_weighted_scan!(
     backend,
     population,
     weights,
@@ -216,25 +263,6 @@ end
     return destination
 end
 
-@inline function _launch_weighted_scan!(
-    device,
-    backend,
-    population,
-    weights,
-    thresholds,
-    order,
-    destination,
-)
-    return _launch_weighted_scan!(
-        backend,
-        population,
-        weights,
-        thresholds,
-        order,
-        destination,
-    )
-end
-
 function _randsample_next_weighted(rng, population, weights, requested_count)
     population_agnostic = _check_population_device(rng, population)
     weights_agnostic = _check_sampling_device(rng, weights, "weights")
@@ -249,7 +277,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     UInt64(length(weights)) == cardinality ||
         throw(ArgumentError("weight length differs from the population cardinality"))
 
-    converted, total = _prepare_weights(rng, weights, weights_agnostic)
+    converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, count, _WEIGHT_BITS)
     destination = _allocate_sampling_result(rng, indexed, count)
     isempty(destination) && return next_rng, destination
@@ -266,6 +294,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
             converted,
             thresholds,
             order,
+            cumulative,
             destination,
         )
     end
