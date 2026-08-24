@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 13
+Status: normative specification, revision 14
 Date: 2026-08-24
 
 ## 1. Reading rules
@@ -44,10 +44,11 @@ advanced position.
 - [R4] `AbstractPureRNG` is the sole immutable-generator supertype.
   The eight family types directly subtype it; no intermediate Philox or
   Threefry abstract type exists. Every family type is an immutable `isbits`
-  struct parameterized by device. Its contents are the native key words, the
-  [R53] counter position, and the [R38] `isbits` MLDataDevices device value.
-  Construction uses `CPUDevice()`. The binding never influences stream
-  values.
+  struct parameterized by device. Its contents are the native key words,
+  the [R53] counter position, and the [R38] package-owned `isbits`
+  backend token. No foreign device object is ever stored, so the struct
+  is `isbits` for every backend. Construction binds the CPU token. The
+  binding never influences stream values.
 - [R5] Draws are pure: the same call on the same generator returns the same
   values on every call and every backend, subject only to [R43]. A pure draw
   reads the held position and leaves the generator unchanged.
@@ -74,7 +75,7 @@ advanced position.
   testbed values: `DERIVE_TAG = 0xC0FFEE00`, `SPLIT_SUBTAG = 0x00000000`,
   `FOLD_SUBTAG = 0x00000001`, `THREEFRY_FOLD_INDEX = 0xffffffff` (the
   narrow-layout fold namespace), family words as in `src/families.jl`.
-  These values are frozen for the life of stream-law version 2.
+  These values are frozen for the life of stream-law version 3.
 - [R10] Family words and derivation-region indices not assigned by this
   document are reserved by the stream law and MUST stay unassigned in
   version 0, so later stream-law-compatible extensions can claim them.
@@ -275,7 +276,9 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   `Float32(k) * Float32(0x1p-24)`. Uniform `Float64` consumes 53 bits and
   returns `Float64(k) * 0x1p-53`. Here `k` is the extracted unsigned integer.
   Uniform floats therefore lie in [0, 1). The `Bool` rule governs scalar
-  values, `Array{Bool}`, and `BitArray` fills.
+  values, `Array{Bool}`, and `BitArray` fills. `BitArray` is host
+  storage, so a `BitArray` fill requires a CPU-bound generator; on a
+  device-bound generator the [R39] destination-device check throws.
 - [R26] Shape stability: for every generator, result type, and `m <= n`,
   `rand(rng, T, n)[1:m] == rand(rng, T, m)` holds bitwise, and
   `vec(rand(rng, T, a, b)) == rand(rng, T, a*b)`. Same for `randn` and
@@ -413,7 +416,11 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   automatically.
 - [R54] A fixed-size draw computes its full [R53] bit reservation with
   checked [R30] `UInt64`-limb arithmetic before generating a value or
-  mutating a destination. It throws `ArgumentError` if the reservation
+  mutating a destination. This binds every method the package owns. A
+  foreign `Random` fill method reaching the [R34] bridge hooks is a
+  chain of scalar draws, each preflighting only its own span; the [R34]
+  partial-write statement is the sole exemption. A fixed-size draw
+  throws `ArgumentError` if the reservation
   exceeds the family region. A zero-size draw succeeds at every position,
   including exhaustion,
   provided its result type and family are serviceable on the generator's
@@ -442,10 +449,18 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   relative preimage bias is below `2^-32` for the 64-bit path and below
   `2^-64` for the 128-bit path.
   Empty ranges throw `ArgumentError`.
-- [R50] Statistical quality: the bits and uniform streams of every family
-  pass TestU01 SmallCrush at minimum on the release architecture, run on
-  sequential output and on `splitrng`-child interleavings. A failure
-  blocks release.
+- [R50] Statistical quality: every family passes TestU01 SmallCrush at
+  minimum under this pinned configuration. TestU01 version: 1.2.3.
+  Root generator: `F(12345)`.
+  Bits stream: the `UInt32` draw sequence, fed to TestU01 as 32-bit
+  integers. Uniform stream: the uniform `Float64` draw sequence, fed as
+  doubles. Sequential run: the root generator's continuation chain.
+  Interleaved run: the eight children of `splitrng(root, 8)`,
+  round-robin, one value per child per turn in child order. The matrix
+  is every family times {bits, uniform} times {sequential, interleaved}.
+  Release architecture: the x86-64 Linux CPU release runner. The run
+  log — the driver package and its version, configuration, and every
+  p-value — is committed in-repo. A failure blocks release.
 
 ## 6. Sampling with replacement
 
@@ -476,14 +491,20 @@ randsample_next(rng::R, iter,
   `MLDataDevices.get_device(iter)` equals the generator device or returns
   `nothing`. `nothing` means device-agnostic and is compatible with every
   generator device; `AbstractRange` has this status. Any other device result
-  throws `ArgumentError` before generation. Vectors are indexed directly.
-  Integer unit and stepped ranges are mapped by position without
+  throws `ArgumentError` before generation. Every `AbstractArray`
+  population is indexed directly by ordinal: population position `p`
+  selects the element at the `p`-th index of the array's native
+  `eachindex` iteration order, for any dimensionality and any axis
+  offsets. For a one-based linear-indexed array this is linear index
+  `p`. Integer unit and stepped ranges are mapped by position without
   materialization. Every other device-agnostic iterable is materialized
-  exactly once on the generator device. The result is allocated on that
-  device and its element type comes from the indexed or materialized
-  population. Population cardinality MUST fit a positive
-  `UInt64` when a sample is requested. A no-`k` form additionally requires
-  cardinality to fit `Int` because it returns that many elements.
+  exactly once on the generator device and then indexed the same way. A
+  population that is neither an `AbstractArray` nor device-agnostic
+  throws `ArgumentError` before generation. The result is allocated on the generator device and its
+  element type comes from the indexed or materialized population.
+  Population cardinality MUST fit a positive `UInt64` when a sample is
+  requested. A no-`k` form additionally requires cardinality to fit
+  `Int` because it returns that many elements.
 - [R58] Unweighted sampling uses the fixed-work [R55] range reduction to
   select a zero-based population index in O(k). Population sizes through
   `2^32` consume 64 bits per sample and use the [R55] 64-bit multiply-high
@@ -543,12 +564,33 @@ randsample_next(rng::R, iter,
   `Random.rand(m::StatefulRNG, ::Random.SamplerType{UInt64})`,
   `Random.rand(m::StatefulRNG, ::Random.SamplerTrivial{Random.CloseOpen01{Float32}})`,
   `Random.rand(m::StatefulRNG, ::Random.SamplerTrivial{Random.CloseOpen01{Float64}})`.
-  The package also defines only the required
+  The package also defines exactly two range `Sampler` methods for the
+  [R55] integer element types —
   `Random.Sampler(::Type{<:StatefulRNG}, range::AbstractRange{T},
-  ::Random.Repetition)` forwarding for [R55] integer types and the matching
+  ::Random.Repetition)` and its dispatch-disambiguating intersection
+  `Random.Sampler(::Type{<:StatefulRNG}, range::AbstractUnitRange{T},
+  ::Random.Repetition)`, with identical behavior — and the matching
   `Random.rand(m::StatefulRNG, sampler)` method. Normal draws bypass
-  `Sampler`. These hooks are exempt from [R1] and MUST NOT widen behavior
-  beyond this section.
+  `Sampler`. The owned fill methods are
+  `Random.rand!(m::StatefulRNG, A::Array{T})` and
+  `Random.randn!(m::StatefulRNG, A::Array{T})` for the section 5 result
+  types, plus `Random.rand!(m::StatefulRNG, B::BitArray)`, which
+  overrides Base's `UInt64`-chunk `BitArray` specialization and
+  preserves the [R25] one-bit-per-`Bool` rule. Concrete destination
+  types foreclose ambiguity with foreign `AbstractRNG` fill methods.
+  These owned fills preflight their full reservation atomically ([R54])
+  and equal chained scalar continuations. Any other destination type
+  dispatches through `Random`'s public machinery: uniform, `Bool`, and
+  integer fills reach the five hooks, and normal fills loop the owned
+  scalar `randn(m, T)`. Every bit such a foreign method consumes is a
+  bridge draw obeying the stream law, but the package does not promise
+  chained-scalar consumption order for foreign fill methods, and on
+  counter exhaustion mid-fill the destination MAY be partially written
+  while the held generator stays valid at the position after the last
+  successful draw (the sole [R54] exemption). The documentation states
+  this. The bridge method set MUST be free of dispatch ambiguities
+  against Base and Random. These hooks are exempt from [R1] and MUST
+  NOT widen behavior beyond this section.
 - [R35] `copy(m)` returns an independent wrapper with the same held
   generator, giving exact replay.
 
@@ -568,10 +610,22 @@ rng = dev(Philox4x32(1234))
 xs  = rand(rng, Float32, 1_000_000)   # device array
 ```
 
-- [R38] Applying an MLDataDevices device binds a generator to that device.
-  The generator is `isbits`, so binding moves no data. `splitrng`, `subrng`,
-  and every continuation preserve the binding. Applying another device
-  preserves the key and position and changes only the binding.
+- [R38] The binding is a package-owned, zero-size, `isbits` backend
+  token with exactly four values: CPU, CUDA, AMDGPU, Metal. Applying an
+  MLDataDevices `CPUDevice`, `CUDADevice`, `AMDGPUDevice`, or
+  `MetalDevice` value — named or unnamed, any type parameters — sets the
+  token for that backend. A physical device handle or eltype adaptor
+  inside the applied value is discarded: physical placement of
+  allocations and launches follows the backend's active device at call
+  time, and the documentation directs multi-GPU ordinal selection to the
+  backend's own mechanism (for example `CUDA.device!`). Applying any
+  other MLDataDevices device type throws `ArgumentError` (section 11).
+  Every device-equality requirement in this document — [R39]
+  destinations, [R57] populations, [R59] weights — means backend
+  equality, decided by `MLDataDevices.get_device_type`. The generator is
+  `isbits`, so binding moves no data. `splitrng`, `subrng`, and every
+  continuation preserve the binding. Applying another supported device
+  preserves the key and position and changes only the token.
 - [R39] Placement invariant: device-closed for data, host-transparent for
   logical state. Section 5 allocating draws on a device-bound generator
   return arrays allocated on that device and generate every value there.
@@ -596,22 +650,36 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   enqueueing work with its queue ordering.
 - [R41] Backend tiers. CPU and CUDA pass the full section 13 suite and
   block release. AMDGPU is a preview: the suite runs and failures are
-  documented without blocking. Metal is experimental and serves the 32-bit
-  families with `Bool`, `UInt32`, `UInt64`, and `Float32` results. On a
-  Metal-bound generator, allocating draws, destination fills, and
-  Metal-kernel draws throw `ArgumentError` (section 11) for `Float64`
-  results or 64-bit-word families: Metal has no `Float64`, the 64-bit
-  Philox multiplies need 128-bit emulation Metal.jl lacks, and the 64-bit
-  Threefry integer paths are unvalidated on Metal.jl and excluded pending
-  validation. Host-side scalar draws follow [R39] regardless of binding.
-  The exclusion applies before size checks: a zero-size allocating draw,
-  fill, or kernel draw for an excluded result type or 64-bit-word family
-  throws the same `ArgumentError`.
-- [R42] Reactant: the generator representation traces under
-  `Reactant.@compile` as data, so a changed key or position does not force a
-  recompile. A compilation test gates release. If a plain `isbits` value
-  fails the test, the Reactant extension provides a traced carrier with
-  unchanged stream values.
+  documented without blocking. Metal is experimental. On a Metal-bound
+  generator the device-executing operations — allocating draws,
+  destination fills, and every `randsample` form — are served only as
+  primitive `Bool`, `UInt32`, `UInt64`, and `Float32` draws and fills,
+  uniform and normal, on 32-bit families. Every other device-executing
+  request throws `ArgumentError` (section 11): `Float64` results,
+  64-bit-word families, every allocating integer-range draw, and every
+  `randsample` form. Metal has no `Float64`, the 64-bit Philox
+  multiplies need 128-bit emulation Metal.jl lacks, the 64-bit Threefry
+  integer paths and the [R55] range reductions are unvalidated on
+  Metal.jl, and [R59] weighted sampling requires `Float64` — all
+  excluded pending validation. Host-computing operations are never
+  excluded by binding: scalar draws, scalar range draws, scalar
+  continuations, `randat`, `randnat`, `splitrng`, and `subrng` follow
+  [R39] and run as host arithmetic on a Metal-bound generator for every
+  result type and family. The exclusion applies before size checks: a
+  zero-size excluded device-executing request throws the same
+  `ArgumentError`. The `ArgumentError` contract binds host-called API.
+  A scalar draw compiled inside a user device kernel cannot throw a
+  host error; an excluded type there fails through the backend compiler
+  or `Metal.KernelException`, which [R47] classifies as a backend
+  failure, not a contract error.
+- [R42] Reactant: a function taking a generator argument compiles under
+  `Reactant.@compile`, and the compiled draws, continuations, and
+  derivations equal their eager values bitwise, subject only to [R43].
+  This gates release. Version 0 does not require keys or positions to
+  trace as data: Reactant MAY close over them as compile-time constants,
+  so a changed key or position MAY trigger recompilation. The
+  documentation states this limitation and recommends hoisting
+  compilation outside key- or position-varying loops.
 
 ## 9. Cross-backend guarantees
 
@@ -638,7 +706,7 @@ composition of stream-law rules — [R26] batch and mixed-type sequencing,
 prefix stability — are consistency laws. They introduce no value of their
 own. A change to one that changes any value changes a listed stream-law rule.
 
-- [R44] This closed set is stream-law version 2. Any change to a
+- [R44] This closed set is stream-law version 3. Any change to a
   value-determining rule requires a new stream-law version.
 
 ## 11. Errors, closed list
@@ -660,12 +728,13 @@ The complete set of public-API throws:
 | `randsample`/`randsample_next` | positive population cardinality exceeds `typemax(UInt64)`, or a no-`k` result length exceeds `typemax(Int)` | `ArgumentError` |
 | weighted `randsample`/`randsample_next` | weight-length mismatch, non-finite or negative weight, or non-finite or non-positive total | `ArgumentError` |
 | weighted `randsample`/`randsample_next` | weights are not a raw `AbstractVector{<:Real}` | `MethodError` (no method) |
-| `randsample`/`randsample_next` | population has a non-agnostic device differing from the generator device | `ArgumentError` |
+| `randsample`/`randsample_next` | population has a non-agnostic device differing from the generator device, or is neither an `AbstractArray` nor device-agnostic | `ArgumentError` |
 | weighted `randsample`/`randsample_next` | weights have a non-agnostic device differing from the generator device | `ArgumentError` |
 | `rand!`/`randn!` and continuation forms | destination device differs from generator device | `ArgumentError` |
 | `rand!`/`randn!` and continuation forms | `threaded` is not a `Bool` | `TypeError` |
 | primitive draw or fill | result type or destination eltype is not a result type | `MethodError` (no method) |
-| allocating draw, fill, or kernel draw on Metal | `Float64` result or 64-bit-word family, any size including zero ([R41]) | `ArgumentError`, names Metal |
+| device-executing operation on Metal: allocating draw, destination fill, allocating range draw, or sampling | excluded by the [R41] Metal served set, any size including zero | `ArgumentError`, names Metal |
+| MLDataDevices device application to a generator | device type outside `CPUDevice`, `CUDADevice`, `AMDGPUDevice`, `MetalDevice` | `ArgumentError` |
 | `Random.AbstractRNG` consumer on an immutable generator | any such call | `MethodError` (designed, [R31]) |
 
 - [R47] The public API throws exactly these deterministic contract errors.
@@ -710,7 +779,8 @@ the R41 preview tier and do not block.
 | AS241 audit: coefficient tuples, exact typed midpoint endpoints, and central, moderate-tail, and extreme-tail branches | R28, R43 | CPU+CUDA |
 | Seed mapping values and bounds sweep | R15, R16 | CPU |
 | Construction gives CPU binding and zero position; flat concrete `isbits` hierarchy | R4, R14 | CPU |
-| `Bool` scalar, array, `BitArray`, and continuation agreement | R25, R26 | CPU+CUDA |
+| `Bool` scalar, array, and continuation agreement | R25, R26 | CPU+CUDA |
+| `BitArray` fill agreement and device-bound rejection | R25, R39 | CPU |
 | Shape and prefix stability: several dims, all families and result types | R26 | CPU+CUDA |
 | Batch continuation equals chained scalar continuation with exact mixed-type bit advances and no gaps | R24, R26, R53, R62 | CPU+CUDA |
 | Ordinary and serial CPU fills agree for every family and result type; a write-task probe confirms serial fills run on the caller task; serial fills preserve preflight, avoid backend lookup and tasks, infer, and allocate zero where viable | R1, R26, R39, R40, R49 | CPU |
@@ -736,13 +806,13 @@ the R41 preview tier and do not block.
 | Wrong-device destination, population, and weights throw before generation; device-agnostic ranges work | R39, R57, R59 | CUDA |
 | Validated empty fill launches no kernel and keeps the position; validation order is `threaded` type, device, serviceability, size | R40 | CPU+CUDA |
 | Metal exclusion errors, including zero-size requests | R41, R54 | Metal |
-| Reactant: changed keys and positions use one compilation | R42 | Reactant |
+| Reactant-compiled draws, continuations, and derivations equal eager values | R42 | Reactant |
 | Export list equals [R48] exactly | R48 | CPU |
 | Dependency and extension audit equals R36-R37 | R36, R37 | CPU |
 | Reserved-tag audit: every assigned tag and family word equals R9-R10 | R9, R10 | CPU |
-| Stream-law closed-list audit identifies version 2 and every value-determining rule | R44 | CPU |
+| Stream-law closed-list audit identifies version 3 and every value-determining rule | R44 | CPU |
 | Error audit: deterministic public throws equal section 11 exactly | R47 | CPU |
-| Statistical suite: SmallCrush minimum, bits and uniform, per family, sequential and split-interleaved | R50 | CPU |
+| Statistical suite: SmallCrush minimum under the [R50] pinned configuration, with the committed run log | R50 | CPU |
 
 ## 14. References
 
