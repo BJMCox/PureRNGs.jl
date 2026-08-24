@@ -151,26 +151,14 @@ end
 end
 
 @testset "R13 derivation golden vectors" begin
-    # Philox4x32 and Threefry2x32 were captured from testbed commit
-    # 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d.
-    # The other families are frozen vectors from the revision 9 stream law.
+    # The six families outside the pinned testbed scope carry revision-9 vectors here.
+    # The two pinned-testbed families and their provenance live in oracle_conformance.jl.
     cases = (
         (
             Philox2x32((0x01234567,)),
             ((0x9830e21c,), (0xb1b55909,), (0xf95ec6ee,), (0x5a2a623f,)),
             (0x4a675769,),
             (0x885a87e9,),
-        ),
-        (
-            Philox4x32((0x01234567, 0x89abcdef)),
-            (
-                (0x730767c8, 0x34b3bda3),
-                (0x36485763, 0x4591f4ae),
-                (0x5e5aa077, 0x1242f338),
-                (0x1367c2c5, 0xc4916029),
-            ),
-            (0xaeb2701f, 0xaf683b45),
-            (0xcf578767, 0xb4b42840),
         ),
         (
             Philox2x64((0x0123456789abcdef,)),
@@ -193,17 +181,6 @@ end
             ),
             (0x04e6f77d1469f19a, 0x868e4c489c3d9f1a),
             (0x3bedff3a0e54ebae, 0x19b88669e9d9140b),
-        ),
-        (
-            Threefry2x32((0x01234567, 0x89abcdef)),
-            (
-                (0x011ac086, 0x5205f808),
-                (0xcb2fd2f2, 0xc0f6498c),
-                (0xb8d80ff1, 0xe876ab70),
-                (0x62f19539, 0x0e413987),
-            ),
-            (0x920e1914, 0x6fc51759),
-            (0x96551a73, 0x5c4b7b9a),
         ),
         (
             Threefry4x32((0x01234567, 0x89abcdef, 0xfedcba98, 0x76543210)),
@@ -283,10 +260,6 @@ end
 
     @test PureRNGs._derive_child(Philox2x32((0x01234567,)), UInt64(0xfffffffe)).key ==
           (0xc6dcc08a,)
-    @test PureRNGs._derive_child(
-        Threefry2x32((0x01234567, 0x89abcdef)),
-        UInt64(0xfffffffe),
-    ).key == (0x4a0bb8c6, 0xc9211a0e)
 end
 
 @testset "R21 request forms and bounds" begin
