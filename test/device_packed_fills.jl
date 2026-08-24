@@ -19,6 +19,7 @@ function _packed_cooperative_values(
     width,
     family,
     codec,
+    kernel = PackedDeviceIR._fill_cooperative_kernel!,
 ) where {T}
     outputs, workgroup = cooperative
     output_count = PackedDeviceIR._fill_group_size(outputs)
@@ -26,7 +27,7 @@ function _packed_cooperative_values(
     count = output_count + 3
     destination = Vector{T}(undef, count)
     groups = cld(count, output_count)
-    PackedDeviceIR._fill_cooperative_kernel!(PackedDeviceKA.CPU())(
+    kernel(PackedDeviceKA.CPU())(
         rng,
         destination,
         T,
@@ -56,6 +57,17 @@ end
         )
         @test destination == _reference_chain(rng, T, length(destination))[2]
     end
+
+    destination = _packed_cooperative_values(
+        rng,
+        Float32,
+        PackedDeviceIR._cooperative_uniform_fill(rng, Float32),
+        UInt16(24),
+        PackedDeviceIR.FAMILY_BITS,
+        Val(:uniform),
+        PackedDeviceIR._fill_cooperative_float32_kernel!,
+    )
+    @test destination == _reference_chain(rng, Float32, length(destination))[2]
 
     for T in (Float32, Float64)
         cooperative = PackedDeviceIR._cooperative_normal_fill(rng, T)

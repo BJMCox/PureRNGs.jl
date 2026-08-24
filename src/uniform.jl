@@ -701,6 +701,68 @@ KernelAbstractions.@kernel function _fill_cooperative_kernel!(
     end
 end
 
+@inline function _local_float32_bits(storage, bit::Int)
+    lane = (bit >> 5) + 1
+    word_bit = bit & 31
+    first = @inbounds storage[lane]
+    available = 32 - word_bit
+    if 24 <= available
+        return UInt64((first >> (available - 24)) & UInt32(0x00ffffff))
+    end
+    remaining = 24 - available
+    second = @inbounds storage[lane+1]
+    mask = typemax(UInt32) >> (32 - available)
+    return UInt64(((first & mask) << remaining) | (second >> (32 - remaining)))
+end
+
+KernelAbstractions.@kernel function _fill_cooperative_float32_kernel!(
+    rng::Philox4x32,
+    destination,
+    ::Type{Float32},
+    ::Val{W},
+    ::Val{O},
+    ::Val{L},
+    ::UInt32,
+    ::Val{:uniform},
+) where {W,O,L}
+    group = @index(Group, Linear)
+    lane = @index(Local, Linear)
+    first = (group - 1) * O + 1
+    outputs = min(O, length(destination) - first + 1)
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), UInt16(24))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    blocks = cld(Int(position.bit) + outputs * 24, 128)
+    shared = @localmem UInt32 (4 * cld(127 + O * 24, 128),)
+
+    block_offset = lane - 1
+    while block_offset < blocks
+        words = _block(rng, FAMILY_BITS, position.block + UInt64(block_offset))
+        @inbounds begin
+            shared[4block_offset+1] = words[1]
+            shared[4block_offset+2] = words[2]
+            shared[4block_offset+3] = words[3]
+            shared[4block_offset+4] = words[4]
+        end
+        block_offset += L
+    end
+    @synchronize
+
+    write_group = @index(Group, Linear)
+    write_lane = @index(Local, Linear)
+    write_first = (write_group - 1) * O + 1
+    write_outputs = min(O, length(destination) - write_first + 1)
+    write_bits_lo, write_bits_hi = _bit_span(UInt64(write_first - 1), UInt16(24))
+    write_position = _advance_position_unchecked(rng, write_bits_lo, write_bits_hi)
+    output = write_lane - 1
+    while output < write_outputs
+        raw = _local_float32_bits(shared, Int(write_position.bit) + output * 24)
+        @inbounds destination[write_first+output] = _from_bits(Float32, raw)
+        output += L
+    end
+end
+
+@inline _cooperative_fill_kernel(backend, rng, T, codec) = _fill_cooperative_kernel!
+
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
 const _CPU_FILL_MIN_WORKITEMS = 4
 
@@ -778,7 +840,7 @@ end
     output_count = _fill_group_size(outputs)
     workgroup_size = _fill_group_size(workgroup)
     groups = cld(length(destination), output_count)
-    _fill_cooperative_kernel!(backend)(
+    _cooperative_fill_kernel(backend, rng, T, codec)(backend)(
         rng,
         destination,
         T,

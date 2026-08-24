@@ -47,6 +47,13 @@ end
     return IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
 end
 
+@inline IR._cooperative_fill_kernel(
+    ::CUDA.CUDABackend,
+    ::IR.Philox4x32,
+    ::Type{Float32},
+    ::Val{:uniform},
+) = IR._fill_cooperative_float32_kernel!
+
 @inline function (device::_NamedCUDADevice)(rng::IR.AbstractPureRNG)
     return IR._rebuild(rng, rng.position, device)
 end
