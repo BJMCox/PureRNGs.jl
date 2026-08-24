@@ -112,12 +112,6 @@ end
     return nothing
 end
 
-@inline _fill_uniform_unchecked!(rng, destination, ::Type{T}, indices) where {T} =
-    _fill_uniform_unchecked!(rng, rng.position, destination, T, indices)
-
-@inline _fill_uniform_unchecked!(rng, destination, ::Type{T}) where {T} =
-    _fill_uniform_unchecked!(rng, destination, T, eachindex(destination))
-
 # Fill-local cursor; public callers preflight the complete span before unchecked use.
 struct _DenseBitCursor{B,L}
     block::B
