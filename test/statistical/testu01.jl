@@ -215,12 +215,13 @@ function _run_case!(
     ACTIVE_STATE[] = _driver_state(F, schedule)
     name = join((battery, _family_name(F), stream, schedule), '/')
     GC.@preserve name begin
-        generator = _create_generator(api, stream, name)
-        generator == C_NULL && error("TestU01 failed to create generator $name")
+        generator = C_NULL
         try
+            generator = _create_generator(api, stream, name)
+            generator == C_NULL && error("TestU01 failed to create generator $name")
             ccall(_battery_pointer(api, battery), Cvoid, (Ptr{Cvoid},), generator)
         finally
-            _delete_generator(api, stream, generator)
+            generator == C_NULL || _delete_generator(api, stream, generator)
             ACTIVE_STATE[] = nothing
         end
     end
