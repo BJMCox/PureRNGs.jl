@@ -20,6 +20,18 @@ const UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
 const NORMAL_TYPES = (Float32, Float64)
 const RANGE_TYPES = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
 
+mutable struct DeviceAgnosticWeights{T} <: AbstractVector{T}
+    values::Vector{T}
+    reads::Base.RefValue{Int}
+end
+
+Base.size(weights::DeviceAgnosticWeights) = size(weights.values)
+function Base.getindex(weights::DeviceAgnosticWeights, index::Int)
+    weights.reads[] += 1
+    return weights.values[index]
+end
+MLD.get_device(::DeviceAgnosticWeights) = nothing
+
 CUDA.functional() || error("CUDA is not functional")
 CUDA.allowscalar(false)
 
@@ -884,5 +896,177 @@ end
         _check_scalar(() -> randnat(rng, Float64, 2), Float64)
         _check_scalar(() -> subrng(rng, UInt64(0x71)), typeof(rng))
         _check_scalar(() -> splitrng(rng, Val(2)), NTuple{2,typeof(rng)})
+    end
+end
+
+@testset "CUDA weighted sampling values, residency, and validation" begin
+    cpu_population = reshape(collect(Int32(11):Int32(22)), 3, 4)
+    cpu_weights = Float64[0, 1, 7, 2, 0, 4, 3, 9, 1, 5, 0, 6]
+    gpu_population = CUDA.CuArray(cpu_population)
+    gpu_weights = CUDA.CuArray(cpu_weights)
+
+    for F in (Philox4x32, Threefry4x64)
+        cpu_rng = F(0x791)
+        gpu_rng = device(cpu_rng)
+        expected_next, expected = randsample_next(cpu_rng, cpu_population, cpu_weights, 17)
+        next_rng, values = randsample_next(gpu_rng, gpu_population, gpu_weights, 17)
+        @test values isa CUDA.CuArray{Int32,1}
+        @test _device_id(values) == CUDA.deviceid(primary)
+        @test Array(values) == expected
+        @test next_rng.position == expected_next.position
+        @test next_rng.device == gpu_rng.device
+        @test Array(randsample(gpu_rng, gpu_population, gpu_weights, 9)) == expected[1:9]
+
+        cursor = gpu_rng
+        chained = Int32[]
+        for _ = 1:17
+            cursor, value = randsample_next(cursor, gpu_population, gpu_weights, 1)
+            push!(chained, only(Array(value)))
+        end
+        @test chained == expected
+        @test cursor.position == next_rng.position
+
+        no_k_next, no_k = randsample_next(gpu_rng, gpu_population, gpu_weights)
+        cpu_no_k_next, cpu_no_k = randsample_next(cpu_rng, cpu_population, cpu_weights)
+        @test Array(no_k) == cpu_no_k
+        @test no_k_next.position == cpu_no_k_next.position
+
+        empty_next, empty = randsample_next(gpu_rng, gpu_population, gpu_weights, 0)
+        @test empty isa CUDA.CuArray{Int32,1}
+        @test isempty(empty)
+        @test empty_next.position == gpu_rng.position
+
+        last_rng = _last_draw_rng(gpu_rng, UInt16(53))
+        terminal, final_value = randsample_next(last_rng, gpu_population, gpu_weights, 1)
+        @test length(final_value) == 1
+        @test terminal.position == _terminal(gpu_rng)
+        @test_throws ArgumentError randsample(last_rng, gpu_population, gpu_weights, 2)
+        @test_throws ArgumentError randsample_next(last_rng, gpu_population, gpu_weights, 2)
+        @test last_rng.position.bit != IR._EXHAUSTED_BIT
+    end
+
+    range_population = UInt16(10):UInt16(3):UInt16(43)
+    range_weights = CUDA.fill(1.0, length(range_population))
+    range_rng = device(Philox4x32(0x792))
+    range_next, range_values =
+        randsample_next(range_rng, range_population, range_weights, 9)
+    cpu_range_next, cpu_range_values = randsample_next(
+        Philox4x32(0x792),
+        range_population,
+        ones(length(range_population)),
+        9,
+    )
+    @test Array(range_values) == cpu_range_values
+    @test range_next.position == cpu_range_next.position
+
+    agnostic_weights = 1:length(range_population)
+    agnostic_next, agnostic_values =
+        randsample_next(range_rng, range_population, agnostic_weights, 9)
+    cpu_agnostic_next, cpu_agnostic_values =
+        randsample_next(Philox4x32(0x792), range_population, agnostic_weights, 9)
+    @test agnostic_values isa CUDA.CuArray{UInt16,1}
+    @test Array(agnostic_values) == cpu_agnostic_values
+    @test agnostic_next.position == cpu_agnostic_next.position
+    @test_throws ArgumentError randsample(range_rng, UInt16(1):UInt16(3), -1:1, 2)
+
+    audit_population = UInt16(1):UInt16(13)
+    randsample(range_rng, audit_population, 1:13, 9)
+    counted_weights = DeviceAgnosticWeights(collect(Float32, 1:13), Ref(0))
+    profiled_result = Ref{Any}()
+    profile = CUDA.Profile.profile_internally(; concurrent = false, trace = true) do
+        profiled_result[] = randsample(range_rng, audit_population, counted_weights, 9)
+    end
+    @test counted_weights.reads[] == length(counted_weights)
+    @test profiled_result[] isa CUDA.CuArray{UInt16,1}
+    # The integrated profiler adds its own eight-byte H2D warm-up copy.
+    h2d_sizes = [
+        profile.device.size[index] for index in eachindex(profile.device.name) if
+        profile.device.name[index] == "[copy pageable to device memory]"
+    ]
+    d2h_sizes = [
+        profile.device.size[index] for index in eachindex(profile.device.name) if
+        profile.device.name[index] == "[copy device to pageable memory]"
+    ]
+    @test sort(h2d_sizes) == [8, sizeof(Float64) * length(counted_weights)]
+    @test d2h_sizes == [1]
+
+    converted, total = IR._prepare_weights(range_rng, 1:13, true)
+    @test converted isa CUDA.CuArray{Float64,1}
+    @test total isa CUDA.CuArray{Float64,1}
+    @test length(total) == 1
+    thresholds = CUDA.CuArray{Float64}(undef, 9)
+    destination = CUDA.CuArray{UInt16}(undef, 9)
+    IR._with_device(range_rng.device) do
+        backend = IR._fill_backend(thresholds)
+        IR._fill_weighted_thresholds!(backend, range_rng, total, thresholds)
+        frozen_thresholds = Array(thresholds)
+        order = IR._weighted_sortperm(range_rng.device, thresholds)
+        @test order isa CUDA.CuArray{Int,1}
+        @test Array(thresholds) == frozen_thresholds
+        IR._launch_weighted_scan!(
+            backend,
+            audit_population,
+            converted,
+            thresholds,
+            order,
+            destination,
+        )
+    end
+    @test destination isa CUDA.CuArray{UInt16,1}
+
+    fold_weights = CUDA.CuArray(
+        Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0],
+    )
+    fold_rng = device(Philox4x32(0x9750))
+    _, fold_total = IR._prepare_weights(fold_rng, fold_weights, false)
+    fold_total_host = only(Array(fold_total))
+    @test reinterpret(UInt64, fold_total_host) == 0x4340000000000000
+    @test IR._weighted_threshold(fold_rng, fold_rng.position, fold_total_host) ==
+          Float64(0x000f5d057718d3b6)
+    reordered_total = reinterpret(Float64, UInt64(0x4340000000000001))
+    @test IR._weighted_threshold(fold_rng, fold_rng.position, reordered_total) ==
+          Float64(0x000f5d057718d3b7)
+    @test Array(
+        randsample(fold_rng, CUDA.CuArray(Int32[10, 20, 30, 40]), fold_weights, 1),
+    ) == Int32[10]
+    scan_destination = CUDA.CuArray{Int32}(undef, 1)
+    IR._with_device(range_rng.device) do
+        backend = IR._fill_backend(scan_destination)
+        IR._launch_weighted_scan!(
+            backend,
+            CUDA.CuArray(Int32[10, 20, 30, 40]),
+            CUDA.CuArray(Float64[0x1p53, 1.0, 1.0, 2.0]),
+            CUDA.CuArray(Float64[0x1p53]),
+            CUDA.CuArray([1]),
+            scan_destination,
+        )
+    end
+    @test Array(scan_destination) == Int32[40]
+    equal_thresholds = CUDA.CuArray([0.5, 0.1, 0.5, 0.1])
+    equal_order = IR._weighted_sortperm(range_rng.device, equal_thresholds)
+    @test Array(equal_order) == [2, 4, 1, 3]
+    @test Array(equal_thresholds) == [0.5, 0.1, 0.5, 0.1]
+
+    wrong_weights = copy(cpu_weights)
+    error = try
+        randsample(range_rng, gpu_population, wrong_weights, -1)
+        nothing
+    catch caught
+        caught
+    end
+    @test error isa ArgumentError
+    @test occursin("weights device", sprint(showerror, error))
+
+    for invalid in (
+        CUDA.CuArray([1.0, -1.0, 2.0]),
+        CUDA.CuArray([1.0, Inf, 2.0]),
+        CUDA.zeros(Float64, 3),
+    )
+        @test_throws ArgumentError randsample(
+            range_rng,
+            CUDA.CuArray(Int32[1, 2, 3]),
+            invalid,
+            2,
+        )
     end
 end

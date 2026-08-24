@@ -43,6 +43,15 @@ end
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
 
+# CUDA's sort mutates its keys, and its allocating `sortperm` stages ordinal
+# indices from the host. Initialize those indices on-device instead.
+@inline function IR._weighted_sortperm(::IR._CUDABackend, thresholds)
+    order = similar(thresholds, Int)
+    order .= eachindex(order)
+    sortperm!(order, copy(thresholds); initialized = true)
+    return order
+end
+
 @inline function IR.rand_next(rng::_CUDAFamily, dim1::Integer, dims::Integer...)
     return IR._rand_next_uniform_array(rng, Float64, (dim1, dims...))
 end

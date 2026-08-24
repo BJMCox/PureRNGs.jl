@@ -66,6 +66,17 @@ if AMDGPU.functional()
             @test Array(values) == expected
             @test next_rng.position == expected_next.position
         end
+
+        cpu_rng = Philox4x32(0x8151)
+        rng = AMDGPUDevice()(cpu_rng)
+        population = Int32[11, 12, 13, 14]
+        weights = Float64[1, 0, 4, 2]
+        next_rng, values =
+            randsample_next(rng, AMDGPU.ROCArray(population), AMDGPU.ROCArray(weights), 9)
+        expected_next, expected = randsample_next(cpu_rng, population, weights, 9)
+        @test values isa AMDGPU.ROCArray{Int32,1}
+        @test Array(values) == expected
+        @test next_rng.position == expected_next.position
     end
 
     @testset "R56-R58 AMDGPU unweighted sampling smoke" begin

@@ -44,6 +44,8 @@ end
         randnat,
         splitrng,
         subrng,
+        randsample,
+        randsample_next,
     )
     @test foreign_functions == Set((rand, rand!, randn, randn!, Random.seed!, copy))
 
@@ -92,6 +94,14 @@ end
     require(splitrng, Tuple{R,Int})
     require(splitrng, Tuple{R,Val{2}})
     require(subrng, Tuple{R,Int})
+    population = Int32[1, 2, 3]
+    weights = Float64[1, 2, 3]
+    for function_ in (randsample, randsample_next)
+        require(function_, Tuple{R,typeof(population)})
+        require(function_, Tuple{R,typeof(population),Int})
+        require(function_, Tuple{R,typeof(population),typeof(weights)})
+        require(function_, Tuple{R,typeof(population),typeof(weights),Int})
+    end
 
     for function_ in owned_functions
         methods_ =
@@ -112,9 +122,18 @@ end
         )
     )
     @test all(
-        isempty(Base.kwarg_decl(method)) for function_ in
-        (rand, randn, rand_next, randn_next, randat, randnat, splitrng, subrng) for
-        method in (
+        isempty(Base.kwarg_decl(method)) for function_ in (
+            rand,
+            randn,
+            rand_next,
+            randn_next,
+            randat,
+            randnat,
+            splitrng,
+            subrng,
+            randsample,
+            randsample_next,
+        ) for method in (
             function_ in (rand, randn) ? _immutable_audit_methods(function_) :
             _audit_methods(function_)
         )

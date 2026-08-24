@@ -38,6 +38,7 @@ include("normal_allocating.jl")
 include("integers.jl")
 include("range_allocating.jl")
 include("sampling.jl")
+include("weighted_sampling.jl")
 include("stateful.jl")
 
 end # module PureRNGs

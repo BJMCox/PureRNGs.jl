@@ -18,6 +18,7 @@ Base.getindex(array::MetalDeviceArrayProbe, index::Int) = array.data[index]
 Base.setindex!(array::MetalDeviceArrayProbe, value, index::Int) =
     setindex!(array.data, value, index)
 MLDataDevices.get_device_type(::MetalDeviceArrayProbe) = MetalDevice
+MLDataDevices.get_device(::MetalDeviceArrayProbe) = MetalDevice()
 
 function _check_metal_error(f)
     error = try
@@ -115,6 +116,15 @@ end
     @test_throws ArgumentError randn!(rng, Float32[])
     @test_throws ArgumentError IR.randn_next!(rng, Float32[])
     @test_throws TypeError rand!(rng, UInt32[]; threaded = 1)
+
+    population = MetalDeviceArrayProbe(Int32[1, 2, 3])
+    weights = MetalDeviceArrayProbe(Float64[1, 2, 3])
+    for count in (0, 1)
+        _check_metal_error(() -> randsample(rng, population, weights, count))
+        _check_metal_error(() -> randsample_next(rng, population, weights, count))
+    end
+    _check_metal_error(() -> randsample(rng, population, weights))
+    _check_metal_error(() -> randsample_next(rng, population, weights))
 
     for F in METAL_32_FAMILIES
         rng = MetalDevice()(F(0x81b))
