@@ -1,6 +1,17 @@
 const SamplingIR = PureRNGs
 const SamplingMLD = PureRNGs.MLDataDevices
 
+const UNWEIGHTED_OFFSET_GOLDEN = (
+    Philox2x32 => Int32[105, 103, 104, 103, 106, 104, 101, 105, 101, 102, 105, 106],
+    Philox4x32 => Int32[105, 103, 106, 101, 105, 102, 103, 103, 101, 104, 106, 105],
+    Philox2x64 => Int32[102, 106, 103, 103, 103, 102, 104, 103, 105, 105, 102, 106],
+    Philox4x64 => Int32[104, 104, 106, 102, 102, 101, 102, 106, 103, 106, 104, 101],
+    Threefry2x32 => Int32[106, 106, 101, 106, 101, 104, 106, 105, 104, 103, 102, 101],
+    Threefry4x32 => Int32[103, 106, 101, 105, 103, 106, 101, 102, 101, 106, 102, 102],
+    Threefry2x64 => Int32[101, 105, 101, 105, 103, 105, 103, 102, 105, 103, 102, 104],
+    Threefry4x64 => Int32[105, 104, 104, 101, 101, 101, 102, 103, 105, 101, 104, 105],
+)
+
 struct DeviceAgnosticIterable{T}
     values::Vector{T}
     starts::Base.RefValue{Int}
@@ -70,6 +81,16 @@ function _chained_unweighted(rng, population, count::Integer)
         values[index] = _sample_at(population, ordinal)
     end
     return cursor, values
+end
+
+@testset "R13, R57, and R58 canonical offset-axis golden vectors" begin
+    population = IdentityAxesMatrix(reshape(Int32.(101:106), 2, 3))
+    for (F, expected) in UNWEIGHTED_OFFSET_GOLDEN
+        rng = F(0x9760)
+        _, values = randsample_next(rng, population, 12)
+        @test values == expected
+        @test randsample(rng, population, 12) == expected
+    end
 end
 
 @testset "R56-R58 unweighted sampling values and request forms" begin

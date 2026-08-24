@@ -11,6 +11,17 @@ const WEIGHTED_GOLDEN = (
     Threefry4x64 => Int32[40, 30, 30, 30, 30, 40, 40, 30],
 )
 
+const WEIGHTED_OFFSET_GOLDEN = (
+    Philox2x32 => Int32[104, 104, 105, 106, 106, 106, 103, 101, 103, 105, 106, 103],
+    Philox4x32 => Int32[104, 106, 105, 104, 105, 103, 104, 105, 106, 104, 103, 103],
+    Philox2x64 => Int32[103, 106, 105, 105, 103, 104, 103, 103, 106, 103, 106, 106],
+    Philox4x64 => Int32[106, 105, 103, 106, 105, 103, 103, 105, 101, 105, 103, 105],
+    Threefry2x32 => Int32[104, 106, 103, 104, 101, 106, 106, 106, 105, 103, 103, 106],
+    Threefry4x32 => Int32[106, 101, 103, 103, 106, 106, 104, 106, 101, 103, 103, 103],
+    Threefry2x64 => Int32[103, 105, 106, 101, 106, 104, 106, 106, 101, 106, 106, 106],
+    Threefry4x64 => Int32[106, 106, 103, 106, 104, 106, 105, 106, 106, 106, 106, 101],
+)
+
 struct WeightWrapper{T}
     values::Vector{T}
 end
@@ -102,6 +113,17 @@ end
         next_rng, values = randsample_next(rng, population, weights, 8)
         @test values == expected
         @test next_rng === WeightedIR._reserve(rng, UInt64(8 * 53), UInt64(0))
+    end
+end
+
+@testset "R13, R57, and R59 weighted canonical offset-axis golden vectors" begin
+    population = IdentityAxesMatrix(reshape(Int32.(101:106), 2, 3))
+    weights = ZeroBasedVector(Float64[1, 0, 4, 2, 3, 5])
+    for (F, expected) in WEIGHTED_OFFSET_GOLDEN
+        rng = F(0x9761)
+        _, values = randsample_next(rng, population, weights, 12)
+        @test values == expected
+        @test randsample(rng, population, weights, 12) == expected
     end
 end
 

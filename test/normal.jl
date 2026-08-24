@@ -166,18 +166,76 @@ end
     # 77e6f0348d5f391058937a2ad0dc21bb3435d6f809adb6e996d9915ff3c6887b.
     # The adapter includes the preserved source with payload SHA-256
     # 68a432f195091fff370c858b5ef80617ec3bf3399ff9db8bfa4cc06ca753f5e3.
+    # Pinned testbed commit for unchanged cores and layouts:
+    # 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d.
     expected = (
-        (0x72d8ec, 0x0e5b1d8e28fcd5, 0x3f65b1d9, 0x3fecb63b1c51f9ab),
-        (0x788a42, 0x0f11485c914b5b, 0x3f711485, 0x3fee2290b92296b7),
-        (0x33ab13, 0x067562689937a8, 0x3eceac4e, 0x3fd9d589a264dea2),
-        (0x0c5af3, 0x018b5e633ebdeb, 0x3dc5af38, 0x3fb8b5e633ebdeb8),
-        (0x6ebd7e, 0x0dd7afcc2cf972, 0x3f5d7afd, 0x3febaf5f9859f2e5),
-        (0x7c45dd, 0x0f88bbad99b74d, 0x3f788bbb, 0x3fef11775b336e9b),
-        (0x6baf7c, 0x0d75ef88d35261, 0x3f575ef9, 0x3feaebdf11a6a4c3),
-        (0x53948c, 0x0a72918c5d912e, 0x3f272919, 0x3fe4e52318bb225d),
+        (
+            0x72d8ec,
+            0x0e5b1d8e28fcd5,
+            0x3f65b1d9,
+            0x3fecb63b1c51f9ab,
+            0x3fa20c90,
+            0x3ff4419224daef1f,
+        ),
+        (
+            0x788a42,
+            0x0f11485c914b5b,
+            0x3f711485,
+            0x3fee2290b92296b7,
+            0x3fc8e12b,
+            0x3ff91c2631cb2053,
+        ),
+        (
+            0x33ab13,
+            0x067562689937a8,
+            0x3eceac4e,
+            0x3fd9d589a264dea2,
+            0xbe79be14,
+            0xbfcf37c332c6479a,
+        ),
+        (
+            0x0c5af3,
+            0x018b5e633ebdeb,
+            0x3dc5af38,
+            0x3fb8b5e633ebdeb8,
+            0xbfa69b03,
+            0xbff4d360c3607e53,
+        ),
+        (
+            0x6ebd7e,
+            0x0dd7afcc2cf972,
+            0x3f5d7afd,
+            0x3febaf5f9859f2e5,
+            0x3f8d48ff,
+            0x3ff1a91fc02d3427,
+        ),
+        (
+            0x7c45dd,
+            0x0f88bbad99b74d,
+            0x3f788bbb,
+            0x3fef11775b336e9b,
+            0x3ff26bf0,
+            0x3ffe4d7dd9742d79,
+        ),
+        (
+            0x6baf7c,
+            0x0d75ef88d35261,
+            0x3f575ef9,
+            0x3feaebdf11a6a4c3,
+            0x3f7ff1f7,
+            0x3feffe3e9f3eaeba,
+        ),
+        (
+            0x53948c,
+            0x0a72918c5d912e,
+            0x3f272919,
+            0x3fe4e52318bb225d,
+            0x3ec965a5,
+            0x3fd92cb4a0df0afc,
+        ),
     )
 
-    for ((F, key), (raw32, raw64, midpoint32, midpoint64)) in
+    for ((F, key), (raw32, raw64, midpoint32, midpoint64, normal32, normal64)) in
         zip(PACKED_GOLDEN_FAMILIES, expected)
         rng = _packed_golden_rng(F, key)
         block = _reference_position_block(rng.position)
@@ -199,6 +257,8 @@ end
         @test got64 === UInt64(raw64)
         @test reinterpret(UInt32, IR._normal_midpoint(Float32, got32)) === midpoint32
         @test reinterpret(UInt64, IR._normal_midpoint(Float64, got64)) === midpoint64
+        @test reinterpret(UInt32, randn(rng, Float32)) === normal32
+        @test reinterpret(UInt64, randn(rng, Float64)) === normal64
     end
 end
 
