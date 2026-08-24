@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 15
+Status: normative specification, revision 16
 Date: 2026-08-24
 
 ## 1. Reading rules
@@ -75,7 +75,7 @@ advanced position.
   testbed values: `DERIVE_TAG = 0xC0FFEE00`, `SPLIT_SUBTAG = 0x00000000`,
   `FOLD_SUBTAG = 0x00000001`, `THREEFRY_FOLD_INDEX = 0xffffffff` (the
   narrow-layout fold namespace), family words as in `src/families.jl`.
-  These values are frozen for the life of stream-law version 3.
+  These values are frozen for the life of stream-law version 4.
 - [R10] Family words and derivation-region indices not assigned by this
   document are reserved by the stream law and MUST stay unassigned in
   version 0, so later stream-law-compatible extensions can claim them.
@@ -504,20 +504,25 @@ randsample_next(rng::R, iter,
   `0 <= k <= typemax(Int)` and throws `ArgumentError` otherwise.
   `randsample` reads the held position and leaves the generator unchanged.
   `randsample_next` returns `(next_rng, values)`.
-- [R57] The population’s device is compatible when
-  `MLDataDevices.get_device(iter)` equals the generator device or returns
-  `nothing`. `nothing` means device-agnostic and is compatible with every
-  generator device; `AbstractRange` has this status. Any other device result
-  throws `ArgumentError` before generation. Every `AbstractArray`
-  population is indexed directly by ordinal: population position `p`
-  selects the element at the `p`-th index of the array's native
-  `eachindex` iteration order, for any dimensionality and any axis
-  offsets. For a one-based linear-indexed array this is linear index
-  `p`. Integer unit and stepped ranges are mapped by position without
-  materialization. Every other device-agnostic iterable is materialized
-  exactly once on the generator device and then indexed the same way. A
-  population that is neither an `AbstractArray` nor device-agnostic
-  throws `ArgumentError` before generation. The result is allocated on the generator device and its
+- [R57] The population's device is compatible under the sampling equality
+  rule in [R38], or when `MLDataDevices.get_device(iter)` returns `nothing`.
+  `nothing` means device-agnostic and is compatible with every generator
+  device; `AbstractRange` has this status. Any other device result throws
+  `ArgumentError` before generation. Integer unit and stepped ranges are
+  mapped directly by position without materialization. Every other
+  `AbstractArray` on a CPU generator or on the same non-CPU backend as the
+  generator is indexed directly by canonical ordinal: population position
+  `p` selects `A[I_p]`, where `I_p` is the `p`-th element of
+  `CartesianIndices(axes(A))` in its iteration order. This defines values for
+  any dimensionality and axis offsets and does not require materializing the
+  Cartesian indices. On a non-CPU generator, every other device-agnostic
+  population is collected exactly once on CPU — in canonical Cartesian order
+  for an array and native iteration order for a non-array — then transferred
+  to the generator device exactly once. On CPU, a device-agnostic non-array
+  is collected exactly once and a device-agnostic array is indexed directly
+  in canonical Cartesian order. A population that is neither an
+  `AbstractArray` nor device-agnostic throws `ArgumentError` before
+  generation. The result is allocated on the generator device and its
   element type comes from the indexed or materialized population.
   Population cardinality MUST fit a positive `UInt64` when a sample is
   requested. A no-`k` form additionally requires cardinality to fit
@@ -529,13 +534,19 @@ randsample_next(rng::R, iter,
   [R55] 128-by-64 reduction. The [R55] preimage-bias bound applies. This
   path never constructs weights and never retries.
 - [R59] Weighted forms accept only a raw `AbstractVector{<:Real}` aligned
-  with the population. Its MLDataDevices device must equal the generator
-  device or be device-agnostic. Any other device result throws
+  with the population. Its device must be compatible under the sampling
+  equality rule in [R38], or device-agnostic. Any other device result throws
   `ArgumentError` before generation. They do not accept a weight wrapper.
-  They convert weights to `Float64`, validate them, and compute the total in
-  population order. Each threshold consumes 53 bits from `FAMILY_RANGE` and
-  uses `u = Float64(j) * 0x1p-53` for the extracted integer `j`. A batch
-  records their original indices, maps each uniform `u` to
+  Weight ordinal `p` is its canonical Cartesian ordinal and aligns with
+  population ordinal `p`. Weights are converted to `Float64` in ordinal
+  order. On a non-CPU generator, device-agnostic weights are converted and
+  elementwise validated exactly once on CPU and transferred as one dense
+  `Float64` vector to the generator device exactly once. The total and
+  cumulative scan are `Float64` left folds on the generator device. Each
+  starts from `+0.0`, and each addition is rounded to `Float64` before the
+  next addition. Each threshold consumes 53 bits from `FAMILY_RANGE` and uses
+  `u = Float64(j) * 0x1p-53` for the extracted integer `j`. A batch records
+  their original indices, maps each uniform `u` to
   `min(u * total, prevfloat(total))`, sorts by
   `(threshold, original_index)`, scans the weights once, and restores draw
   order. Selection chooses the first cumulative total strictly greater than
@@ -637,12 +648,17 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   time, and the documentation directs multi-GPU ordinal selection to the
   backend's own mechanism (for example `CUDA.device!`). Applying any
   other MLDataDevices device type throws `ArgumentError` (section 11).
-  Every device-equality requirement in this document — [R39]
-  destinations, [R57] populations, [R59] weights — means backend
-  equality, decided by `MLDataDevices.get_device_type`. The generator is
-  `isbits`, so binding moves no data. `splitrng`, `subrng`, and every
-  continuation preserve the binding. Applying another supported device
-  preserves the key and position and changes only the token.
+  Destination equality under [R39] remains backend equality decided by
+  `MLDataDevices.get_device_type`. Sampling equality for [R57] populations
+  and [R59] weights first calls `MLDataDevices.get_device(input)`. A result
+  of `nothing` is device-agnostic. Every returned supported device instance
+  is mapped to its unparameterized `CPUDevice`, `CUDADevice`,
+  `AMDGPUDevice`, or `MetalDevice` wrapper, then compared with
+  `MLDataDevices.get_device_type(rng.device)`. Sampling therefore supports
+  inputs that define only `get_device`. The generator is `isbits`, so
+  binding moves no data. `splitrng`, `subrng`, and every continuation
+  preserve the binding. Applying another supported device preserves the key
+  and position and changes only the token.
 - [R39] Placement invariant: device-closed for data, host-transparent for
   logical state. Section 5 allocating draws on a device-bound generator
   return arrays allocated on that device and generate every value there.
@@ -650,10 +666,14 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   throw `ArgumentError` on mismatch. Scalar draws, `randat`, `randnat`,
   `splitrng`, `subrng`, and scalar continuation draws compute where they are
   called — kernel registers or host arithmetic — and these operations perform
-  no device-to-host copy or synchronization. Section 6
-  sampling requires device-aligned inputs and allocates its result on the
-  generator device. The `threaded` fill keyword controls CPU task use only.
-  On non-CPU backends both values preserve the ordinary backend launch path.
+  no device-to-host copy or synchronization. Section 6 sampling allocates its
+  result on the generator device. The sole sampling host-staging exceptions
+  are the device-agnostic populations in [R57] and device-agnostic weights in
+  [R59]. Sampling may copy one validation-status `Bool` from the device to
+  the host. Thresholds, sort and order indices, selections, and results
+  remain on the generator device. The `threaded` fill keyword controls CPU
+  task use only. On non-CPU backends both values preserve the ordinary
+  backend launch path.
 - [R40] The typed `threaded` keyword is validated before fill preflight.
   After it passes, fills validate in fixed order: destination device ([R39]),
   [R41] serviceability, then size. A fill that passes validation with an
@@ -723,7 +743,7 @@ composition of stream-law rules — [R26] batch and mixed-type sequencing,
 prefix stability — are consistency laws. They introduce no value of their
 own. A change to one that changes any value changes a listed stream-law rule.
 
-- [R44] This closed set is stream-law version 3. Any change to a
+- [R44] This closed set is stream-law version 4. Any change to a
   value-determining rule requires a new stream-law version.
 
 ## 11. Errors, closed list
@@ -789,7 +809,7 @@ the R41 preview tier and do not block.
 | --- | --- | --- |
 | Random123 KATs, all eight shapes, listed rounds | R11 | CPU |
 | Pinned testbed agreement for unchanged cores, layouts, family words, `splitrng`, and `subrng` on `Philox4x32` and `Threefry2x32` | R2, R9, R11, R12a, R12b, R17, R18 | CPU |
-| Packed-stream golden vectors for every result class and all eight families confirm MSB-first extraction without defining it, subject only to the normal exception | R13, R25, R27, R28, R43, R53, R55, R58, R59, R62 | CPU |
+| Packed-stream golden vectors for every result class and all eight families confirm MSB-first extraction, canonical sampling ordinals, and exact weighted `Float64` folds without defining them, subject only to the normal exception | R13, R25, R27, R28, R43, R53, R55, R57-R59, R62 | CPU |
 | Derivation golden vectors for the six families outside the pinned testbed scope | R13, R19 | CPU |
 | Bit extraction starts MSB-first at varied `UInt16` offsets and crosses native-word and core-block boundaries without gaps | R27, R53, R62 | CPU+CUDA |
 | Width audit: primitive 1/24/32/53/64, normal 23/52, range and unweighted 64/128, weighted 53 | R25, R28, R55, R58, R59 | CPU |
@@ -808,8 +828,8 @@ the R41 preview tier and do not block.
 | Unit and stepped integer ranges: scalar, arrays, continuation, 64/128-bit work, capacity, and no materialization | R55 | CPU+CUDA |
 | Interleaved primitives, ranges, and normals use one bit position and separate family regions | R8, R26, R51, R53 | CPU |
 | Derivation ignores parent position, resets child position, preserves device, and repeats stable purposes | R17-R21, R38 | CPU+CUDA |
-| Unweighted sampling: four population shapes, all `k` forms, 64/128-bit fixed-work reduction, integer ranges, O(k) path, prefix stability | R56-R58, R60 | CPU+CUDA |
-| Weighted sampling: raw weights, 53-bit thresholds, one sorted batch, zero weights, restored order, chained-scalar equality | R56, R57, R59, R60 | CPU+CUDA |
+| Unweighted sampling: canonical Cartesian array ordinals, native iterable order, direct integer ranges, all `k` forms, 64/128-bit fixed-work reduction, O(k) path, and prefix stability | R56-R58, R60 | CPU+CUDA |
+| Weighted sampling: canonical population-weight alignment, ordinal `Float64` conversion, exact left-fold totals and scans, 53-bit thresholds, one sorted batch, zero weights, restored order, and chained-scalar equality | R56, R57, R59, R60 | CPU+CUDA |
 | Sampling validation, including both `k` bounds, and counter exhaustion produce no partial result | R56, R60 | CPU+CUDA |
 | Purity: repeated calls identical; pure draws and derivation leave parent unchanged | R5, R20, R56 | CPU |
 | Distributions.jl smoke on `StatefulRNG`: `rand(m, dist)`, `rand(m, dist, n)` | R34 | CPU |
@@ -820,14 +840,14 @@ the R41 preview tier and do not block.
 | Typed-IR audit: all wide integer arithmetic in device-reachable extraction, position, address, reservation, capacity, and range-candidate paths uses low-limb-first `UInt64` pairs and contains no `BigInt` or `UInt128` value, instruction, or call | R30, R53-R55 | CPU+CUDA |
 | Launch-shape and lane independence for addressed draws | R51 | CUDA |
 | Method-surface audit: typed pure draws, continuation defaults, exact destination-fill keyword, no default generator, dynamic and `Val` splits, return order, bridge hooks, and no extra foreign methods | R1, R14, R21-R24, R34, R49, R52 | CPU |
-| Wrong-device destination, population, and weights throw before generation; device-agnostic ranges work | R39, R57, R59 | CUDA |
+| Wrong-device inputs throw before generation; agnostic population and weight staging occurs exactly once as specified; only one validation `Bool` returns to the host; thresholds, ordering, selections, and results remain device-resident | R38, R39, R57, R59 | CUDA |
 | Validated empty fill launches no kernel and keeps the position; validation order is `threaded` type, device, serviceability, size | R40 | CPU+CUDA |
 | Metal exclusion errors, including zero-size requests | R41, R54 | Metal |
 | Reactant-compiled draws, continuations, and derivations equal eager values | R42 | Reactant |
 | Export list equals [R48] exactly | R48 | CPU |
 | Dependency and extension audit equals R36-R37 | R36, R37 | CPU |
 | Reserved-tag audit: every assigned tag and family word equals R9-R10 | R9, R10 | CPU |
-| Stream-law closed-list audit identifies version 3 and every value-determining rule | R44 | CPU |
+| Stream-law closed-list audit identifies version 4 and every value-determining rule | R44 | CPU |
 | Error audit: deterministic public throws equal section 11 exactly | R47 | CPU |
 | Statistical suite: complete 32-case, 480-p-value SmallCrush matrix under the [R50] diagnostic and Bonferroni release intervals, with the committed complete run log | R50 | CPU |
 
