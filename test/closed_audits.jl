@@ -151,7 +151,7 @@ end
     version =
         parse(Int, only(match(r"(?s)\[R44\].*?stream-law version (\d+)", section).captures))
 
-    @test version == 3
+    @test version == 4
     @test value_rules == [
         "[R9]",
         "[R11]",
