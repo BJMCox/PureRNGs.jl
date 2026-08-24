@@ -204,6 +204,71 @@ function _positioned_at_bit(rng, block::UInt64, bit::UInt16)
     return IR._rebuild(rng, position, rng.device)
 end
 
+const COOPERATIVE_UNIFORM_TYPES = (Bool, Float32, Float64)
+const PACKED_DRAW_SPECS = (
+    (Bool, rand_next, rand_next!, UInt16(1), false),
+    (UInt32, rand_next, rand_next!, UInt16(32), false),
+    (UInt64, rand_next, rand_next!, UInt16(64), false),
+    (Float32, rand_next, rand_next!, UInt16(24), false),
+    (Float64, rand_next, rand_next!, UInt16(53), false),
+    (Float32, randn_next, randn_next!, UInt16(23), true),
+    (Float64, randn_next, randn_next!, UInt16(52), true),
+)
+const K64_RANGE = UInt32(3):UInt32(1003)
+const K128_RANGE = UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd)
+
+function _check_public_packed_fill(
+    rng,
+    ::Type{T},
+    count,
+    next_draw,
+    next_fill;
+    addressed_normal::Bool = false,
+) where {T}
+    expected_next, scalar_values = _chain(rng, current -> next_draw(current, T), count, T)
+    allocated_next, allocated = next_draw(rng, T, count)
+    expected = if addressed_normal
+        addressed = similar(allocated)
+        threads = min(count, 256)
+        CUDA.@sync CUDA.@cuda threads = threads blocks = cld(count, threads) _normal_address_kernel!(
+            addressed,
+            rng,
+        )
+        Array(addressed)
+    else
+        scalar_values
+    end
+    destination = similar(allocated)
+    filled_next, _ = next_fill(rng, destination)
+    @test isequal(
+        (
+            Array(allocated),
+            allocated_next.position,
+            Array(destination),
+            filled_next.position,
+        ),
+        (expected, expected_next.position, expected, expected_next.position),
+    )
+    return allocated_next
+end
+
+function _check_public_range(rng, range, count)
+    T = eltype(range)
+    expected_next, expected = _chain(rng, current -> rand_next(current, range), count, T)
+    allocated_next, allocated = rand_next(rng, range, count)
+    @test (Array(allocated), allocated_next.position) == (expected, expected_next.position)
+end
+
+function _device_kernel_events(call)
+    call()
+    CUDA.synchronize()
+    profile = CUDA.@profile raw = true begin
+        call()
+        CUDA.synchronize()
+    end
+    return count(value -> !ismissing(value), profile.device.grid)
+end
+
 devices = collect(CUDA.devices())
 primary = first(devices)
 CUDA.device!(primary)
@@ -230,6 +295,144 @@ device = MLD.CUDADevice(primary)
             children,
         )
 
+    end
+end
+
+@testset "CUDA owns packed fill plans" begin
+    extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
+    backend = CUDA.CUDABackend()
+    for F in FAMILIES, T in UNIFORM_TYPES
+        rng = device(F(0x123456))
+        plan = IR._device_uniform_fill_plan(backend, rng, T)
+        expected_kind =
+            F === Philox4x32 && T in COOPERATIVE_UNIFORM_TYPES ? Val(:cooperative) :
+            Val(:grouped)
+        dispatch =
+            which(IR._device_uniform_fill_plan, Tuple{typeof(backend),typeof(rng),Type{T}})
+        @test (dispatch.module, plan[1]) === (extension_module, expected_kind)
+    end
+
+    for F in FAMILIES, T in NORMAL_TYPES
+        rng = device(F(0x123456))
+        plan = IR._device_normal_fill_plan(backend, rng, T)
+        dispatch =
+            which(IR._device_normal_fill_plan, Tuple{typeof(backend),typeof(rng),Type{T}})
+        expected_kind = F === Philox4x32 ? Val(:cooperative) : Val(:grouped)
+        @test (dispatch.module, plan[1]) === (extension_module, expected_kind)
+    end
+
+    for F in FAMILIES,
+        (range, expected_kind) in ((K64_RANGE, Val(:grouped)), (K128_RANGE, nothing))
+
+        rng = device(F(0x123456))
+        span = IR._range_span(range)
+        plan = IR._device_range_fill_plan(backend, rng, span)
+        dispatch =
+            which(IR._device_range_fill_plan, Tuple{typeof(backend),typeof(rng),UInt64})
+        actual_kind = plan === nothing ? nothing : plan[1]
+        @test (dispatch.module, actual_kind) === (extension_module, expected_kind)
+    end
+end
+
+@testset "public fill plan classes launch CUDA kernels" begin
+    cases = (
+        () -> rand(device(Philox4x32(0x771)), Bool, 9),
+        () -> randn(device(Philox4x32(0x772)), Float64, 9),
+        () -> rand(device(Threefry2x32(0x773)), UInt32, 9),
+        () -> randn(device(Threefry2x32(0x774)), Float32, 9),
+        () -> rand(device(Philox4x32(0x775)), K64_RANGE, 9),
+        () -> rand(device(Philox4x32(0x776)), K128_RANGE, 9),
+    )
+    for call in cases
+        @test _device_kernel_events(call) > 0
+    end
+end
+
+@testset "cooperative public fills cover offsets and workgroups" begin
+    rng = device(Philox4x32(0x781))
+    block_bits = IR._block_bits(rng)
+    for (T, next_draw, next_fill, width, addressed_normal) in PACKED_DRAW_SPECS
+        next_draw === rand_next && T ∉ COOPERATIVE_UNIFORM_TYPES && continue
+        plan =
+            next_draw === rand_next ?
+            IR._device_uniform_fill_plan(CUDA.CUDABackend(), rng, T) :
+            IR._device_normal_fill_plan(CUDA.CUDABackend(), rng, T)
+        outputs = IR._fill_group_size(plan[2])
+        cases = (
+            (UInt16(0), 1),
+            (UInt16(61), outputs + 3),
+            (block_bits - UInt16(5), 5 ÷ Int(width) + 2),
+        )
+        for (bit, count) in cases
+            positioned = _positioned_at_bit(rng, UInt64(9), bit)
+            _check_public_packed_fill(
+                positioned,
+                T,
+                count,
+                next_draw,
+                next_fill;
+                addressed_normal,
+            )
+        end
+    end
+end
+
+@testset "grouped public fallbacks cover every remaining family and type" begin
+    for F in FAMILIES, T in UNIFORM_TYPES
+        F === Philox4x32 && T in COOPERATIVE_UNIFORM_TYPES && continue
+        rng = device(F(0x782))
+        block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
+        positioned = _positioned_at_bit(rng, block, IR._block_bits(rng) - UInt16(5))
+        _check_public_packed_fill(positioned, T, 9, rand_next, rand_next!)
+    end
+
+    for F in FAMILIES, T in NORMAL_TYPES
+        F === Philox4x32 && continue
+        rng = device(F(0x783))
+        block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
+        positioned = _positioned_at_bit(rng, block, IR._block_bits(rng) - UInt16(5))
+        _check_public_packed_fill(
+            positioned,
+            T,
+            9,
+            randn_next,
+            randn_next!;
+            addressed_normal = true,
+        )
+    end
+end
+
+@testset "aligned public integer fills preserve packed results" begin
+    for F in FAMILIES, T in (UInt32, UInt64)
+        rng = _positioned_at_bit(device(F(0x784)), UInt64(7), UInt16(0))
+        _check_public_packed_fill(rng, T, 9, rand_next, rand_next!)
+    end
+end
+
+@testset "public K=64 grouped and K=128 generic ranges" begin
+    for F in FAMILIES, range in (K64_RANGE, K128_RANGE)
+        rng = device(F(0x785))
+        block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(11)
+        positioned = _positioned_at_bit(rng, block, IR._block_bits(rng) - UInt16(5))
+        _check_public_range(positioned, range, 5)
+    end
+end
+
+@testset "public packed tails consume the exact terminal draw" begin
+    for F in (Philox4x32, Threefry4x64)
+        rng = device(F(0x786))
+        for (T, next_draw, next_fill, width, addressed_normal) in PACKED_DRAW_SPECS
+            last_rng = _last_draw_rng(rng, width)
+            terminal = _check_public_packed_fill(
+                last_rng,
+                T,
+                1,
+                next_draw,
+                next_fill;
+                addressed_normal,
+            )
+            @test terminal.position == _terminal(rng)
+        end
     end
 end
 
