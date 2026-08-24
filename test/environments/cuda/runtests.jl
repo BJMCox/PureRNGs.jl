@@ -228,6 +228,27 @@ const PACKED_DRAW_SPECS = (
 const K64_RANGE = UInt32(3):UInt32(1003)
 const K128_RANGE = UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd)
 
+struct DeviceAgnosticPopulation{T}
+    values::Vector{T}
+end
+
+Base.IteratorSize(::Type{<:DeviceAgnosticPopulation}) = Base.HasLength()
+Base.IteratorEltype(::Type{<:DeviceAgnosticPopulation}) = Base.HasEltype()
+Base.eltype(::Type{DeviceAgnosticPopulation{T}}) where {T} = T
+Base.length(population::DeviceAgnosticPopulation) = length(population.values)
+Base.iterate(population::DeviceAgnosticPopulation, state...) =
+    iterate(population.values, state...)
+MLD.get_device(::DeviceAgnosticPopulation) = nothing
+
+struct DeviceAgnosticArray{T} <: AbstractVector{T}
+    values::Vector{T}
+end
+
+Base.size(population::DeviceAgnosticArray) = size(population.values)
+Base.getindex(population::DeviceAgnosticArray, index::Int) = population.values[index]
+Base.eachindex(population::DeviceAgnosticArray) = reverse(eachindex(population.values))
+MLD.get_device(::DeviceAgnosticArray) = nothing
+
 function _check_public_packed_fill(
     rng,
     ::Type{T},
@@ -790,6 +811,65 @@ end
             CUDA.device!(before)
         end
         @test CUDA.device() == before
+    end
+end
+
+@testset "R56-R58 and R60 CUDA unweighted sampling" begin
+    for F in FAMILIES
+        cpu_rng = F(0x91a)
+        gpu_rng = device(cpu_rng)
+        host_population = reshape(collect(Int32(-11):Int32(12)), 4, 6)
+        population = CuArray(host_population)
+
+        next_gpu, values = randsample_next(gpu_rng, population, 19)
+        next_cpu, expected = randsample_next(cpu_rng, host_population, 19)
+        @test values isa CuArray{Int32,1}
+        @test Array(values) == expected
+        @test next_gpu.position == next_cpu.position
+        @test _device_id(values) == CUDA.deviceid(primary)
+        @test Array(randsample(gpu_rng, population, 7)) == expected[1:7]
+
+        no_k_next, no_k = randsample_next(gpu_rng, population)
+        expected_no_k_next, expected_no_k = randsample_next(cpu_rng, host_population)
+        @test Array(no_k) == expected_no_k
+        @test no_k_next.position == expected_no_k_next.position
+
+        range = UInt64(0):(UInt64(1)<<32)
+        range_next, range_values = randsample_next(gpu_rng, range, 5)
+        expected_range_next, expected_range = randsample_next(cpu_rng, range, 5)
+        @test Array(range_values) == expected_range
+        @test range_next.position == expected_range_next.position
+
+        iterable = DeviceAgnosticPopulation(collect(Int16(3):Int16(13)))
+        iterable_next, iterable_values = randsample_next(gpu_rng, iterable, 9)
+        expected_iterable_next, expected_iterable =
+            randsample_next(cpu_rng, iterable.values, 9)
+        @test iterable_values isa CuArray{Int16,1}
+        @test Array(iterable_values) == expected_iterable
+        @test iterable_next.position == expected_iterable_next.position
+
+        agnostic_array = DeviceAgnosticArray(collect(Int16(21):Int16(31)))
+        array_next, array_values = randsample_next(gpu_rng, agnostic_array, 9)
+        expected_array_next, expected_array =
+            randsample_next(cpu_rng, agnostic_array.values, 9)
+        @test array_values isa CuArray{Int16,1}
+        @test Array(array_values) == expected_array
+        @test array_next.position == expected_array_next.position
+
+        empty = CuArray{Int32}(undef, 0)
+        empty_next, empty_values = randsample_next(gpu_rng, empty, 0)
+        @test empty_values isa CuArray{Int32,1}
+        @test isempty(empty_values)
+        @test empty_next.position == gpu_rng.position
+
+        error = try
+            randsample(gpu_rng, vec(host_population), -1)
+            nothing
+        catch caught
+            caught
+        end
+        @test error isa ArgumentError
+        @test occursin("device", sprint(showerror, error))
     end
 end
 

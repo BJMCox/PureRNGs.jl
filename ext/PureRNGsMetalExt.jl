@@ -21,6 +21,7 @@ for T in (Bool, UInt32, UInt64, Float32)
     @eval @inline IR._check_serviceability(::_Metal32Family, ::Type{$T}) = nothing
 end
 @inline IR._check_serviceability(::_MetalFamily, ::Type) = _metal_device_error()
+@inline IR._check_sampling_serviceability(::_MetalFamily) = _metal_device_error()
 
 @inline function IR._allocate_array(::IR._MetalBackend, ::Type{T}, dims::Tuple) where {T}
     return Metal.MtlArray{T}(undef, dims)

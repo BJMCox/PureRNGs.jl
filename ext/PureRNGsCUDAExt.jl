@@ -40,6 +40,9 @@ end
     return CUDA.CuArray{T}(undef, dims)
 end
 
+@inline IR._materialize_population(::IR._CUDABackend, population) =
+    CUDA.CuArray(IR._collect_population(population))
+
 @inline function IR.rand_next(rng::_CUDAFamily, dim1::Integer, dims::Integer...)
     return IR._rand_next_uniform_array(rng, Float64, (dim1, dims...))
 end

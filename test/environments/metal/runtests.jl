@@ -134,6 +134,28 @@ end
         _check_metal_error(() -> randn!(rng, normal))
         _check_metal_error(() -> IR.randn_next!(rng, normal))
     end
+
+
+    for F in METAL_FAMILIES
+        rng = MetalDevice()(F(0x91c))
+        range = UInt32(1):UInt32(7)
+        for operation in (IR.randsample, IR.randsample_next)
+            _check_metal_error(() -> operation(rng, range))
+            _check_metal_error(() -> operation(rng, range, 0))
+            _check_metal_error(() -> operation(rng, range, 1))
+        end
+    end
+
+    metal_rng = MetalDevice()(Philox4x32(0x91d))
+    error = try
+        IR.randsample(metal_rng, UInt32[1, 2, 3], -1)
+        nothing
+    catch caught
+        caught
+    end
+    @test error isa ArgumentError
+    @test occursin("device", sprint(showerror, error))
+    @test !occursin("Metal", sprint(showerror, error))
 end
 
 if Metal.functional()

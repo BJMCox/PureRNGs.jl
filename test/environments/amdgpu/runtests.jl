@@ -28,6 +28,8 @@ const AMDGPU_FAMILIES = (
         @test sizeof(rng.device) == 0
         @test which(IR.rand_next, (typeof(rng), Int)).module === extension_module
         @test which(IR.randn_next, (typeof(rng), Int)).module === extension_module
+        @test applicable(IR.randsample, rng, UInt32(1):UInt32(3), 2)
+        @test applicable(IR.randsample_next, rng, UInt32(1):UInt32(3), 2)
 
         for T in (Bool, UInt32, UInt64, Float32, Float64)
             @test rand(rng, T) === rand(cpu_rng, T)
@@ -61,6 +63,20 @@ if AMDGPU.functional()
             next_rng, values = IR.rand_next(rng, T, 17)
             expected_next, expected = IR.rand_next(cpu_rng, T, 17)
             @test values isa AMDGPU.ROCArray{T,1}
+            @test Array(values) == expected
+            @test next_rng.position == expected_next.position
+        end
+    end
+
+    @testset "R56-R58 AMDGPU unweighted sampling smoke" begin
+        for F in AMDGPU_FAMILIES
+            cpu_rng = F(0x91b)
+            rng = AMDGPUDevice()(cpu_rng)
+            host_population = collect(Int32(-5):Int32(17))
+            population = AMDGPU.ROCArray(host_population)
+            next_rng, values = IR.randsample_next(rng, population, 17)
+            expected_next, expected = IR.randsample_next(cpu_rng, host_population, 17)
+            @test values isa AMDGPU.ROCArray{Int32,1}
             @test Array(values) == expected
             @test next_rng.position == expected_next.position
         end

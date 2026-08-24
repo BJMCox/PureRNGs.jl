@@ -43,6 +43,8 @@ using TOML
         :randn_next,
         :randn_next!,
         :randnat,
+        :randsample,
+        :randsample_next,
         :splitrng,
         :subrng,
     ]

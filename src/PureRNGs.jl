@@ -21,6 +21,8 @@ export Philox2x32,
     randn_next!,
     randat,
     randnat,
+    randsample,
+    randsample_next,
     StatefulRNG
 
 include("philox.jl")
@@ -35,6 +37,7 @@ include("normal.jl")
 include("normal_allocating.jl")
 include("integers.jl")
 include("range_allocating.jl")
+include("sampling.jl")
 include("stateful.jl")
 
 end # module PureRNGs
