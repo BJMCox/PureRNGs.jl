@@ -89,16 +89,7 @@ const _StatefulUniform = Union{Bool,UInt32,UInt64,Float32,Float64}
     randn_next!(mutable_rng.rng, destination; threaded = false),
 )
 
-for F in (
-    :Philox2x32,
-    :Philox4x32,
-    :Philox2x64,
-    :Philox4x64,
-    :Threefry2x32,
-    :Threefry4x32,
-    :Threefry2x64,
-    :Threefry4x64,
-)
+for F in _FAMILY_SYMBOLS
     @eval @inline _fresh_bridge_rng(::$F, seed::Integer) = $F(seed)
 end
 

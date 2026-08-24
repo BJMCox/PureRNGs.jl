@@ -5,19 +5,9 @@ import Metal
 import Random
 
 const IR = PureRNGs
-const _Metal32Family = Union{
-    IR.Philox2x32{IR._MetalBackend},
-    IR.Philox4x32{IR._MetalBackend},
-    IR.Threefry2x32{IR._MetalBackend},
-    IR.Threefry4x32{IR._MetalBackend},
-}
-const _Metal64Family = Union{
-    IR.Philox2x64{IR._MetalBackend},
-    IR.Philox4x64{IR._MetalBackend},
-    IR.Threefry2x64{IR._MetalBackend},
-    IR.Threefry4x64{IR._MetalBackend},
-}
-const _MetalFamily = Union{_Metal32Family,_Metal64Family}
+const _Metal32Family = IR._Backend32Family{IR._MetalBackend}
+const _Metal64Family = IR._Backend64Family{IR._MetalBackend}
+const _MetalFamily = IR._BackendFamily{IR._MetalBackend}
 
 @noinline function _metal_device_error()
     throw(
@@ -31,8 +21,6 @@ for T in (Bool, UInt32, UInt64, Float32)
     @eval @inline IR._check_serviceability(::_Metal32Family, ::Type{$T}) = nothing
 end
 @inline IR._check_serviceability(::_MetalFamily, ::Type) = _metal_device_error()
-
-@inline IR._with_device(f, ::IR._MetalBackend) = f()
 
 @inline function IR._allocate_array(::IR._MetalBackend, ::Type{T}, dims::Tuple) where {T}
     return Metal.MtlArray{T}(undef, dims)

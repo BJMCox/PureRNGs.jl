@@ -5,16 +5,7 @@ import PureRNGs
 import Random
 
 const IR = PureRNGs
-const _CUDAFamily = Union{
-    IR.Philox2x32{IR._CUDABackend},
-    IR.Philox4x32{IR._CUDABackend},
-    IR.Philox2x64{IR._CUDABackend},
-    IR.Philox4x64{IR._CUDABackend},
-    IR.Threefry2x32{IR._CUDABackend},
-    IR.Threefry4x32{IR._CUDABackend},
-    IR.Threefry2x64{IR._CUDABackend},
-    IR.Threefry4x64{IR._CUDABackend},
-}
+const _CUDAFamily = IR._BackendFamily{IR._CUDABackend}
 
 @inline function IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
@@ -44,8 +35,6 @@ end
 )
     return IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
 end
-
-@inline IR._with_device(f, ::IR._CUDABackend) = f()
 
 @inline function IR._allocate_array(::IR._CUDABackend, ::Type{T}, dims::Tuple) where {T}
     return CUDA.CuArray{T}(undef, dims)

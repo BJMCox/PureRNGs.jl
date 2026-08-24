@@ -140,7 +140,6 @@ end
     dims::Tuple,
 ) where {T<:_RangeInteger}
     span = _range_span(range)
-    _check_serviceability(rng, T)
     destination = _allocate_array(rng.device, T, dims)
     device = _check_fill_device(rng, destination)
     _check_serviceability(rng, T)

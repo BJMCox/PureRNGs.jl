@@ -91,7 +91,7 @@ end
 end
 
 @inline _check_serviceability(rng, ::Type) = nothing
-@inline _with_device(f, ::_CPUBackend) = f()
+@inline _with_device(f, ::_BackendToken) = f()
 
 @inline function _fill_uniform_unchecked!(
     rng::_ScalarUniformFamily,

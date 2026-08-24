@@ -5,18 +5,7 @@ import PureRNGs
 import Random
 
 const IR = PureRNGs
-const _AMDGPUFamily = Union{
-    IR.Philox2x32{IR._AMDGPUBackend},
-    IR.Philox4x32{IR._AMDGPUBackend},
-    IR.Philox2x64{IR._AMDGPUBackend},
-    IR.Philox4x64{IR._AMDGPUBackend},
-    IR.Threefry2x32{IR._AMDGPUBackend},
-    IR.Threefry4x32{IR._AMDGPUBackend},
-    IR.Threefry2x64{IR._AMDGPUBackend},
-    IR.Threefry4x64{IR._AMDGPUBackend},
-}
-
-@inline IR._with_device(f, ::IR._AMDGPUBackend) = f()
+const _AMDGPUFamily = IR._BackendFamily{IR._AMDGPUBackend}
 
 @inline function IR._allocate_array(::IR._AMDGPUBackend, ::Type{T}, dims::Tuple) where {T}
     return AMDGPU.ROCArray{T}(undef, dims)

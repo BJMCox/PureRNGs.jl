@@ -105,14 +105,7 @@ struct Threefry4x64{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-const _Position64Family =
-    Union{Philox2x32,Philox4x32,Philox2x64,Threefry2x32,Threefry4x32,Threefry2x64}
-const _Position128Family = Union{Philox4x64,Threefry4x64}
-const _NarrowFamily = Union{Philox2x32,Threefry2x32}
-@inline _zero_position(::Type{<:_Position64Family}) = _Position64(0, 0)
-@inline _zero_position(::Type{<:_Position128Family}) = _Position128(0, 0, 0)
-
-for F in (
+const _FAMILY_SYMBOLS = (
     :Philox2x32,
     :Philox4x32,
     :Philox2x64,
@@ -122,6 +115,20 @@ for F in (
     :Threefry2x64,
     :Threefry4x64,
 )
+const _Backend32Family{D} =
+    Union{Philox2x32{D},Philox4x32{D},Threefry2x32{D},Threefry4x32{D}}
+const _Backend64Family{D} =
+    Union{Philox2x64{D},Philox4x64{D},Threefry2x64{D},Threefry4x64{D}}
+const _BackendFamily{D} = Union{_Backend32Family{D},_Backend64Family{D}}
+
+const _Position64Family =
+    Union{Philox2x32,Philox4x32,Philox2x64,Threefry2x32,Threefry4x32,Threefry2x64}
+const _Position128Family = Union{Philox4x64,Threefry4x64}
+const _NarrowFamily = Union{Philox2x32,Threefry2x32}
+@inline _zero_position(::Type{<:_Position64Family}) = _Position64(0, 0)
+@inline _zero_position(::Type{<:_Position128Family}) = _Position128(0, 0, 0)
+
+for F in _FAMILY_SYMBOLS
     @eval function $F(key::fieldtype($F, :key))
         device = _CPU_BACKEND
         return $F{typeof(device)}(_CONSTRUCTION_TOKEN, key, _zero_position($F), device)
@@ -147,16 +154,7 @@ Threefry4x32(seed::Integer) = Threefry4x32(_seed_key(UInt32, Val(4), seed))
 Threefry2x64(seed::Integer) = Threefry2x64(_seed_key(UInt64, Val(2), seed))
 Threefry4x64(seed::Integer) = Threefry4x64(_seed_key(UInt64, Val(4), seed))
 
-for F in (
-    :Philox2x32,
-    :Philox4x32,
-    :Philox2x64,
-    :Philox4x64,
-    :Threefry2x32,
-    :Threefry4x32,
-    :Threefry2x64,
-    :Threefry4x64,
-)
+for F in _FAMILY_SYMBOLS
     @eval @inline _rebuild(rng::$F, position, device::D) where {D<:_BackendToken} =
         $F{D}(_CONSTRUCTION_TOKEN, rng.key, position, device)
 end

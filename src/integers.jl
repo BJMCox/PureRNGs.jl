@@ -1,5 +1,4 @@
 const _RangeInteger = Union{Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
-const _ScalarRangeFamily = Union{_ScalarUniform32Family,_ScalarUniform64Family}
 const FAMILY_RANGE = UInt32(0x00000003)
 
 @inline _range_bits(span::UInt64) =
@@ -58,7 +57,7 @@ end
     return iszero(index) ? last(range) : range[index]
 end
 
-@inline function _range_offset(rng::_ScalarRangeFamily, position, span::UInt64)
+@inline function _range_offset(rng::_ScalarUniformFamily, position, span::UInt64)
     block = _position_block(position)
     if span != zero(UInt64) && span <= UInt64(1) << 32
         candidate = _extract_bits_unchecked(rng, FAMILY_RANGE, block, position.bit, Val(64))
@@ -68,11 +67,11 @@ end
     return _reduce_range_candidate(lo, hi, span)
 end
 
-@inline _range_offset(rng::_ScalarRangeFamily, span::UInt64) =
+@inline _range_offset(rng::_ScalarUniformFamily, span::UInt64) =
     _range_offset(rng, rng.position, span)
 
 @inline function _draw_range_unchecked(
-    rng::_ScalarRangeFamily,
+    rng::_ScalarUniformFamily,
     position,
     range::AbstractRange{T},
     span::UInt64,
@@ -81,14 +80,14 @@ end
 end
 
 @inline function _draw_range_unchecked(
-    rng::_ScalarRangeFamily,
+    rng::_ScalarUniformFamily,
     range::AbstractRange{T},
     span::UInt64,
 ) where {T<:_RangeInteger}
     return _draw_range_unchecked(rng, rng.position, range, span)
 end
 
-@inline function _rand_range(rng::_ScalarRangeFamily, range::AbstractRange{T}) where {T}
+@inline function _rand_range(rng::_ScalarUniformFamily, range::AbstractRange{T}) where {T}
     span = _range_span(range)
     width = _range_bits(span)
     _reserve(rng, UInt64(width), UInt64(0))
@@ -96,7 +95,7 @@ end
 end
 
 @inline function _rand_next_range(
-    rng::_ScalarRangeFamily,
+    rng::_ScalarUniformFamily,
     range::AbstractRange{T},
 ) where {T}
     span = _range_span(range)
@@ -107,9 +106,9 @@ end
 
 for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
     @eval begin
-        @inline Random.rand(rng::_ScalarRangeFamily, range::AbstractRange{$T}) =
+        @inline Random.rand(rng::_ScalarUniformFamily, range::AbstractRange{$T}) =
             _rand_range(rng, range)
-        @inline rand_next(rng::_ScalarRangeFamily, range::AbstractRange{$T}) =
+        @inline rand_next(rng::_ScalarUniformFamily, range::AbstractRange{$T}) =
             _rand_next_range(rng, range)
     end
 end

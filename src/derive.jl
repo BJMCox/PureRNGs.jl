@@ -4,16 +4,7 @@ const _FOLD_SUBTAG = UInt32(1)
 const _THREEFRY_FOLD_INDEX = UInt32(0xffffffff)
 const _NARROW_SPLIT_COUNT = UInt64(0xffffffff)
 
-for F in (
-    :Philox2x32,
-    :Philox4x32,
-    :Philox2x64,
-    :Philox4x64,
-    :Threefry2x32,
-    :Threefry4x32,
-    :Threefry2x64,
-    :Threefry4x64,
-)
+for F in _FAMILY_SYMBOLS
     @eval @inline _derived_rng(rng::$F{D}, key) where {D} =
         $F{D}(_CONSTRUCTION_TOKEN, key, _zero_position($F), rng.device)
 end
