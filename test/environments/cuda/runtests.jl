@@ -1076,6 +1076,7 @@ end
     IR._with_device(range_rng.device) do
         backend = IR._fill_backend(scan_destination)
         IR._launch_weighted_scan!(
+            range_rng.device,
             backend,
             CUDA.CuArray(Int32[10, 20, 30, 40]),
             CUDA.CuArray(Float64[0x1p53, 1.0, 1.0, 2.0]),

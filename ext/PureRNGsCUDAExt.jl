@@ -2,6 +2,7 @@ module PureRNGsCUDAExt
 
 import CUDA
 import PureRNGs
+import KernelAbstractions
 import Random
 
 const IR = PureRNGs
@@ -43,13 +44,77 @@ end
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
 
-# CUDA's sort mutates its keys, and its allocating `sortperm` stages ordinal
-# indices from the host. Initialize those indices on-device instead.
+# CUDA's allocating `sortperm` stages ordinal indices from the host. Initialize
+# those indices on-device; `sortperm!` treats thresholds as read-only keys.
 @inline function IR._weighted_sortperm(::IR._CUDABackend, thresholds)
     order = similar(thresholds, Int)
     order .= eachindex(order)
-    sortperm!(order, copy(thresholds); initialized = true)
+    sortperm!(order, thresholds; initialized = true)
     return order
+end
+
+KernelAbstractions.@kernel function _weighted_select_sorted_kernel!(
+    population,
+    weights,
+    sorted_thresholds,
+    selected,
+)
+    if KernelAbstractions.@index(Global, Linear) == 1
+        IR._scan_weighted!(
+            population,
+            weights,
+            sorted_thresholds,
+            Base.OneTo(length(sorted_thresholds)),
+            selected,
+        )
+    end
+end
+
+KernelAbstractions.@kernel function _weighted_gather_thresholds_kernel!(
+    thresholds,
+    order,
+    sorted_thresholds,
+)
+    index = KernelAbstractions.@index(Global, Linear)
+    @inbounds sorted_thresholds[index] = thresholds[order[index]]
+end
+
+KernelAbstractions.@kernel function _weighted_scatter_kernel!(selected, order, destination)
+    index = KernelAbstractions.@index(Global, Linear)
+    @inbounds destination[order[index]] = selected[index]
+end
+
+@inline function IR._launch_weighted_scan!(
+    ::IR._CUDABackend,
+    backend,
+    population,
+    weights,
+    thresholds,
+    order,
+    destination,
+)
+    sorted_thresholds = similar(thresholds)
+    _weighted_gather_thresholds_kernel!(backend)(
+        thresholds,
+        order,
+        sorted_thresholds;
+        ndrange = length(thresholds),
+    )
+    selected = similar(destination)
+    _weighted_select_sorted_kernel!(backend)(
+        population,
+        weights,
+        sorted_thresholds,
+        selected;
+        ndrange = 1,
+    )
+    _weighted_scatter_kernel!(backend)(
+        selected,
+        order,
+        destination;
+        ndrange = length(destination),
+    )
+    return destination
 end
 
 @inline function IR.rand_next(rng::_CUDAFamily, dim1::Integer, dims::Integer...)

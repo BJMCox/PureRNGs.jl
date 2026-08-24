@@ -216,6 +216,24 @@ end
     return destination
 end
 
+@inline function _launch_weighted_scan!(
+    device,
+    backend,
+    population,
+    weights,
+    thresholds,
+    order,
+    destination,
+)
+    return _launch_weighted_scan!(
+        backend,
+        population,
+        weights,
+        thresholds,
+        order,
+        destination,
+    )
+end
 
 function _randsample_next_weighted(rng, population, weights, requested_count)
     population_agnostic = _check_population_device(rng, population)
@@ -241,7 +259,15 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
         backend = _fill_backend(thresholds)
         _fill_weighted_thresholds!(backend, rng, total, thresholds)
         order = _weighted_sortperm(rng.device, thresholds)
-        _launch_weighted_scan!(backend, indexed, converted, thresholds, order, destination)
+        _launch_weighted_scan!(
+            rng.device,
+            backend,
+            indexed,
+            converted,
+            thresholds,
+            order,
+            destination,
+        )
     end
     return next_rng, destination
 end
