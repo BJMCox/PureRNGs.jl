@@ -10,6 +10,12 @@ const FAMILY_TYPES = (
     Threefry2x64,
     Threefry4x64,
 )
+const BACKEND_TOKENS = (
+    PureRNGs._CPU_BACKEND,
+    PureRNGs._CUDA_BACKEND,
+    PureRNGs._AMDGPU_BACKEND,
+    PureRNGs._METAL_BACKEND,
+)
 
 @testset "R4 and R14 family representation" begin
     for F in FAMILY_TYPES
@@ -17,14 +23,21 @@ const FAMILY_TYPES = (
         @test supertype(typeof(rng)) === PureRNGs.AbstractPureRNG
         @test isbitstype(typeof(rng))
         @test fieldnames(typeof(rng)) === (:key, :position, :device)
-        @test rng.device == MLDataDevices.CPUDevice()
+        @test rng.device === PureRNGs._CPU_BACKEND
+        @test sizeof(rng.device) == 0
+        @test MLDataDevices.get_device_type(rng.device) === MLDataDevices.CPUDevice
         @test all(
             name -> iszero(getfield(rng.position, name)),
             fieldnames(typeof(rng.position)),
         )
         @test F(rng.key).key === rng.key
         @test !applicable(F, rng.key, rng.position, rng.device)
+        @test_throws TypeError Core.apply_type(F, MLDataDevices.UnknownDevice)
     end
+
+    @test length(unique(typeof.(BACKEND_TOKENS))) == 4
+    @test all(token -> token isa PureRNGs._BackendToken, BACKEND_TOKENS)
+    @test all(token -> isbits(token) && sizeof(token) == 0, BACKEND_TOKENS)
 end
 
 @testset "R15 and R16 seed validation and mapping" begin
@@ -52,10 +65,55 @@ end
 
 @testset "R38 device application" begin
     rng = Philox4x32(123)
-    rebound = MLDataDevices.CPUDevice()(rng)
-    @test rebound.key == rng.key
-    @test rebound.position == rng.position
-    @test rebound.device == MLDataDevices.CPUDevice()
+    devices = (
+        (MLDataDevices.CPUDevice(), PureRNGs._CPU_BACKEND, MLDataDevices.CPUDevice),
+        (
+            MLDataDevices.CUDADevice(:discarded),
+            PureRNGs._CUDA_BACKEND,
+            MLDataDevices.CUDADevice,
+        ),
+        (
+            MLDataDevices.AMDGPUDevice(:discarded),
+            PureRNGs._AMDGPU_BACKEND,
+            MLDataDevices.AMDGPUDevice,
+        ),
+        (
+            MLDataDevices.MetalDevice(),
+            PureRNGs._METAL_BACKEND,
+            MLDataDevices.MetalDevice,
+        ),
+    )
+
+    @test length(unique(last.(devices))) == 4
+    for (device, token, device_type) in devices
+        rebound = device(rng)
+        @test rebound.key == rng.key
+        @test rebound.position == rng.position
+        @test rebound.device === token
+        @test isbits(rebound.device)
+        @test sizeof(rebound.device) == 0
+        @test MLDataDevices.get_device_type(rebound.device) === device_type
+        @test MLDataDevices.CPUDevice()(rebound).device === PureRNGs._CPU_BACKEND
+    end
+
+    @test MLDataDevices.CUDADevice()(rng).device === PureRNGs._CUDA_BACKEND
+    @test MLDataDevices.CUDADevice(:first)(rng).device ===
+          MLDataDevices.CUDADevice(:second)(rng).device
+    @test MLDataDevices.with_eltype(MLDataDevices.CUDADevice(:discarded), Float32)(rng).device ===
+          PureRNGs._CUDA_BACKEND
+    @test MLDataDevices.with_eltype(MLDataDevices.CPUDevice(), Float32)(rng).device ===
+          PureRNGs._CPU_BACKEND
+    @test_throws ArgumentError MLDataDevices.oneAPIDevice()(rng)
+    @test_throws ArgumentError MLDataDevices.ReactantDevice()(rng)
+end
+
+@testset "R38 active-device documentation" begin
+    documentation = read(joinpath(pkgdir(PureRNGs), "DEVICE.md"), String)
+    @test occursin("discards any physical device", documentation)
+    @test occursin("active device", documentation)
+    @test occursin("CUDA.device!", documentation)
+    @test occursin("AMDGPU", documentation)
+    @test occursin("Metal", documentation)
 end
 
 @testset "R53 exact packed-bit position representation" begin

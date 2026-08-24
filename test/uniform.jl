@@ -91,38 +91,7 @@ Base.IndexStyle(::Type{<:WrongDeviceArray{T,N,A}}) where {T,N,A} = IndexStyle(A)
 Base.getindex(array::WrongDeviceArray, indices...) = getindex(array.data, indices...)
 Base.setindex!(array::WrongDeviceArray, value, indices...) =
     setindex!(array.data, value, indices...)
-MLD.get_device(::WrongDeviceArray) = MLD.UnknownDevice()
-
-struct Blocks4ProbeDevice
-    scalar_calls::Base.RefValue{Int}
-    blocks4_calls::Base.RefValue{Int}
-end
-
-@inline function IR._block(
-    rng::Philox4x32{Blocks4ProbeDevice},
-    family::UInt32,
-    block::UInt64,
-)
-    rng.device.scalar_calls[] += 1
-    return IR._philox4x32(
-        (block % UInt32, (block >> 32) % UInt32, family, UInt32(0)),
-        rng.key,
-    )
-end
-
-@inline function IR._blocks4(
-    rng::Philox4x32{Blocks4ProbeDevice},
-    family::UInt32,
-    block::UInt64,
-)
-    rng.device.blocks4_calls[] += 1
-    high = (block >> 32) % UInt32
-    counters = ntuple(Val(4)) do lane
-        value = block + UInt64(lane - 1)
-        (value % UInt32, (value >> 32) % UInt32, family, UInt32(0))
-    end
-    return IR._philox4x32_blocks4(counters..., rng.key)
-end
+MLD.get_device_type(::WrongDeviceArray) = MLD.UnknownDevice
 
 _reference_position_block(position::IR._Position64) = position.block
 _reference_position_block(position::IR._Position128) = (position.lo, position.hi)
@@ -561,52 +530,32 @@ end
 end
 
 @testset "Philox4x32 four-block dense fills" begin
-    scalar_calls = Ref(0)
-    blocks4_calls = Ref(0)
-    probe_device = Blocks4ProbeDevice(scalar_calls, blocks4_calls)
-    probe_base = Philox4x32(0x5254)
-    probe_rng = IR._rebuild(probe_base, probe_base.position, probe_device)
-    for (T, count, expected_scalar, expected_blocks4) in (
-        (Bool, 511, 4, 0),
-        (Bool, 512, 0, 1),
-        (UInt32, 15, 4, 0),
-        (UInt32, 16, 0, 1),
-        (UInt32, 64, 0, 4),
-        (UInt64, 8, 0, 1),
-        (Float32, 63, 12, 0),
-        (Float32, 64, 0, 3),
-        (Float64, 10, 5, 0),
+    rng = Philox4x32(0x5254)
+    for (T, count, expected_index, expected_block) in (
+        (Bool, 511, 1, 0),
+        (Bool, 512, 513, 4),
+        (UInt32, 15, 1, 0),
+        (UInt32, 16, 17, 4),
+        (UInt32, 64, 65, 16),
+        (UInt64, 8, 9, 4),
+        (Float32, 63, 1, 0),
+        (Float32, 64, 65, 12),
+        (Float64, 10, 1, 0),
     )
-        scalar_calls[] = 0
-        blocks4_calls[] = 0
         destination = Vector{T}(undef, count)
-        IR._fill_uniform_dense_cpu!(
-            probe_rng,
-            probe_rng.position,
-            destination,
-            T,
-            eachindex(destination),
-        )
-        @test scalar_calls[] == expected_scalar
-        @test blocks4_calls[] == expected_blocks4
+        index, block = IR._fill_aligned_blocks4!(rng, destination, 1, count, UInt64(0))
+        @test (index, block) == (expected_index, UInt64(expected_block))
     end
-    scalar_calls[] = 0
-    blocks4_calls[] = 0
-    terminal_rng = IR._rebuild(
-        probe_rng,
-        IR._Position64(IR._max_block(probe_rng), UInt16(96)),
-        probe_device,
-    )
-    terminal_destination = Vector{UInt32}(undef, 1)
-    IR._fill_uniform_dense_cpu!(
-        terminal_rng,
-        terminal_rng.position,
-        terminal_destination,
-        UInt32,
-        eachindex(terminal_destination),
-    )
-    @test scalar_calls[] == 1
-    @test blocks4_calls[] == 0
+
+    terminal_block = IR._max_block(rng) - UInt64(2)
+    terminal_destination = Vector{UInt32}(undef, 16)
+    @test IR._fill_aligned_blocks4!(rng, terminal_destination, 1, 16, terminal_block) ==
+          (1, terminal_block)
+
+    signature =
+        Tuple{typeof(rng),typeof(rng.position),Vector{UInt32},Type{UInt32},Base.OneTo{Int}}
+    lowered = sprint(show, only(code_lowered(IR._fill_uniform_dense_cpu!, signature)))
+    @test occursin("_fill_uniform_blocks4_cpu!", lowered)
 
     for T in SCALAR_UNIFORM_TYPES,
         bit in (UInt16(0), UInt16(1), UInt16(31), UInt16(63), UInt16(127)),

@@ -282,7 +282,10 @@ device = MLD.CUDADevice(primary)
         gpu_rng = device(cpu_rng)
         @test isbits(gpu_rng)
         @test (gpu_rng.key, gpu_rng.position) == (cpu_rng.key, cpu_rng.position)
-        @test which(device, Tuple{typeof(cpu_rng)}).module === extension_module
+        @test gpu_rng.device === IR._CUDA_BACKEND
+        @test MLD.get_device_type(gpu_rng.device) === MLD.CUDADevice
+        @test which(device, Tuple{typeof(cpu_rng)}).module === IR
+        @test MLD.CUDADevice()(cpu_rng).device === gpu_rng.device
 
         advanced, _ = rand_next(gpu_rng, UInt64)
         child = subrng(gpu_rng, UInt64(0x71))
@@ -656,14 +659,14 @@ end
     end
 end
 
-@testset "context, empty validation, and wrong-device gate" begin
+@testset "context, empty validation, and active-device placement" begin
     before = CUDA.device()
     rng = device(Philox4x32(0x123456))
-    IR._with_device(device) do
-        @test CUDA.device() == device.device
+    IR._with_device(rng.device) do
+        @test CUDA.device() == before
     end
     @test CUDA.device() == before
-    @test_throws ErrorException IR._with_device(device) do
+    @test_throws ErrorException IR._with_device(rng.device) do
         error("context probe")
     end
     @test CUDA.device() == before
@@ -685,28 +688,26 @@ end
     @test count(value -> !ismissing(value), nonempty_profile.device.grid) > 0
 
     if length(devices) < 2
-        @info "only one CUDA device; wrong-device validation capability-skipped"
+        @info "only one CUDA device; active-device switching capability-skipped"
         @test_skip false
     else
-        first_device, second_device = MLD.CUDADevice.(devices[1:2])
-        first_rng = first_device(Philox4x32(0x123456))
-        destination = CUDA.device!(devices[2]) do
-            CUDA.fill(UInt32(0xdeadbeef), 4)
+        first, second = devices[1:2]
+        try
+            CUDA.device!(first)
+            second_bound = MLD.CUDADevice(second)(Philox4x32(0x123456))
+            first_values = rand(second_bound, UInt32, 4)
+            @test _device_id(first_values) == CUDA.deviceid(first)
+            @test CUDA.device() == first
+
+            CUDA.device!(second)
+            first_bound = MLD.CUDADevice(first)(Philox4x32(0x123456))
+            second_values = rand(first_bound, UInt32, 4)
+            @test _device_id(second_values) == CUDA.deviceid(second)
+            @test CUDA.device() == second
+        finally
+            CUDA.device!(before)
         end
-        wrong_empty = CUDA.device!(devices[2]) do
-            CUDA.CuArray{UInt32}(undef, 0)
-        end
-        CUDA.device!(devices[1])
-        @test_throws ArgumentError rand_next!(first_rng, destination)
-        @test_throws ArgumentError rand_next!(first_rng, wrong_empty)
-        unchanged = CUDA.device!(devices[2]) do
-            Array(destination) == fill(UInt32(0xdeadbeef), 4)
-        end
-        @test unchanged
-        @test CUDA.device() == devices[1]
-        second_values = rand(second_device(Philox4x32(0x123456)), UInt32, 4)
-        @test _device_id(second_values) == CUDA.deviceid(devices[2])
-        @test CUDA.device() == devices[1]
+        @test CUDA.device() == before
     end
 end
 

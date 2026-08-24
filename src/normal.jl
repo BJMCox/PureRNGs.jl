@@ -322,7 +322,7 @@ end
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _normal_bits(T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
-    if !threaded && rng.device isa MLDataDevices.CPUDevice
+    if !threaded && rng.device isa _CPUBackend
         _fill_normal_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
         return next_rng, destination
     end

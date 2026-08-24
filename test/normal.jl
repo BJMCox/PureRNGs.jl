@@ -422,10 +422,6 @@ end
     @test_throws ArgumentError randn(rng, Float32, -1)
     @test_throws ArgumentError randn_next(rng, -1)
 
-    noncpu = IR._rebuild(rng, rng.position, MLD.UnknownDevice())
-    @test !applicable(randn, noncpu, Float32, 1)
-    @test !applicable(randn_next, noncpu, Float32, 1)
-    @test !applicable(randn_next, noncpu, 1)
 end
 
 @testset "R26 normal fill parallel seams and caller task" begin

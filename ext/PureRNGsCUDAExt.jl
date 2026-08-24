@@ -2,20 +2,18 @@ module PureRNGsCUDAExt
 
 import CUDA
 import PureRNGs
-import MLDataDevices
 import Random
 
 const IR = PureRNGs
-const _NamedCUDADevice = MLDataDevices.CUDADevice{<:CUDA.CuDevice}
 const _CUDAFamily = Union{
-    IR.Philox2x32{<:_NamedCUDADevice},
-    IR.Philox4x32{<:_NamedCUDADevice},
-    IR.Philox2x64{<:_NamedCUDADevice},
-    IR.Philox4x64{<:_NamedCUDADevice},
-    IR.Threefry2x32{<:_NamedCUDADevice},
-    IR.Threefry4x32{<:_NamedCUDADevice},
-    IR.Threefry2x64{<:_NamedCUDADevice},
-    IR.Threefry4x64{<:_NamedCUDADevice},
+    IR.Philox2x32{IR._CUDABackend},
+    IR.Philox4x32{IR._CUDABackend},
+    IR.Philox2x64{IR._CUDABackend},
+    IR.Philox4x64{IR._CUDABackend},
+    IR.Threefry2x32{IR._CUDABackend},
+    IR.Threefry4x32{IR._CUDABackend},
+    IR.Threefry2x64{IR._CUDABackend},
+    IR.Threefry4x64{IR._CUDABackend},
 }
 
 @inline function IR._device_uniform_fill_plan(
@@ -47,30 +45,10 @@ end
     return IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
 end
 
-@inline function (device::_NamedCUDADevice)(rng::IR.AbstractPureRNG)
-    return IR._rebuild(rng, rng.position, device)
-end
+@inline IR._with_device(f, ::IR._CUDABackend) = f()
 
-@inline function IR._with_device(f, device::_NamedCUDADevice)
-    return CUDA.device!(f, device.device)
-end
-
-@inline function IR._allocate_array(
-    device::_NamedCUDADevice,
-    ::Type{T},
-    dims::Tuple,
-) where {T}
-    return IR._with_device(device) do
-        CUDA.CuArray{T}(undef, dims)
-    end
-end
-
-@inline function IR._same_fill_device(
-    generator_device::_NamedCUDADevice,
-    destination_device::_NamedCUDADevice,
-)
-    return CUDA.deviceid(generator_device.device) ==
-           CUDA.deviceid(destination_device.device)
+@inline function IR._allocate_array(::IR._CUDABackend, ::Type{T}, dims::Tuple) where {T}
+    return CUDA.CuArray{T}(undef, dims)
 end
 
 @inline function IR.rand_next(rng::_CUDAFamily, dim1::Integer, dims::Integer...)

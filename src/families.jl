@@ -1,5 +1,22 @@
 abstract type AbstractPureRNG end
 
+struct _CPUBackend end
+struct _CUDABackend end
+struct _AMDGPUBackend end
+struct _MetalBackend end
+
+const _BackendToken = Union{_CPUBackend,_CUDABackend,_AMDGPUBackend,_MetalBackend}
+
+const _CPU_BACKEND = _CPUBackend()
+const _CUDA_BACKEND = _CUDABackend()
+const _AMDGPU_BACKEND = _AMDGPUBackend()
+const _METAL_BACKEND = _MetalBackend()
+
+MLDataDevices.get_device_type(::_CPUBackend) = MLDataDevices.CPUDevice
+MLDataDevices.get_device_type(::_CUDABackend) = MLDataDevices.CUDADevice
+MLDataDevices.get_device_type(::_AMDGPUBackend) = MLDataDevices.AMDGPUDevice
+MLDataDevices.get_device_type(::_MetalBackend) = MLDataDevices.MetalDevice
+
 const _EXHAUSTED_BIT = typemax(UInt16)
 
 struct _Position64
@@ -16,7 +33,7 @@ end
 struct _ConstructionToken end
 const _CONSTRUCTION_TOKEN = _ConstructionToken()
 
-struct Philox2x32{D} <: AbstractPureRNG
+struct Philox2x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{1,UInt32}
     position::_Position64
     device::D
@@ -25,7 +42,7 @@ struct Philox2x32{D} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-struct Philox4x32{D} <: AbstractPureRNG
+struct Philox4x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt32}
     position::_Position64
     device::D
@@ -34,7 +51,7 @@ struct Philox4x32{D} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-struct Philox2x64{D} <: AbstractPureRNG
+struct Philox2x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{1,UInt64}
     position::_Position64
     device::D
@@ -43,7 +60,7 @@ struct Philox2x64{D} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-struct Philox4x64{D} <: AbstractPureRNG
+struct Philox4x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt64}
     position::_Position128
     device::D
@@ -52,7 +69,7 @@ struct Philox4x64{D} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-struct Threefry2x32{D} <: AbstractPureRNG
+struct Threefry2x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt32}
     position::_Position64
     device::D
@@ -61,7 +78,7 @@ struct Threefry2x32{D} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-struct Threefry4x32{D} <: AbstractPureRNG
+struct Threefry4x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{4,UInt32}
     position::_Position64
     device::D
@@ -70,7 +87,7 @@ struct Threefry4x32{D} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-struct Threefry2x64{D} <: AbstractPureRNG
+struct Threefry2x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt64}
     position::_Position64
     device::D
@@ -79,7 +96,7 @@ struct Threefry2x64{D} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
-struct Threefry4x64{D} <: AbstractPureRNG
+struct Threefry4x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{4,UInt64}
     position::_Position128
     device::D
@@ -92,7 +109,6 @@ const _Position64Family =
     Union{Philox2x32,Philox4x32,Philox2x64,Threefry2x32,Threefry4x32,Threefry2x64}
 const _Position128Family = Union{Philox4x64,Threefry4x64}
 const _NarrowFamily = Union{Philox2x32,Threefry2x32}
-
 @inline _zero_position(::Type{<:_Position64Family}) = _Position64(0, 0)
 @inline _zero_position(::Type{<:_Position128Family}) = _Position128(0, 0, 0)
 
@@ -107,7 +123,7 @@ for F in (
     :Threefry4x64,
 )
     @eval function $F(key::fieldtype($F, :key))
-        device = MLDataDevices.CPUDevice()
+        device = _CPU_BACKEND
         return $F{typeof(device)}(_CONSTRUCTION_TOKEN, key, _zero_position($F), device)
     end
 end
@@ -141,12 +157,26 @@ for F in (
     :Threefry2x64,
     :Threefry4x64,
 )
-    @eval @inline _rebuild(rng::$F, position, device::D) where {D} =
+    @eval @inline _rebuild(rng::$F, position, device::D) where {D<:_BackendToken} =
         $F{D}(_CONSTRUCTION_TOKEN, rng.key, position, device)
 end
 
-@inline (device::MLDataDevices.CPUDevice)(rng::AbstractPureRNG) =
-    _rebuild(rng, rng.position, device)
+for (Device, token) in (
+    (MLDataDevices.CPUDevice, :_CPU_BACKEND),
+    (MLDataDevices.CUDADevice, :_CUDA_BACKEND),
+    (MLDataDevices.AMDGPUDevice, :_AMDGPU_BACKEND),
+    (MLDataDevices.MetalDevice, :_METAL_BACKEND),
+)
+    @eval @inline (::$(Device))(rng::AbstractPureRNG) =
+        _rebuild(rng, rng.position, $token)
+end
+
+@noinline function _unsupported_device(device)
+    throw(ArgumentError("unsupported MLDataDevices device type: $(typeof(device))"))
+end
+
+@inline (device::MLDataDevices.AbstractDevice)(::AbstractPureRNG) =
+    _unsupported_device(device)
 
 @inline _block_shift(::_NarrowFamily) = UInt8(6)
 @inline _block_shift(::Union{Philox4x32,Philox2x64,Threefry4x32,Threefry2x64}) = UInt8(7)

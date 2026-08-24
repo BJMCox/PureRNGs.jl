@@ -80,18 +80,18 @@ end
     throw(ArgumentError("destination device differs from the generator device"))
 end
 
-@inline _same_fill_device(::MLDataDevices.CPUDevice, ::MLDataDevices.CPUDevice) = true
-@inline _same_fill_device(generator_device, destination_device) =
-    generator_device == destination_device
+@inline function _same_fill_device(generator_device::_BackendToken, destination)
+    return MLDataDevices.get_device_type(generator_device) ===
+           MLDataDevices.get_device_type(destination)
+end
 
 @inline function _check_fill_device(rng::_ScalarUniformFamily, destination)
-    device = MLDataDevices.get_device(destination)
-    _same_fill_device(rng.device, device) || _fill_device_mismatch()
-    return device
+    _same_fill_device(rng.device, destination) || _fill_device_mismatch()
+    return rng.device
 end
 
 @inline _check_serviceability(rng, ::Type) = nothing
-@inline _with_device(f, ::MLDataDevices.CPUDevice) = f()
+@inline _with_device(f, ::_CPUBackend) = f()
 
 @inline function _fill_uniform_unchecked!(
     rng::_ScalarUniformFamily,
@@ -831,7 +831,7 @@ end
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _draw_bits(T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
-    if !threaded && rng.device isa MLDataDevices.CPUDevice
+    if !threaded && rng.device isa _CPUBackend
         _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
         return next_rng, destination
     end

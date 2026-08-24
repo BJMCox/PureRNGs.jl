@@ -174,13 +174,6 @@ end
         @test !applicable(rand_next, rng, range, 3)
     end
 
-    unknown =
-        RangeAllocIR._rebuild(rng, rng.position, RangeAllocIR.MLDataDevices.UnknownDevice())
-    range = UInt16(2):UInt16(17)
-    @test !applicable(rand, unknown, range, 3)
-    @test !applicable(rand_next, unknown, range, 3)
-    @test_throws MethodError rand(unknown, range, 3)
-    @test_throws MethodError rand_next(unknown, range, 3)
 end
 
 @testset "R30, R54, and R61 allocating range inference and IR" begin

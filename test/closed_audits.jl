@@ -160,9 +160,8 @@ end
     rng = Philox4x32(0xa72)
     exhausted =
         AuditIR._rebuild(rng, AuditIR._terminal64(AuditIR._max_block(rng)), rng.device)
-    mismatch_device = SeamDevice(Symbol[], false, true)
-    wrong_uniform_destination = SeamArray(Vector{UInt32}(undef, 1), mismatch_device)
-    wrong_normal_destination = SeamArray(Vector{Float32}(undef, 1), mismatch_device)
+    wrong_uniform_destination = WrongDeviceArray(Vector{UInt32}(undef, 1))
+    wrong_normal_destination = WrongDeviceArray(Vector{Float32}(undef, 1))
     argument_errors = (
         (:negative_seed, () -> Philox2x32(-1)),
         (:oversized_seed, () -> Philox2x32(big(1) << 32)),
