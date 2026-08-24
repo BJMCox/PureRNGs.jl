@@ -681,6 +681,23 @@ end
     empty_profile = CUDA.@profile raw = true rand_next!(rng, empty)
     @test count(value -> !ismissing(value), empty_profile.device.grid) == 0
 
+    exhausted = IR._rebuild(rng, _terminal(rng), rng.device)
+    for destination in (fill(UInt32(0xdeadbeef), 4), BitVector([true, false, true, false])),
+        operation in (rand!, rand_next!)
+
+        before_values = copy(destination)
+        error = try
+            operation(exhausted, destination)
+            nothing
+        catch caught
+            caught
+        end
+        @test error isa ArgumentError
+        @test sprint(showerror, error) ==
+              "ArgumentError: destination device differs from the generator device"
+        @test destination == before_values
+    end
+
     nonempty = CUDA.CuArray{UInt32}(undef, 1024)
     rand_next!(rng, nonempty)
     CUDA.synchronize()
