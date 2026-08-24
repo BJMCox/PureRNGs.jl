@@ -20,6 +20,11 @@ end
     return hi_high + UInt64(sum < hi_low)
 end
 
+@inline _reduce_range_candidate(candidate::UInt64, span::UInt64) =
+    _mulhi32limbs(candidate, span)
+@inline _reduce_range_candidate(lo::UInt64, hi::UInt64, span::UInt64) =
+    iszero(span) ? hi : _mulhi128_by64(lo, hi, span)
+
 @inline function _range_span(range::AbstractRange{T}) where {T<:_RangeInteger}
     isempty(range) && throw(ArgumentError("range must be non-empty"))
     return length(range) % UInt64
@@ -53,15 +58,26 @@ end
     return iszero(index) ? last(range) : range[index]
 end
 
-@inline function _range_offset(rng::_ScalarRangeFamily, span::UInt64)
-    position = rng.position
+@inline function _range_offset(rng::_ScalarRangeFamily, position, span::UInt64)
     block = _position_block(position)
     if span != zero(UInt64) && span <= UInt64(1) << 32
         candidate = _extract_bits_unchecked(rng, FAMILY_RANGE, block, position.bit, Val(64))
-        return _mulhi32limbs(candidate, span)
+        return _reduce_range_candidate(candidate, span)
     end
     lo, hi = _extract_bits128_unchecked(rng, FAMILY_RANGE, block, position.bit)
-    return iszero(span) ? hi : _mulhi128_by64(lo, hi, span)
+    return _reduce_range_candidate(lo, hi, span)
+end
+
+@inline _range_offset(rng::_ScalarRangeFamily, span::UInt64) =
+    _range_offset(rng, rng.position, span)
+
+@inline function _draw_range_unchecked(
+    rng::_ScalarRangeFamily,
+    position,
+    range::AbstractRange{T},
+    span::UInt64,
+) where {T<:_RangeInteger}
+    return _range_value(range, _range_offset(rng, position, span))
 end
 
 @inline function _draw_range_unchecked(
@@ -69,7 +85,7 @@ end
     range::AbstractRange{T},
     span::UInt64,
 ) where {T<:_RangeInteger}
-    return _range_value(range, _range_offset(rng, span))
+    return _draw_range_unchecked(rng, rng.position, range, span)
 end
 
 @inline function _rand_range(rng::_ScalarRangeFamily, range::AbstractRange{T}) where {T}

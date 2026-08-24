@@ -1,0 +1,96 @@
+@inline function _fill_range_cpu_unchecked!(
+    rng::_CPUFamily,
+    position,
+    destination::Array{T},
+    range::AbstractRange{T},
+    span::UInt64,
+    indices,
+) where {T<:_RangeInteger}
+    isempty(indices) && return nothing
+    cursor = _dense_cursor(rng, FAMILY_RANGE, _position_block(position), position.bit)
+    if _range_bits(span) == UInt16(64)
+        @inbounds for index in indices
+            candidate, cursor =
+                _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+            offset = _reduce_range_candidate(candidate, span)
+            destination[index] = _range_value(range, offset)
+        end
+    else
+        @inbounds for index in indices
+            hi, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+            lo, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+            offset = _reduce_range_candidate(lo, hi, span)
+            destination[index] = _range_value(range, offset)
+        end
+    end
+    return nothing
+end
+
+
+KernelAbstractions.@kernel function _range_fill_cpu_kernel!(
+    rng,
+    destination,
+    range,
+    span,
+    chunk_elements,
+)
+    workitem = @index(Global, Linear)
+    first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
+    width = _range_bits(span)
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), width)
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_range_cpu_unchecked!(rng, position, destination, range, span, first:last)
+end
+
+@inline function _launch_range_cpu!(backend, rng, destination, range, span)
+    chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_range_bits(span)))
+    workitems = cld(length(destination), chunk_elements)
+    _range_fill_cpu_kernel!(backend)(
+        rng,
+        destination,
+        range,
+        span,
+        chunk_elements;
+        ndrange = workitems,
+        workgroupsize = 1,
+    )
+    return destination
+end
+
+@inline function _rand_next_range_array(
+    rng::_CPUFamily,
+    range::AbstractRange{T},
+    dims::Tuple,
+) where {T<:_RangeInteger}
+    span = _range_span(range)
+    destination = _allocate_array(rng.device, T, dims)
+    bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _range_bits(span))
+    next_rng = _reserve(rng, bits_lo, bits_hi)
+    isempty(destination) && return next_rng, destination
+    backend = _fill_backend(destination)
+    _launch_range_cpu!(backend, rng, destination, range, span)
+    return next_rng, destination
+end
+
+for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
+    @eval begin
+        @inline function Random.rand(
+            rng::_CPUFamily,
+            range::AbstractRange{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            _, destination = _rand_next_range_array(rng, range, (dim1, dims...))
+            return destination
+        end
+
+        @inline function rand_next(
+            rng::_CPUFamily,
+            range::AbstractRange{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return _rand_next_range_array(rng, range, (dim1, dims...))
+        end
+    end
+end
