@@ -255,3 +255,139 @@ end
     ])
     @test_throws ArgumentError TestU01Driver._parse_run(["x", "Philox4x32", "bits", "bad"])
 end
+
+@testset "Committed SmallCrush log is complete and current" begin
+    log_path = joinpath(@__DIR__, "statistical", "smallcrush.tsv")
+    lines = readlines(log_path)
+    metadata = Dict{String,Vector{Vector{SubString{String}}}}()
+    rows = Vector{Vector{SubString{String}}}()
+    header = "battery\tfamily\tstream\tschedule\tstatistic_index\tstatistic_name\tp_value\tp_value_bits\tfinite\twithin_diagnostic_interval\twithin_release_interval\tsuspect"
+    saw_header = false
+    for line in lines
+        if startswith(line, "# ")
+            fields = split(line[3:end], '\t')
+            push!(
+                get!(Vector{Vector{SubString{String}}}, metadata, String(first(fields))),
+                fields[2:end],
+            )
+        elseif line == header
+            @test !saw_header
+            saw_header = true
+        else
+            @test saw_header
+            push!(rows, split(line, '\t'))
+        end
+    end
+
+    scalar(key) = only(only(metadata[key]))
+    @test scalar("schema") == string(TestU01Driver.DRIVER_SCHEMA)
+    @test scalar("driver_package") == "PureRNGs"
+    @test scalar("driver_version") == string(pkgversion(PureRNGs))
+    @test scalar("testu01_version") == string(TestU01Driver.TESTU01_VERSION)
+    @test scalar("battery") == "SmallCrush"
+    @test scalar("architecture") == "x86_64"
+    @test scalar("kernel") == "Linux"
+    @test !isempty(scalar("cpu"))
+    @test scalar("root_seed") == string(TestU01Driver.ROOT_SEED)
+    @test scalar("child_count") == string(TestU01Driver.CHILD_COUNT)
+    @test scalar("interleave") == "round-robin, one value per child in child order"
+    @test scalar("bits_api") == "unif01_CreateExternGenBits(UInt32)"
+    @test scalar("uniform_api") == "unif01_CreateExternGen01(Float64)"
+    @test scalar("diagnostic_interval") ==
+          "[$(TestU01Driver.DIAGNOSTIC_MIN), $(TestU01Driver.DIAGNOSTIC_MAX)]"
+    @test parse(Float64, scalar("release_alpha")) === TestU01Driver.RELEASE_ALPHA
+    @test scalar("release_interval") ==
+          "[$(TestU01Driver.RELEASE_ALPHA), $(TestU01Driver.RELEASE_MAX)]"
+    @test scalar("expected_cases") == string(TestU01Driver.R50_CASE_COUNT)
+    @test scalar("expected_p_values_per_case") ==
+          string(TestU01Driver.R50_P_VALUES_PER_CASE)
+    @test scalar("expected_p_values") == string(TestU01Driver.R50_P_VALUE_COUNT)
+
+    package_root = pkgdir(PureRNGs)
+    source_paths = ["Project.toml"]
+    for directory in ("src", "ext")
+        append!(
+            source_paths,
+            relpath.(
+                sort(
+                    filter(
+                        TestU01Driver._source_file,
+                        readdir(joinpath(package_root, directory); join = true),
+                    ),
+                ),
+                package_root,
+            ),
+        )
+    end
+    identities = metadata["file_sha256"]
+    source_hashes =
+        Dict(fields[2] => fields[3] for fields in identities if fields[1] == "source")
+    @test Set(keys(source_hashes)) == Set(source_paths)
+    for path in source_paths
+        @test source_hashes[path] == TestU01Driver._sha256(joinpath(package_root, path))
+    end
+    driver = only(filter(fields -> fields[1] == "driver", identities))
+    @test driver[2] == "test/statistical/testu01.jl"
+    @test driver[3] == TestU01Driver._sha256(joinpath(package_root, driver[2]))
+    for role in ("testu01", "probdist", "mylib")
+        identity = only(filter(fields -> fields[1] == role, identities))
+        @test occursin(r"^[0-9a-f]{64}$", identity[3])
+    end
+
+    @test saw_header
+    @test length(rows) == TestU01Driver.R50_P_VALUE_COUNT
+    case_indices = Dict{Tuple{String,String,String},Vector{Int}}()
+    all_diagnostic = true
+    all_release = true
+    for row in rows
+        @test length(row) == 12
+        @test row[1] == "SmallCrush"
+        F = TestU01Driver._family_type(row[2])
+        stream = Symbol(row[3])
+        schedule = Symbol(row[4])
+        @test (F, stream, schedule) in TestU01Driver._matrix()
+        index = parse(Int, row[5])
+        push!(get!(Vector{Int}, case_indices, (row[2], row[3], row[4])), index)
+        p_value = parse(Float64, row[7])
+        @test parse(UInt64, row[8]; base = 16) == reinterpret(UInt64, p_value)
+        @test parse(Bool, row[9]) == TestU01Driver._is_finite(p_value)
+        diagnostic = TestU01Driver._within_diagnostic(p_value)
+        release = TestU01Driver._within_release(p_value)
+        @test parse(Bool, row[10]) == diagnostic
+        @test parse(Bool, row[11]) == release
+        @test parse(Bool, row[12]) == TestU01Driver._is_suspect(p_value)
+        all_diagnostic &= diagnostic
+        all_release &= release
+    end
+    @test length(case_indices) == TestU01Driver.R50_CASE_COUNT
+    @test all(
+        indices == collect(1:TestU01Driver.R50_P_VALUES_PER_CASE) for
+        indices in values(case_indices)
+    )
+
+    case_counts = metadata["case_p_value_count"]
+    @test length(case_counts) == TestU01Driver.R50_CASE_COUNT
+    expected_cases = Set(
+        (string(nameof(F)), string(stream), string(schedule)) for
+        (F, stream, schedule) in TestU01Driver._matrix()
+    )
+    @test Set(Tuple(String.(fields[2:4])) for fields in case_counts) == expected_cases
+    @test all(
+        fields ->
+            fields[1] == "SmallCrush" &&
+            parse(Int, fields[5]) == TestU01Driver.R50_P_VALUES_PER_CASE,
+        case_counts,
+    )
+    @test scalar("completed") == "true"
+    @test scalar("completed_cases") == string(TestU01Driver.R50_CASE_COUNT)
+    @test scalar("completed_p_values") == string(TestU01Driver.R50_P_VALUE_COUNT)
+    @test parse(Bool, scalar("all_p_values_finite"))
+    @test parse(Bool, scalar("all_within_diagnostic_interval")) == all_diagnostic
+    @test parse(Bool, scalar("all_within_release_interval")) == all_release
+    @test parse(Bool, scalar("all_case_counts_valid"))
+    @test parse(Bool, scalar("release_applicable"))
+    @test parse(Bool, scalar("matrix_complete"))
+    @test parse(Bool, scalar("r50_release_passed"))
+    @test parse(Bool, scalar("diagnostic_run_passed")) == all_diagnostic
+    @test all_release
+end

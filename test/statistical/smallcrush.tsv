@@ -1,0 +1,570 @@
+# schema	2
+# driver_package	PureRNGs
+# driver_version	0.1.0
+# kernel_abstractions_version	0.9.42
+# mldata_devices_version	1.17.10
+# julia_version	1.12.7
+# testu01_version	1.2.3
+# battery	SmallCrush
+# architecture	x86_64
+# kernel	Linux
+# cpu	znver2
+# root_seed	12345
+# child_count	8
+# interleave	round-robin, one value per child in child order
+# bits_api	unif01_CreateExternGenBits(UInt32)
+# uniform_api	unif01_CreateExternGen01(Float64)
+# diagnostic_interval	[0.001, 0.999]
+# release_alpha	2.0833333333333334e-6
+# release_interval	[2.0833333333333334e-6, 0.9999979166666667]
+# expected_cases	32
+# expected_p_values_per_case	15
+# expected_p_values	480
+# file_sha256	driver	test/statistical/testu01.jl	9920ea3860ee1be79ce9475778cdde6b3f86f1a1dbecef80fdfdc56158a982df
+# file_sha256	testu01	/home/users01/bcox/.local/lib/libtestu01.so.0.0.1	6beac2d153d2ced1b4d506d0cf1b2d2f4a198497e294fcd5ea971f781f9d4215
+# file_sha256	probdist	/home/users01/bcox/.local/lib/libprobdist.so.0.0.1	ebd6779fd145173a11fc4846aa1651732a5920e60f8cb6ddf44f1417d20b094a
+# file_sha256	mylib	/home/users01/bcox/.local/lib/libmylib.so.0.0.1	a4adfb07aaf8a82368a0fd9ac726df6ab54dac8709e8cbd81620c228edd519ca
+# file_sha256	source	Project.toml	aebb725d0c84626def2f14cb36e6d148b65088adfbd7714553351a1372b6b074
+# file_sha256	source	src/PureRNGs.jl	7c97bd40d87f16b8ade60a9ac9846deea3feb822596269e038500982b686fb52
+# file_sha256	source	src/bits.jl	32a93cfd35b417d6414049e13a411b2f0dd098edd219a6c864f2da4052d764a6
+# file_sha256	source	src/cpu_allocation.jl	f119720d23446ec4687395415eda1a94ccc088ea41cb4d100c2518bf7ac5a96b
+# file_sha256	source	src/derive.jl	6ce3779aad12a019ca99cd3eb14f79b41e6caa450c1714ed324914a66376abe9
+# file_sha256	source	src/families.jl	f3482e672173fc8a21164f28c287b10c43848fd11c494f853d46ff975a07f7ce
+# file_sha256	source	src/integers.jl	2e3122e4eab459ddb61c24a59d4f19156699a7e14b434ed5992e9da9155936e3
+# file_sha256	source	src/normal.jl	da5e6408cfddb41448679914041804bdd96d7bc66927a9a3a3fac9d2d96fa67f
+# file_sha256	source	src/normal_allocating.jl	9d3a145899b204247fc95e5129c32eae5a4f33ca7a00fe009f58bda86b0973a4
+# file_sha256	source	src/philox.jl	be801681f57e60c198dc8c1f51fc6b0a1e025ddb56d652e732036641a88f6821
+# file_sha256	source	src/range_allocating.jl	55d9a5c9f778d50da5f7b99bb9af9b2945445e24fa8f36c8362a64c8aa64a54b
+# file_sha256	source	src/sampling.jl	2c6ebd597cd943810d90e09d606daee5247432e0dc686f2e637f4644611221ab
+# file_sha256	source	src/stateful.jl	8f1164c6c5c6352002c57098f55979d0a18751c38c6de0db1d88a2ad468b9b33
+# file_sha256	source	src/threefry.jl	d8949e41677868bc7f7b98057ac40074ceec00e7f220fffbff53d77ea69380e5
+# file_sha256	source	src/uniform.jl	eec6b48bd920e1bd9a01b599ce6e34784ef83995ed7dad62438fe0d732ec8b4a
+# file_sha256	source	src/uniform_allocating.jl	88139d8c5b4a34177e433e96460c57d48f203ef010bdaada99a69d6e9c026a9d
+# file_sha256	source	src/weighted_sampling.jl	58e0731d600ebb9580a70add6c2d6118d1f8875fafd8c6716d656632dd2abab1
+# file_sha256	source	ext/PureRNGsAMDGPUExt.jl	70181bbfc6409b05c1850da691a46d1141e393ff06508271b3c0c76916d5626d
+# file_sha256	source	ext/PureRNGsCUDAExt.jl	7ace27fa31d6cad268f9bf2b7c4f7e9114b1b0915e34dc4bc33caea2d0909a36
+# file_sha256	source	ext/PureRNGsMetalExt.jl	29ea949ab67b84cf4da93faefe453be675fbd99be5f424cef3db857e37573556
+battery	family	stream	schedule	statistic_index	statistic_name	p_value	p_value_bits	finite	within_diagnostic_interval	within_release_interval	suspect
+SmallCrush	Philox2x32	bits	sequential	1	BirthdaySpacings	0.6098493790112907	3fe383e2d84adc62	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	2	Collision	0.7856747539273659	3fe9243f61ad25f6	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	3	Gap	0.7314231275599596	3fe767d1798d0eda	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	4	SimpPoker	0.07884993684848118	3fb42f826c0e4ef0	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	5	CouponCollector	0.7551148032285637	3fe829e68512f2f2	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	6	MaxOft	0.11315375915572767	3fbcf7a50efe49a0	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	7	MaxOft AD	0.3081899249333774	3fd3b9623c22ea4e	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	8	WeightDistrib	0.6400837432913465	3fe47b90e7046729	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	9	MatrixRank	0.8331584260319047	3feaa93bdc063426	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	10	HammingIndep	0.1888721492456833	3fc82cf66c115620	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	11	RandomWalk1 H	0.6164252012181474	3fe3b9c157f5306f	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	12	RandomWalk1 M	0.8378854412733968	3feacff521020a63	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	13	RandomWalk1 J	0.32203593421517773	3fd49c3c9b65d2e0	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	14	RandomWalk1 R	0.7028960554127908	3fe67e1fde4f87e8	true	true	true	false
+SmallCrush	Philox2x32	bits	sequential	15	RandomWalk1 C	0.5763427764014981	3fe2716667fdc4d0	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x32	bits	sequential	15
+SmallCrush	Philox2x32	bits	interleaved	1	BirthdaySpacings	0.5336216850647422	3fe1136dc8b9436a	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	2	Collision	0.38762579875607184	3fd8cedc702f90b0	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	3	Gap	0.2720551849135735	3fd1695a267a4e54	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	4	SimpPoker	0.47232908912854943	3fde3aa3c9b06bf4	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	5	CouponCollector	0.42903659700153063	3fdb7555ea3a283c	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	6	MaxOft	0.842746300778084	3feaf7c7171556d6	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	7	MaxOft AD	0.7271734579260508	3fe745014589f8cb	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	8	WeightDistrib	0.4137902379026773	3fda7b8a0ccc8c3a	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	9	MatrixRank	0.9587258167726528	3feeade1c39bd263	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	10	HammingIndep	0.6033297971419395	3fe34e7a4a6da987	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	11	RandomWalk1 H	0.22411147870127923	3fccafaf57d710a0	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	12	RandomWalk1 M	0.518939466380465	3fe09b26f096a634	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	13	RandomWalk1 J	0.8115315840434371	3fe9f81115a46787	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	14	RandomWalk1 R	0.7749853546076293	3fe8ccae161d663e	true	true	true	false
+SmallCrush	Philox2x32	bits	interleaved	15	RandomWalk1 C	0.8512252952370192	3feb3d3cd4924528	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x32	bits	interleaved	15
+SmallCrush	Philox2x32	uniform	sequential	1	BirthdaySpacings	0.6098493790112907	3fe383e2d84adc62	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	2	Collision	0.9086896563723263	3fed13fc548aa4d2	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	3	Gap	0.20831586160218651	3fcaaa181a68e3d8	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	4	SimpPoker	0.645312094939635	3fe4a6658cef53cd	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	5	CouponCollector	0.1256316906675593	3fc014b3016111cc	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	6	MaxOft	0.4060332611227049	3fd9fc72ee670e44	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	7	MaxOft AD	0.02926175637926387	3f9df6cb3ab098c0	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	8	WeightDistrib	0.05658062167695577	3facf8229f613720	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	9	MatrixRank	0.9512789902337185	3fee70e0a30d9f89	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	10	HammingIndep	0.5524038823079556	3fe1ad4ae8164678	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	11	RandomWalk1 H	0.9505697507695928	3fee6b114103e9a7	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	12	RandomWalk1 M	0.9929924914774533	3fefc6983082370e	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	13	RandomWalk1 J	0.24607264886310842	3fcf7f4efda75070	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	14	RandomWalk1 R	0.5255599247525911	3fe0d1630c1cd1b6	true	true	true	false
+SmallCrush	Philox2x32	uniform	sequential	15	RandomWalk1 C	0.3998427895531851	3fd99706362b07a0	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x32	uniform	sequential	15
+SmallCrush	Philox2x32	uniform	interleaved	1	BirthdaySpacings	0.6098493790112907	3fe383e2d84adc62	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	2	Collision	0.9086896563723263	3fed13fc548aa4d2	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	3	Gap	0.6604134471370982	3fe5221b61a95bd8	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	4	SimpPoker	0.12238689645384637	3fbf54bf65ba6be0	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	5	CouponCollector	0.23591102041517598	3fce325512b97e60	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	6	MaxOft	0.27574206712957894	3fd1a5c20e1cfd98	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	7	MaxOft AD	0.14460436467823545	3fc28265549370c4	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	8	WeightDistrib	0.5278324589889777	3fe0e400e5a3ff59	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	9	MatrixRank	0.6618896608172502	3fe52e3339d8a8f0	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	10	HammingIndep	0.7696287596422287	3fe8a0cc7e172e6c	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	11	RandomWalk1 H	0.889984583702022	3fec7ac0f31e3831	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	12	RandomWalk1 M	0.6516126926498578	3fe4da02dc92de52	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	13	RandomWalk1 J	0.5410046094534224	3fe14fe8e612ce74	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	14	RandomWalk1 R	0.5987658836291063	3fe329171204b8c2	true	true	true	false
+SmallCrush	Philox2x32	uniform	interleaved	15	RandomWalk1 C	0.8236839013559685	3fea5b9e57521930	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x32	uniform	interleaved	15
+SmallCrush	Philox4x32	bits	sequential	1	BirthdaySpacings	0.9337898087053176	3fede19b2a374726	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	2	Collision	0.3947331040765185	3fd9434ea32a0fc0	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	3	Gap	0.3960293617623516	3fd9588b89419a78	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	4	SimpPoker	0.11394885744647665	3fbd2bc0982630e0	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	5	CouponCollector	0.8206426660658408	3fea42b4688e8fa6	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	6	MaxOft	0.47854292746617433	3fdea07283ccc1a4	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	7	MaxOft AD	0.1217364406099466	3fbf2a1e8f26b2e0	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	8	WeightDistrib	0.009379800859412923	3f8335b78f792ec0	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	9	MatrixRank	0.6586143619798159	3fe5135e6d2c2288	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	10	HammingIndep	0.5066474926192291	3fe03674cd6cccb9	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	11	RandomWalk1 H	0.2672698879824924	3fd11af32905c8ec	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	12	RandomWalk1 M	0.9410217112047926	3fee1cd9904e6ad5	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	13	RandomWalk1 J	0.2860263567123933	3fd24e417df7ebac	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	14	RandomWalk1 R	0.44430953447565047	3fdc6f9141f7ee08	true	true	true	false
+SmallCrush	Philox4x32	bits	sequential	15	RandomWalk1 C	0.4121458286023443	3fda6098e5c1e9b8	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x32	bits	sequential	15
+SmallCrush	Philox4x32	bits	interleaved	1	BirthdaySpacings	0.45709739674954925	3fdd411570881137	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	2	Collision	0.655686140460118	3fe4fb618036eef4	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	3	Gap	0.5961510320251077	3fe313ab5440c897	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	4	SimpPoker	0.37479649433320983	3fd7fcaa6f7442f0	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	5	CouponCollector	0.4464551057494518	3fdc92b86f94df1a	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	6	MaxOft	0.18356338089828228	3fc77f013ed9c4a4	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	7	MaxOft AD	0.7342889803182815	3fe77f4b9a88f774	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	8	WeightDistrib	0.9167759592462176	3fed563a895716cd	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	9	MatrixRank	0.18361954510683032	3fc780d86291f328	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	10	HammingIndep	0.13670434743190552	3fc17f872eb87484	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	11	RandomWalk1 H	0.4113685706604384	3fda53dcd765afb0	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	12	RandomWalk1 M	0.7884820872911589	3fe93b3ec94cb70c	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	13	RandomWalk1 J	0.37753364032432957	3fd82982db954cf6	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	14	RandomWalk1 R	0.31047979181114704	3fd3dee6a1f974fc	true	true	true	false
+SmallCrush	Philox4x32	bits	interleaved	15	RandomWalk1 C	0.6958413946877606	3fe644552c2c61fa	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x32	bits	interleaved	15
+SmallCrush	Philox4x32	uniform	sequential	1	BirthdaySpacings	0.5336216850647422	3fe1136dc8b9436a	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	2	Collision	0.35270651224537164	3fd692be55cb86ac	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	3	Gap	0.17925181429265669	3fc6f1b934115c30	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	4	SimpPoker	0.7338601481774414	3fe77bc84708507c	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	5	CouponCollector	0.9829076503197047	3fef73fabea39010	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	6	MaxOft	0.4208293649239714	3fdaeede49e2dfc0	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	7	MaxOft AD	0.5529594857306341	3fe1b1d817673bd2	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	8	WeightDistrib	0.8025614541123024	3fe9ae955bce2951	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	9	MatrixRank	0.8050473696700478	3fe9c2f2b38ed672	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	10	HammingIndep	0.6603127283498383	3fe5214828aca48f	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	11	RandomWalk1 H	0.03145648849368432	3fa01b109aa79da0	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	12	RandomWalk1 M	0.28283913728160104	3fd21a095329d02c	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	13	RandomWalk1 J	0.3941984892700533	3fd93a8c4ce30a02	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	14	RandomWalk1 R	0.8426911093698033	3feaf753586bf1c8	true	true	true	false
+SmallCrush	Philox4x32	uniform	sequential	15	RandomWalk1 C	0.8835136340933959	3fec45be62800a35	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x32	uniform	sequential	15
+SmallCrush	Philox4x32	uniform	interleaved	1	BirthdaySpacings	0.3830190042145144	3fd88362243642c6	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	2	Collision	0.9446068624606611	3fee3a382bbb100d	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	3	Gap	0.9691656117378706	3fef036799da4dba	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	4	SimpPoker	0.2116579061806536	3fcb179b347e2cd8	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	5	CouponCollector	0.6157570753317371	3fe3b4482e9a92cb	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	6	MaxOft	0.8584372274574348	3feb7851593327b2	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	7	MaxOft AD	0.7716673470759278	3fe8b17fb862a14f	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	8	WeightDistrib	0.536318150371974	3fe12984ae8329af	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	9	MatrixRank	0.47676389339606917	3fde834cb4832f10	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	10	HammingIndep	0.3130349765014149	3fd408c3daa4f920	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	11	RandomWalk1 H	0.36319577839345774	3fd73e99818fb0c6	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	12	RandomWalk1 M	0.5379223102079386	3fe136a8d9443839	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	13	RandomWalk1 J	0.03595725872914468	3fa268fd64974a10	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	14	RandomWalk1 R	0.9454843803082118	3fee41687589aede	true	true	true	false
+SmallCrush	Philox4x32	uniform	interleaved	15	RandomWalk1 C	0.5723060245020852	3fe25054b9514992	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x32	uniform	interleaved	15
+SmallCrush	Philox2x64	bits	sequential	1	BirthdaySpacings	0.25122455242730757	3fd0141025282958	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	2	Collision	0.4090535196496504	3fda2deed04d5f4e	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	3	Gap	0.26966655416955365	3fd1423781beed7e	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	4	SimpPoker	0.8588456061842881	3feb7ba9c7dbfe77	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	5	CouponCollector	0.712803547742065	3fe6cf4962c0cc57	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	6	MaxOft	0.7075098185457799	3fe6a3eba18818bb	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	7	MaxOft AD	0.48861597437317406	3fdf457bef8f19ea	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	8	WeightDistrib	0.06255271352914693	3fb0037462e23cf8	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	9	MatrixRank	0.3286730950660883	3fd508fae098929c	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	10	HammingIndep	0.9647565492274768	3feedf492071151c	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	11	RandomWalk1 H	0.07261562279332612	3fb296effd137540	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	12	RandomWalk1 M	0.49443314091543045	3fdfa4cae69294d2	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	13	RandomWalk1 J	0.145499653685494	3fc29fbb8f144a78	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	14	RandomWalk1 R	0.22049073326497726	3fcc390a5438d978	true	true	true	false
+SmallCrush	Philox2x64	bits	sequential	15	RandomWalk1 C	0.10058224142206029	3fb9bfc1fd775400	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x64	bits	sequential	15
+SmallCrush	Philox2x64	bits	interleaved	1	BirthdaySpacings	0.6098493790112907	3fe383e2d84adc62	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	2	Collision	0.7150100323032231	3fe6e15cb821bc64	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	3	Gap	0.11114151612056522	3fbc73c538f73718	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	4	SimpPoker	0.9639294549609579	3feed8829596ab5f	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	5	CouponCollector	0.8567846952067335	3feb6ac7bcb40a3a	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	6	MaxOft	0.12293095561510425	3fbf786732086c28	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	7	MaxOft AD	0.41398307680675195	3fda7eb2dffee08e	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	8	WeightDistrib	0.008834052870132836	3f8217968158cac0	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	9	MatrixRank	0.6068605658657584	3fe36b66d97403fc	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	10	HammingIndep	0.99776437028865	3fefedaf8b701f03	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	11	RandomWalk1 H	0.6906566585444449	3fe619dbfe26d124	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	12	RandomWalk1 M	0.5054032152163669	3fe02c435d14b8b1	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	13	RandomWalk1 J	0.7760673752273441	3fe8d58b3f830214	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	14	RandomWalk1 R	0.7232441615426679	3fe724d0f09b288c	true	true	true	false
+SmallCrush	Philox2x64	bits	interleaved	15	RandomWalk1 C	0.6986625093567997	3fe65b717a941eb6	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x64	bits	interleaved	15
+SmallCrush	Philox2x64	uniform	sequential	1	BirthdaySpacings	0.05831357112215661	3faddb46c1c3e86e	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	2	Collision	0.7802011323130936	3fe8f7685d72c7ef	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	3	Gap	0.32566347855566313	3fd4d7aba1797ba0	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	4	SimpPoker	0.5747734457645877	3fe2648b4805615a	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	5	CouponCollector	0.6920973788465772	3fe625a966f9634c	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	6	MaxOft	0.42152863127219753	3fdafa5339691220	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	7	MaxOft AD	0.7816105801158199	3fe902f430f9c2d7	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	8	WeightDistrib	0.24766262453797638	3fcfb368ac6a836c	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	9	MatrixRank	0.6329301753585779	3fe440f6c87a21e4	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	10	HammingIndep	0.18279225807360222	3fc765bc9931adb4	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	11	RandomWalk1 H	0.8711763187022049	3febe0ad28bc0545	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	12	RandomWalk1 M	0.251626039079371	3fd01aa41a2abf24	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	13	RandomWalk1 J	0.9719874260243645	3fef1a855fdcbb4f	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	14	RandomWalk1 R	0.9214499058970396	3fed7c8483575cac	true	true	true	false
+SmallCrush	Philox2x64	uniform	sequential	15	RandomWalk1 C	0.9446236558238937	3fee3a5b639954a7	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x64	uniform	sequential	15
+SmallCrush	Philox2x64	uniform	interleaved	1	BirthdaySpacings	0.8607975311394528	3feb8ba743971675	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	2	Collision	0.1485766964385039	3fc3048faa13570c	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	3	Gap	0.295038702812189	3fd2e1ea02e87cc4	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	4	SimpPoker	0.9721056869767635	3fef1b7d62ba4418	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	5	CouponCollector	0.975403114262634	3fef368097859608	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	6	MaxOft	0.5017246751134712	3fe00e20e7e6acb8	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	7	MaxOft AD	0.04556662237247844	3fa7548221c20940	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	8	WeightDistrib	0.5598753705073558	3fe1ea7fc0c5477c	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	9	MatrixRank	0.4672083665257799	3fdde6bdeba954e2	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	10	HammingIndep	0.45221569388594285	3fdcf11a17fe98ba	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	11	RandomWalk1 H	0.2232188714714738	3fcc926f9c68f600	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	12	RandomWalk1 M	0.06422615715641156	3fb071201c88d7e0	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	13	RandomWalk1 J	0.14270132075014585	3fc2440970dbe394	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	14	RandomWalk1 R	0.39086268241983335	3fd903e4e98e14c8	true	true	true	false
+SmallCrush	Philox2x64	uniform	interleaved	15	RandomWalk1 C	0.46879020977166996	3fde00a8a6e9e016	true	true	true	false
+# case_p_value_count	SmallCrush	Philox2x64	uniform	interleaved	15
+SmallCrush	Philox4x64	bits	sequential	1	BirthdaySpacings	0.5336216850647422	3fe1136dc8b9436a	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	2	Collision	0.43805276419310535	3fdc090e76086f34	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	3	Gap	0.19028253198527656	3fc85b2d91f03c30	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	4	SimpPoker	0.17703245065486883	3fc6a8ffd4f25ac8	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	5	CouponCollector	0.826682717144056	3fea742f5049ab1f	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	6	MaxOft	0.786838537663608	3fe92dc8034fecd6	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	7	MaxOft AD	0.5822641749122912	3fe2a1e87a9c2ed0	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	8	WeightDistrib	0.735450212990467	3fe788cee2942b56	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	9	MatrixRank	0.19513797342849304	3fc8fa47f70aa2d8	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	10	HammingIndep	0.6026193329913949	3fe348a856e454fe	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	11	RandomWalk1 H	0.8507402261296284	3feb39439113c9ec	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	12	RandomWalk1 M	0.342944996469577	3fd5f2cf920a798c	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	13	RandomWalk1 J	0.31268391838003495	3fd4030368db5a40	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	14	RandomWalk1 R	0.30056432915299147	3fd33c722b039a0e	true	true	true	false
+SmallCrush	Philox4x64	bits	sequential	15	RandomWalk1 C	0.5870551464805105	3fe2c927dfe2a20e	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x64	bits	sequential	15
+SmallCrush	Philox4x64	bits	interleaved	1	BirthdaySpacings	0.19652781163325	3fc927d2c5dc109e	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	2	Collision	0.5632750526516961	3fe20659673955b6	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	3	Gap	0.8587811372561983	3feb7b22945dfc63	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	4	SimpPoker	0.45751940368194133	3fdd47ff77065bea	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	5	CouponCollector	0.32436659696142633	3fd4c26c1d774e0e	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	6	MaxOft	0.9540223510149703	3fee8759e1a86502	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	7	MaxOft AD	0.3895117044136872	3fd8edc27ff76ca2	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	8	WeightDistrib	0.6391933922337196	3fe47445b36ed1ee	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	9	MatrixRank	0.7229987227928261	3fe722ce37ae3d18	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	10	HammingIndep	0.40415750294769426	3fd9ddb76e65f9c8	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	11	RandomWalk1 H	0.3761303072761477	3fd81284da324564	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	12	RandomWalk1 M	0.910833878298515	3fed258d16ec30e0	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	13	RandomWalk1 J	0.7493139917105013	3fe7fa61561a9e41	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	14	RandomWalk1 R	0.7635727408406076	3fe86f3019c0e139	true	true	true	false
+SmallCrush	Philox4x64	bits	interleaved	15	RandomWalk1 C	0.5545070266859696	3fe1be858520970d	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x64	bits	interleaved	15
+SmallCrush	Philox4x64	uniform	sequential	1	BirthdaySpacings	0.6829693226124649	3fe5dae27b195682	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	2	Collision	0.22183896568943884	3fcc65381f4eab68	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	3	Gap	0.12299078994571633	3fbf7c530c86abb0	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	4	SimpPoker	0.7595877227905679	3fe84e8ae97a83ea	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	5	CouponCollector	0.6350229469555103	3fe4521ba4ac454d	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	6	MaxOft	0.10434845995425901	3fbab694a6e439e0	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	7	MaxOft AD	0.4997063420671274	3fdffb304f320df2	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	8	WeightDistrib	0.4674880562741788	3fddeb53063df714	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	9	MatrixRank	0.7955610903349354	3fe9753c881ead41	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	10	HammingIndep	0.2091638170579223	3fcac5e144e2994c	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	11	RandomWalk1 H	0.7585843083013684	3fe84652996d3898	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	12	RandomWalk1 M	0.6939610548172326	3fe634edd06467da	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	13	RandomWalk1 J	0.8904878116506049	3fec7ee04b90d4a1	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	14	RandomWalk1 R	0.6564706151035105	3fe501cea9d4f254	true	true	true	false
+SmallCrush	Philox4x64	uniform	sequential	15	RandomWalk1 C	0.7661473495775346	3fe88447724b486c	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x64	uniform	sequential	15
+SmallCrush	Philox4x64	uniform	interleaved	1	BirthdaySpacings	0.45709739674954925	3fdd411570881137	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	2	Collision	0.9466706934100091	3fee4b205688e25c	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	3	Gap	0.6551964392826236	3fe4f75e85e595a7	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	4	SimpPoker	0.9897938179924777	3fefac6415c1f0fe	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	5	CouponCollector	0.8935652842230126	3fec981639128566	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	6	MaxOft	0.5322022967267246	3fe107cd1c69840e	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	7	MaxOft AD	0.09916715192022751	3fb96304ba55b820	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	8	WeightDistrib	0.6063399705896432	3fe3672314fe1575	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	9	MatrixRank	0.8698068970230306	3febd575461192b0	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	10	HammingIndep	0.6039196495864994	3fe3534f4d0c586e	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	11	RandomWalk1 H	0.5462234089096745	3fe17aa983b27438	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	12	RandomWalk1 M	0.30429721313460645	3fd3799b04ab5538	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	13	RandomWalk1 J	0.6545300518487789	3fe4f1e901de11f0	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	14	RandomWalk1 R	0.5313621361680163	3fe100eb2aa5941a	true	true	true	false
+SmallCrush	Philox4x64	uniform	interleaved	15	RandomWalk1 C	0.38144999752186814	3fd869ad401a9ae8	true	true	true	false
+# case_p_value_count	SmallCrush	Philox4x64	uniform	interleaved	15
+SmallCrush	Threefry2x32	bits	sequential	1	BirthdaySpacings	0.6829693226124649	3fe5dae27b195682	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	2	Collision	0.36654220048407593	3fd7756d6aebb5f8	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	3	Gap	0.9939353686198193	3fefce518bd1ea1e	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	4	SimpPoker	0.5504837445587984	3fe19d9015fb8250	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	5	CouponCollector	0.6858206158496791	3fe5f23e137fe706	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	6	MaxOft	0.4881674642296989	3fdf3e22bf759ea0	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	7	MaxOft AD	0.31785776483717076	3fd457c8183056f4	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	8	WeightDistrib	0.7866279219931518	3fe92c0e51e297c4	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	9	MatrixRank	0.253137586708601	3fd03367fe1350c8	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	10	HammingIndep	0.898154286226713	3fecbdae0ec363fd	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	11	RandomWalk1 H	0.805490541511142	3fe9c69419a0e2cc	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	12	RandomWalk1 M	0.49154804003896535	3fdf7585e9185618	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	13	RandomWalk1 J	0.46949023975198434	3fde0c20ca61a986	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	14	RandomWalk1 R	0.34781599201496327	3fd6429e01aeb960	true	true	true	false
+SmallCrush	Threefry2x32	bits	sequential	15	RandomWalk1 C	0.7788709240750153	3fe8ec82b756a3c2	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x32	bits	sequential	15
+SmallCrush	Threefry2x32	bits	interleaved	1	BirthdaySpacings	0.19652781163325	3fc927d2c5dc109e	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	2	Collision	0.6349411674854669	3fe4517023a77e11	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	3	Gap	0.024319672960814942	3f98e741a01080a0	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	4	SimpPoker	0.36056760122759535	3fd7138a21d142a0	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	5	CouponCollector	0.8006247956521063	3fe99eb7e43628cb	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	6	MaxOft	0.5672547248056201	3fe226f3617154f0	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	7	MaxOft AD	0.6080525632426205	3fe3752aa62c0869	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	8	WeightDistrib	0.966715986459157	3feeef565d4b9942	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	9	MatrixRank	0.7723391285271273	3fe8b7008c4e3eb0	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	10	HammingIndep	0.062489181146050066	3faffe94fac090d0	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	11	RandomWalk1 H	0.24107720352381845	3fcedb9e28791470	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	12	RandomWalk1 M	0.0920124165331041	3fb78e202fd5eaa8	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	13	RandomWalk1 J	0.9952693647266957	3fefd93f2386c782	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	14	RandomWalk1 R	0.08369141626566423	3fb56cccf7d123a8	true	true	true	false
+SmallCrush	Threefry2x32	bits	interleaved	15	RandomWalk1 C	0.39172910894805424	3fd91216f7f4ade6	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x32	bits	interleaved	15
+SmallCrush	Threefry2x32	uniform	sequential	1	BirthdaySpacings	0.3137811127311362	3fd414fd60521812	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	2	Collision	0.5923245708868585	3fe2f452a89270fa	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	3	Gap	0.1724412561956914	3fc6128e19ebbb40	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	4	SimpPoker	0.821673184370318	3fea4b258fdbdcba	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	5	CouponCollector	0.9830507358852882	3fef7526d11df418	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	6	MaxOft	0.5964312730038105	3fe315f7097b9dcf	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	7	MaxOft AD	0.4977810990564394	3fdfdba54140eb02	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	8	WeightDistrib	0.4632699498308246	3fdda63700ef8c88	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	9	MatrixRank	0.023312031974968672	3f97df1bfbbe4180	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	10	HammingIndep	0.6217680290918035	3fe3e58610d4b9bc	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	11	RandomWalk1 H	0.8228215401574162	3fea548dd6ad745a	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	12	RandomWalk1 M	0.29308184442917984	3fd2c1da5a37fae0	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	13	RandomWalk1 J	0.8390834899976299	3fead9c59e84e85b	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	14	RandomWalk1 R	0.615908026862698	3fe3b584c0170380	true	true	true	false
+SmallCrush	Threefry2x32	uniform	sequential	15	RandomWalk1 C	0.7180020126646532	3fe6f9df5b5b6b6d	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x32	uniform	sequential	15
+SmallCrush	Threefry2x32	uniform	interleaved	1	BirthdaySpacings	0.9847276352516079	3fef82e3879bf036	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	2	Collision	0.3124322980359502	3fd3fee40991d374	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	3	Gap	0.4518687021568657	3fdceb6ab4766188	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	4	SimpPoker	0.5713257943712595	3fe2484d0845f1ea	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	5	CouponCollector	0.3966301086323891	3fd96263404bd7ac	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	6	MaxOft	0.6348058593440387	3fe4505460a62368	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	7	MaxOft AD	0.8243462801443636	3fea610b733993d5	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	8	WeightDistrib	0.19740515553303684	3fc944927789c07c	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	9	MatrixRank	0.14944001550136687	3fc320d9b5a563a8	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	10	HammingIndep	0.673415485104333	3fe58c9ea1a49428	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	11	RandomWalk1 H	0.10658036163054407	3fbb48d9bf995ab0	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	12	RandomWalk1 M	0.2717178996468379	3fd163d3792e2484	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	13	RandomWalk1 J	0.15490822834057127	3fc3d408674d51a4	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	14	RandomWalk1 R	0.5666043258431822	3fe2219f65289855	true	true	true	false
+SmallCrush	Threefry2x32	uniform	interleaved	15	RandomWalk1 C	0.021182473643818533	3f95b0dbbe31bfa0	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x32	uniform	interleaved	15
+SmallCrush	Threefry4x32	bits	sequential	1	BirthdaySpacings	0.5336216850647422	3fe1136dc8b9436a	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	2	Collision	0.7150100323032231	3fe6e15cb821bc64	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	3	Gap	0.2148379455591275	3fcb7fcf4f0ee24c	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	4	SimpPoker	0.708436819329012	3fe6ab83b1499c9c	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	5	CouponCollector	0.8579860358100531	3feb749f218752d8	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	6	MaxOft	0.4537541877307223	3fdd0a4f012e7eec	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	7	MaxOft AD	0.6757166115806159	3fe59f7871834928	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	8	WeightDistrib	0.49685257629101987	3fdfcc6ebf869c10	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	9	MatrixRank	0.6774548026007625	3fe5adb5b1b60776	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	10	HammingIndep	0.8786675325013293	3fec1e0b5f84cea8	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	11	RandomWalk1 H	0.8154796082667074	3fea1868b101eecb	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	12	RandomWalk1 M	0.7197736316507228	3fe70862b60ed0f0	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	13	RandomWalk1 J	0.21656505951995886	3fcbb867640c1920	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	14	RandomWalk1 R	0.24618343724046965	3fcf82f059e1e138	true	true	true	false
+SmallCrush	Threefry4x32	bits	sequential	15	RandomWalk1 C	0.18678387779568284	3fc7e888bb46b8ec	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x32	bits	sequential	15
+SmallCrush	Threefry4x32	bits	interleaved	1	BirthdaySpacings	0.9337898087053176	3fede19b2a374726	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	2	Collision	0.5705746798609789	3fe24225d4bdb6e1	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	3	Gap	0.24961467910119373	3fcff35fb1abab30	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	4	SimpPoker	0.717724545252515	3fe6f799772cac3a	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	5	CouponCollector	0.2680689389192197	3fd1280a9f6ed068	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	6	MaxOft	0.157422986408834	3fc4266fb921de3c	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	7	MaxOft AD	0.5555873413670274	3fe1c75f1aa7c66a	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	8	WeightDistrib	0.8720249749546043	3febe7a0eb973534	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	9	MatrixRank	0.9144979856781558	3fed43914797db97	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	10	HammingIndep	0.9440846735734911	3fee35f10fb4e536	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	11	RandomWalk1 H	0.5719050806070374	3fe24d0be233f376	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	12	RandomWalk1 M	0.835606724349433	3feabd4a502cc086	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	13	RandomWalk1 J	0.818575233779401	3fea31c4b04cbd16	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	14	RandomWalk1 R	0.950634876294049	3fee6b99d503d699	true	true	true	false
+SmallCrush	Threefry4x32	bits	interleaved	15	RandomWalk1 C	0.7096991796598024	3fe6b5db0dd46152	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x32	bits	interleaved	15
+SmallCrush	Threefry4x32	uniform	sequential	1	BirthdaySpacings	0.15019787007325489	3fc339af0df25dc7	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	2	Collision	0.04246691066237862	3fa5be3910ea0510	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	3	Gap	0.9541249826955722	3fee88311d9f2b68	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	4	SimpPoker	0.22073280644470872	3fcc40f8fc6acb10	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	5	CouponCollector	0.4871008147607868	3fdf2ca8e5502982	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	6	MaxOft	0.2279838941722142	3fcd2e9384be0054	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	7	MaxOft AD	0.28081158484136415	3fd1f8d1274ed258	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	8	WeightDistrib	0.6196804029705233	3fe3d46bff17603f	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	9	MatrixRank	0.9159199189222873	3fed4f374a30d698	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	10	HammingIndep	0.7018446396782378	3fe67582e3c94f58	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	11	RandomWalk1 H	0.34345147058727754	3fd5fb1be07bdea0	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	12	RandomWalk1 M	0.14211354322107284	3fc230c6ce3a0224	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	13	RandomWalk1 J	0.7039308078005223	3fe68699e6c4cda9	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	14	RandomWalk1 R	0.6642150381180232	3fe5413fe5474e42	true	true	true	false
+SmallCrush	Threefry4x32	uniform	sequential	15	RandomWalk1 C	0.6516619809904558	3fe4da6a3a0cd190	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x32	uniform	sequential	15
+SmallCrush	Threefry4x32	uniform	interleaved	1	BirthdaySpacings	0.45709739674954925	3fdd411570881137	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	2	Collision	0.09364297149403955	3fb7f8fc5c113168	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	3	Gap	0.04469480414016336	3fa6e23cc42a8fa0	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	4	SimpPoker	0.20511863237296635	3fca4153ccebcb28	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	5	CouponCollector	0.5009469559289581	3fe007c1e917dc30	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	6	MaxOft	0.0787860581418055	3fb42b52b7198d18	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	7	MaxOft AD	0.10057861091071718	3fb9bf851489e440	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	8	WeightDistrib	0.48613650882501025	3fdf1cdc4db2e1d8	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	9	MatrixRank	0.06999435866293446	3fb1eb26795c9ec8	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	10	HammingIndep	0.717405873237028	3fe6f4fd29705d09	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	11	RandomWalk1 H	0.07884691613459338	3fb42f4fbe3043b8	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	12	RandomWalk1 M	0.9947769889943741	3fefd5368d5169fe	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	13	RandomWalk1 J	0.7374552301347375	3fe7993bb5f62bd6	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	14	RandomWalk1 R	0.846157973100742	3feb13b9e2b6f468	true	true	true	false
+SmallCrush	Threefry4x32	uniform	interleaved	15	RandomWalk1 C	0.7156740954257259	3fe6e6cd5c4e5500	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x32	uniform	interleaved	15
+SmallCrush	Threefry2x64	bits	sequential	1	BirthdaySpacings	0.3830190042145144	3fd88362243642c6	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	2	Collision	0.6208879515923196	3fe3de5068d238e2	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	3	Gap	0.9075980405159795	3fed0b0b0bbdc10b	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	4	SimpPoker	0.32091018091783785	3fd489cadaffb734	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	5	CouponCollector	0.9815233605529194	3fef68a3adbab6ba	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	6	MaxOft	0.7611830045064049	3fe85b9c75d4086f	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	7	MaxOft AD	0.4582961399365969	3fdd54b9553a494a	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	8	WeightDistrib	0.6199203051671686	3fe3d6631b9a37f1	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	9	MatrixRank	0.3149436971220232	3fd428099bce1b58	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	10	HammingIndep	0.18418189622227388	3fc79345ba651c80	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	11	RandomWalk1 H	0.837421259741887	3feacc27ab7220fb	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	12	RandomWalk1 M	0.7413136404498638	3fe7b8d76239f2a1	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	13	RandomWalk1 J	0.4329437075449697	3fdbb559863a895a	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	14	RandomWalk1 R	0.7709168072151186	3fe8ab59b95d9f19	true	true	true	false
+SmallCrush	Threefry2x64	bits	sequential	15	RandomWalk1 C	0.9416233607139897	3fee21c7506d517c	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x64	bits	sequential	15
+SmallCrush	Threefry2x64	bits	interleaved	1	BirthdaySpacings	0.5336216850647422	3fe1136dc8b9436a	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	2	Collision	0.02952791991896553	3f9e3c91297bc3c0	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	3	Gap	0.10200404422208909	3fba1cefe1fe5d40	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	4	SimpPoker	0.06101160924058835	3faf3ce9e4bab480	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	5	CouponCollector	0.8373399436794813	3feacb7d23379c80	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	6	MaxOft	0.7990096311590931	3fe9917ca5608df2	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	7	MaxOft AD	0.9343931373903206	3fede68c6fd65829	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	8	WeightDistrib	0.47440292752366753	3fde5c9e18b5cfd6	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	9	MatrixRank	0.17315638424897972	3fc629fd07b8b37c	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	10	HammingIndep	0.7954989719362965	3fe974ba428ef9fb	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	11	RandomWalk1 H	0.3786835889225719	3fd83c5a177d1424	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	12	RandomWalk1 M	0.9577169414943226	3feea59dffd16265	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	13	RandomWalk1 J	0.16715692727984377	3fc56565effbbf6c	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	14	RandomWalk1 R	0.11349144532350053	3fbd0dc67e0a4b00	true	true	true	false
+SmallCrush	Threefry2x64	bits	interleaved	15	RandomWalk1 C	0.3298730478346248	3fd51ca3d8120508	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x64	bits	interleaved	15
+SmallCrush	Threefry2x64	uniform	sequential	1	BirthdaySpacings	0.6098493790112907	3fe383e2d84adc62	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	2	Collision	0.28049783993403343	3fd1f3ad36476158	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	3	Gap	0.6045997543300545	3fe358e195808d0e	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	4	SimpPoker	0.191504888270704	3fc8833b7012ca98	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	5	CouponCollector	0.15071229796329455	3fc34a8a636dbde4	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	6	MaxOft	0.7118055787797567	3fe6c71c7e3f0561	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	7	MaxOft AD	0.7978129021933007	3fe987aeec67e806	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	8	WeightDistrib	0.5390369586623269	3fe13fca6f9947aa	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	9	MatrixRank	0.39263294632698775	3fd920e5eff39e48	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	10	HammingIndep	0.8442843041149317	3feb04608456645a	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	11	RandomWalk1 H	0.27154249229126926	3fd160f3c2f761a0	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	12	RandomWalk1 M	0.8405496158163333	3feae5c84ed316a8	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	13	RandomWalk1 J	0.5554921304235834	3fe1c6976eab595a	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	14	RandomWalk1 R	0.23171872163031337	3fcda8f585a2f5b8	true	true	true	false
+SmallCrush	Threefry2x64	uniform	sequential	15	RandomWalk1 C	0.17128658782323425	3fc5ecb80a78dc4c	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x64	uniform	sequential	15
+SmallCrush	Threefry2x64	uniform	interleaved	1	BirthdaySpacings	0.9337898087053176	3fede19b2a374726	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	2	Collision	0.20572439722673652	3fca552d530a00b4	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	3	Gap	0.5874769450710813	3fe2cc9c73477f3e	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	4	SimpPoker	0.14258226103966698	3fc24022b213da78	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	5	CouponCollector	0.11817823170743913	3fbe40edb84855f0	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	6	MaxOft	0.3347819091027624	3fd56d1119b8e240	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	7	MaxOft AD	0.39335822392637954	3fd92cc7f8d817ac	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	8	WeightDistrib	0.2798706595255338	3fd1e966a0716a64	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	9	MatrixRank	0.7008500360650823	3fe66d5d0e09992f	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	10	HammingIndep	0.7311677583548339	3fe765b9ed40c1ae	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	11	RandomWalk1 H	0.20621201162129077	3fca6527bafa582c	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	12	RandomWalk1 M	0.4085612944344146	3fda25de45807694	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	13	RandomWalk1 J	0.5751200689393872	3fe2676233ebc61c	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	14	RandomWalk1 R	0.03792955980952406	3fa36b80d5ddfe70	true	true	true	false
+SmallCrush	Threefry2x64	uniform	interleaved	15	RandomWalk1 C	0.42092563414005846	3fdaf072122b7ec4	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry2x64	uniform	interleaved	15
+SmallCrush	Threefry4x64	bits	sequential	1	BirthdaySpacings	0.8607975311394528	3feb8ba743971675	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	2	Collision	0.5559546578252892	3fe1ca616c2d6440	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	3	Gap	0.006666026351133003	3f7b4dd5d2c21c80	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	4	SimpPoker	0.8971970919978698	3fecb5d6ad064f16	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	5	CouponCollector	0.5360177946115721	3fe1270eca3dc8ae	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	6	MaxOft	0.4748923193082799	3fde64a2c1233de0	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	7	MaxOft AD	0.2706241833023125	3fd151e8183291ae	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	8	WeightDistrib	0.5164730367252897	3fe086f276400796	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	9	MatrixRank	0.7544335391498824	3fe82451ce34efde	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	10	HammingIndep	0.7957110309513479	3fe97676fae01457	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	11	RandomWalk1 H	0.534687467521004	3fe11c28e452ae48	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	12	RandomWalk1 M	0.6162306548190224	3fe3b82959a7b114	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	13	RandomWalk1 J	0.8872755983254084	3fec648fcbab1636	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	14	RandomWalk1 R	0.12239111083595289	3fbf55061a5c8d28	true	true	true	false
+SmallCrush	Threefry4x64	bits	sequential	15	RandomWalk1 C	0.6249599795965375	3fe3ffac1235a16e	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x64	bits	sequential	15
+SmallCrush	Threefry4x64	bits	interleaved	1	BirthdaySpacings	0.5336216850647422	3fe1136dc8b9436a	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	2	Collision	0.46004055925250364	3fdd714df534ace8	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	3	Gap	0.11897887494611648	3fbe756648cef630	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	4	SimpPoker	0.502331108925475	3fe01318b0932582	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	5	CouponCollector	0.04141068902466827	3fa533c82621ad70	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	6	MaxOft	0.9536308994174962	3fee8424f2ae80b6	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	7	MaxOft AD	0.7370098969837366	3fe79595c78bf388	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	8	WeightDistrib	0.5488066760229225	3fe18fd304ab0995	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	9	MatrixRank	0.9751255833901766	3fef343a9144eb5a	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	10	HammingIndep	0.8672030050930455	3febc020843bc2fc	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	11	RandomWalk1 H	0.20033658764401296	3fc9a4a11a0fc76c	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	12	RandomWalk1 M	0.5729030799637803	3fe25538d7071b85	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	13	RandomWalk1 J	0.5094151116334121	3fe04d20eb91b7dd	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	14	RandomWalk1 R	0.08043671884588266	3fb4978034d73268	true	true	true	false
+SmallCrush	Threefry4x64	bits	interleaved	15	RandomWalk1 C	0.6311396503114872	3fe4324bc7a97eae	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x64	bits	interleaved	15
+SmallCrush	Threefry4x64	uniform	sequential	1	BirthdaySpacings	0.3830190042145144	3fd88362243642c6	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	2	Collision	0.8359445433506701	3feac00ec55ebebb	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	3	Gap	0.23404499174569426	3fcdf52fb0ab907c	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	4	SimpPoker	0.2722046322260824	3fd16bccfa4ec44e	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	5	CouponCollector	0.24430991487219145	3fcf458c1b3b7838	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	6	MaxOft	0.4300265963504857	3fdb858e45ef12e8	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	7	MaxOft AD	0.8408722732117112	3feae86cf831d6d9	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	8	WeightDistrib	0.3640264382604389	3fd74c358bcd4f06	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	9	MatrixRank	0.44182466326548153	3fdc46daf3d2a736	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	10	HammingIndep	0.595428000889924	3fe30dbf05de3c7a	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	11	RandomWalk1 H	0.8213146210105147	3fea4835999eeffc	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	12	RandomWalk1 M	0.7404908050977823	3fe7b219c5dc4726	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	13	RandomWalk1 J	0.08945537744149101	3fb6e68c309002a0	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	14	RandomWalk1 R	0.10007572688006405	3fb99e901612c400	true	true	true	false
+SmallCrush	Threefry4x64	uniform	sequential	15	RandomWalk1 C	0.4280559245401039	3fdb6544ad309004	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x64	uniform	sequential	15
+SmallCrush	Threefry4x64	uniform	interleaved	1	BirthdaySpacings	0.7504105669272116	3fe8035d0570ce62	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	2	Collision	0.6349411674854669	3fe4517023a77e11	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	3	Gap	0.5447543302491535	3fe16ea0a218c8b0	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	4	SimpPoker	0.24625580100386268	3fcf854f61e18518	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	5	CouponCollector	0.527303831694631	3fe0dfac4905e2be	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	6	MaxOft	0.8134744509042225	3fea07fb92587c77	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	7	MaxOft AD	0.2829119660431493	3fd21b3aca735a56	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	8	WeightDistrib	0.9993672821429762	3feffad1182fe33a	true	false	true	true
+SmallCrush	Threefry4x64	uniform	interleaved	9	MatrixRank	0.5704903025975869	3fe24174e10aefdc	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	10	HammingIndep	0.4478120628897476	3fdca8f3ed3768a2	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	11	RandomWalk1 H	0.9790436942853536	3fef54537109f091	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	12	RandomWalk1 M	0.5307869164879884	3fe0fc34d7eebd2e	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	13	RandomWalk1 J	0.679691542905522	3fe5c0087a84b435	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	14	RandomWalk1 R	0.8417055202997621	3feaef406a519ac4	true	true	true	false
+SmallCrush	Threefry4x64	uniform	interleaved	15	RandomWalk1 C	0.4082574230068934	3fda20e3be0a7c70	true	true	true	false
+# case_p_value_count	SmallCrush	Threefry4x64	uniform	interleaved	15
+# completed	true
+# completed_cases	32
+# completed_p_values	480
+# all_p_values_finite	true
+# all_within_diagnostic_interval	false
+# all_within_release_interval	true
+# all_case_counts_valid	true
+# release_applicable	true
+# matrix_complete	true
+# r50_release_passed	true
+# diagnostic_run_passed	false
