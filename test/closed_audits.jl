@@ -3,6 +3,13 @@ using Random
 const AuditIR = PureRNGs
 
 _audit_methods(f) = [method for method in methods(f) if method.module === AuditIR]
+function _immutable_audit_methods(function_)
+    return filter(_audit_methods(function_)) do method
+        signature = Base.unwrap_unionall(method.sig)
+        length(signature.parameters) >= 2 || return false
+        return signature.parameters[2] <: AuditIR.AbstractPureRNG
+    end
+end
 
 function _audit_error(call)
     try
@@ -38,7 +45,7 @@ end
         splitrng,
         subrng,
     )
-    @test foreign_functions == Set((rand, rand!, randn, randn!))
+    @test foreign_functions == Set((rand, rand!, randn, randn!, Random.seed!, copy))
 
     required = Dict(function_ => Set{Method}() for function_ in owned_functions)
     require = function (function_, signature)
@@ -87,21 +94,30 @@ end
     require(subrng, Tuple{R,Int})
 
     for function_ in owned_functions
-        @test Set(_audit_methods(function_)) == required[function_]
+        methods_ =
+            function_ in (rand, rand!, randn, randn!) ?
+            _immutable_audit_methods(function_) : _audit_methods(function_)
+        @test Set(methods_) == required[function_]
     end
     @test all(
         Base.unwrap_unionall(method.sig).parameters[2] <: AuditIR.AbstractPureRNG for
-        function_ in (rand, rand!, randn, randn!) for method in _audit_methods(function_)
+        function_ in (rand, rand!, randn, randn!) for
+        method in _immutable_audit_methods(function_)
     )
     @test all(
         Base.kwarg_decl(method) == [:threaded] for
-        function_ in (rand!, rand_next!, randn!, randn_next!) for
-        method in _audit_methods(function_)
+        function_ in (rand!, rand_next!, randn!, randn_next!) for method in (
+            function_ in (rand!, randn!) ? _immutable_audit_methods(function_) :
+            _audit_methods(function_)
+        )
     )
     @test all(
         isempty(Base.kwarg_decl(method)) for function_ in
         (rand, randn, rand_next, randn_next, randat, randnat, splitrng, subrng) for
-        method in _audit_methods(function_)
+        method in (
+            function_ in (rand, randn) ? _immutable_audit_methods(function_) :
+            _audit_methods(function_)
+        )
     )
 
     cpu = AuditIR.MLDataDevices.CPUDevice()

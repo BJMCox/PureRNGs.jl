@@ -15,6 +15,7 @@ using TOML
         :Philox4x32,
         :Philox4x64,
         :PureRNGs,
+        :StatefulRNG,
         :Threefry2x32,
         :Threefry2x64,
         :Threefry4x32,

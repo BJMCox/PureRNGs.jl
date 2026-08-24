@@ -20,7 +20,8 @@ export Philox2x32,
     randn_next,
     randn_next!,
     randat,
-    randnat
+    randnat,
+    StatefulRNG
 
 include("philox.jl")
 include("threefry.jl")
@@ -34,5 +35,6 @@ include("normal.jl")
 include("normal_allocating.jl")
 include("integers.jl")
 include("range_allocating.jl")
+include("stateful.jl")
 
 end # module PureRNGs
