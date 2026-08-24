@@ -203,8 +203,10 @@ KernelAbstractions.@kernel function _normal_fill_kernel!(
     destination,
     ::Type{T},
 ) where {T}
-    index = @index(Global, Linear)
-    bits_lo, bits_hi = _bit_span(UInt64(index - 1), _normal_bits(T))
+    ordinal = @index(Global, Linear)
+    indices = eachindex(destination)
+    index = @inbounds indices[firstindex(indices)+ordinal-1]
+    bits_lo, bits_hi = _bit_span(UInt64(ordinal - 1), _normal_bits(T))
     position = _advance_position_unchecked(rng, bits_lo, bits_hi)
     @inbounds destination[index] = _draw_normal_unchecked(rng, position, T)
 end
