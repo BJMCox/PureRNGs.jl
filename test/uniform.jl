@@ -171,6 +171,31 @@ function _serial_fill_allocations(rng, destination)
 end
 
 sync_cpu() = KA.synchronize(KA.CPU())
+_padding_is_zero(bits::BitArray) =
+    isempty(bits) ||
+    iszero(length(bits) & 63) ||
+    iszero(bits.chunks[end] >> (length(bits) & 63))
+
+mutable struct CountingDenseStream{N}
+    calls::Base.RefValue{Int}
+end
+
+function IR._stream_limbs(stream::CountingDenseStream{N}, ::UInt32, block::UInt64) where {N}
+    stream.calls[] += 1
+    return ntuple(index -> block + UInt64(index), Val(N))
+end
+
+function _reference_counting_extract(block::UInt64, bit::Int, width::Int, limbs::Int)
+    value = UInt64(0)
+    for _ = 1:width
+        block_delta, offset = divrem(bit, 64limbs)
+        lane, word_bit = divrem(offset, 64)
+        word = block + UInt64(block_delta + lane + 1)
+        value = (value << 1) | ((word >> (63 - word_bit)) & UInt64(1))
+        bit += 1
+    end
+    return value
+end
 
 @testset "R13 packed uniform golden vectors" begin
     # Independent C++17 oracle using DEShawResearch/random123 v1.14.0:
@@ -332,6 +357,13 @@ end
         @test rand!(rng, view_destination; threaded = false) === view_destination
         @test collect(view_destination) == expected
         @test all(iszero, @view storage[1:2:23])
+
+        threaded_storage = fill(zero(T), 24)
+        threaded_view = @view threaded_storage[2:2:24]
+        @test rand!(rng, threaded_view; threaded = true) === threaded_view
+        sync_cpu()
+        @test collect(threaded_view) == expected
+        @test all(iszero, @view threaded_storage[1:2:23])
     end
 
     for F in SCALAR_FAMILIES, count in (0, 1, 7, 65, 67)
@@ -352,6 +384,96 @@ end
               explicit_next.position ==
               serial_next.position ==
               expected_rng.position
+    end
+
+    for F in SCALAR_FAMILIES
+        rng = _positioned(F, 0x525, UInt64(4), UInt16(63))
+        expected_rng, expected = _reference_chain(rng, Bool, 12)
+        destination = BitArray(undef, 3, 4)
+        next_rng, result = rand_next!(rng, destination; threaded = false)
+        @test result === destination
+        @test vec(destination) == expected
+        @test next_rng.position == expected_rng.position
+    end
+end
+
+@testset "R26 dense codec phases, tails, and cached blocks" begin
+    for F in SCALAR_FAMILIES, T in SCALAR_UNIFORM_TYPES
+        group = IR._dense_fill_group(T)
+        counts = unique((0, max(0, group - 1), group, group + 1, 2group + 3))
+        block_bits = IR._block_bits(F(0x5250))
+        for bit in (UInt16(0), UInt16(1), UInt16(31), UInt16(63), UInt16(block_bits - 1)),
+            count in counts
+
+            rng = _positioned(F, 0x5250, UInt64(6), bit)
+            expected_rng, expected = _reference_chain(rng, T, count)
+            destination = Vector{T}(undef, count)
+            IR._fill_uniform_dense_cpu!(
+                rng,
+                rng.position,
+                destination,
+                T,
+                eachindex(destination),
+            )
+            @test destination == expected
+            @test expected_rng.position ==
+                  _reference_position(rng, count * _uniform_width(T))
+        end
+    end
+
+    for F in (Philox4x64, Threefry4x64), T in SCALAR_UNIFORM_TYPES
+        base = F(0x5250)
+        rng = IR._rebuild(
+            base,
+            IR._Position128(typemax(UInt64), UInt64(7), IR._block_bits(base) - 1),
+            base.device,
+        )
+        count = IR._dense_fill_group(T) + 1
+        _, expected = _reference_chain(rng, T, count)
+        destination = Vector{T}(undef, count)
+        IR._fill_uniform_dense_cpu!(
+            rng,
+            rng.position,
+            destination,
+            T,
+            eachindex(destination),
+        )
+        @test destination == expected
+    end
+
+    for F in SCALAR_FAMILIES, count in (1, 63, 64, 65, 129)
+        rng = _positioned(F, 0x5250, UInt64(8), UInt16(47))
+        _, expected = _reference_chain(rng, Bool, count)
+        destination = BitArray(undef, count)
+        IR._fill_uniform_dense_cpu!(
+            rng,
+            rng.position,
+            destination,
+            Bool,
+            eachindex(destination),
+        )
+        @test destination == expected
+        @test _padding_is_zero(destination)
+    end
+
+    for (limbs, expected_calls) in ((1, 3), (2, 2), (4, 1))
+        calls = Ref(0)
+        stream = CountingDenseStream{limbs}(calls)
+        cursor = IR._dense_cursor(stream, IR.FAMILY_BITS, UInt64(9), UInt16(13))
+        @test isbitstype(typeof(cursor))
+        values = UInt64[]
+        for width in (Val(53), Val(24), Val(64), Val(32))
+            value, cursor =
+                IR._take_dense_bits_unchecked(stream, IR.FAMILY_BITS, cursor, width)
+            push!(values, value)
+        end
+        @test calls[] == expected_calls
+        @test values == [
+            _reference_counting_extract(UInt64(9), 13, 53, limbs),
+            _reference_counting_extract(UInt64(9), 66, 24, limbs),
+            _reference_counting_extract(UInt64(9), 90, 64, limbs),
+            _reference_counting_extract(UInt64(9), 154, 32, limbs),
+        ]
     end
 end
 
@@ -386,6 +508,34 @@ end
             cursor = IR._rebuild(rng, position, rng.device)
             @test threaded[index] === _reference_uniform(cursor, T)
         end
+    end
+end
+
+@testset "R26 dense CPU chunk seams" begin
+    for T in SCALAR_UNIFORM_TYPES, delta in (-1, 0, 1)
+        rng = _positioned(Philox4x32, 0x5252, UInt64(4), UInt16(61))
+        chunk_elements = IR._dense_fill_chunk_elements(T)
+        count = 4chunk_elements + delta
+        serial = Vector{T}(undef, count)
+        threaded = similar(serial)
+        serial_next, _ = rand_next!(rng, serial; threaded = false)
+        threaded_next, _ = rand_next!(rng, threaded; threaded = true)
+        sync_cpu()
+        @test threaded == serial
+        @test threaded_next.position == serial_next.position
+    end
+
+    chunk_elements = IR._dense_fill_chunk_elements(Bool)
+    for delta in (-1, 0, 1)
+        rng = _positioned(Philox4x32, 0x5253, UInt64(4), UInt16(63))
+        count = 4chunk_elements + delta
+        serial = BitArray(undef, count)
+        threaded = similar(serial)
+        rand_next!(rng, serial; threaded = false)
+        rand_next!(rng, threaded; threaded = true)
+        sync_cpu()
+        @test threaded == serial
+        @test _padding_is_zero(threaded)
     end
 end
 
@@ -429,6 +579,15 @@ end
         @test_throws ArgumentError rand_next!(last, destination; threaded = false)
         @test destination == before
         @test last.position == position
+
+        final = Vector{T}(undef, 1)
+        final_next, final_result = rand_next!(last, final; threaded = false)
+        @test final_result === final
+        @test final[1] === _reference_uniform(last, T)
+        expected_terminal =
+            last.position isa IR._Position64 ? IR._terminal64(IR._max_block(last)) :
+            IR._terminal128()
+        @test final_next.position == expected_terminal
     end
 
     lookups = Ref(0)
@@ -479,10 +638,18 @@ end
 
     rng = Philox4x64(0x52a)
     @test_throws ArgumentError rand(rng)
+    dense_signature = Tuple{
+        typeof(rng),
+        typeof(rng.position),
+        Vector{Float32},
+        Type{Float32},
+        Base.OneTo{Int},
+    }
     for (function_, signature) in (
         (rand, Tuple{typeof(rng),Type{UInt64}}),
         (rand_next, Tuple{typeof(rng),Type{Float64}}),
         (randat, Tuple{typeof(rng),Type{UInt32},Int}),
+        (IR._fill_uniform_dense_cpu!, dense_signature),
     )
         typed_ir = sprint(show, code_typed(function_, signature; optimize = true))
         llvm_ir = sprint() do io

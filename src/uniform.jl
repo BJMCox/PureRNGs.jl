@@ -117,6 +117,204 @@ end
 @inline _fill_uniform_unchecked!(rng, destination, ::Type{T}) where {T} =
     _fill_uniform_unchecked!(rng, destination, T, eachindex(destination))
 
+# Fill-local cursor; public callers preflight the complete span before unchecked use.
+struct _DenseBitCursor{B,L}
+    block::B
+    limbs::L
+    lane::UInt16
+    bit::UInt16
+end
+
+@inline function _dense_cursor(rng, family::UInt32, block, bit::UInt16)
+    limbs = _stream_limbs(rng, family, block)
+    return _DenseBitCursor(block, limbs, bit >> UInt16(6), bit & UInt16(63))
+end
+
+@inline function _ensure_dense_cursor(rng, family::UInt32, cursor::_DenseBitCursor)
+    cursor.lane < UInt16(length(cursor.limbs)) && return cursor
+    block = _next_stream_block_unchecked(cursor.block)
+    limbs = _stream_limbs(rng, family, block)
+    return _DenseBitCursor(block, limbs, UInt16(0), UInt16(0))
+end
+
+@inline function _take_dense_bits_unchecked(
+    rng,
+    family::UInt32,
+    cursor::_DenseBitCursor,
+    ::Val{W},
+) where {W}
+    cursor = _ensure_dense_cursor(rng, family, cursor)
+    width = UInt16(W)
+    first = _select_stream_limb(cursor.limbs, cursor.lane)
+    available = UInt16(64) - cursor.bit
+    if width <= available
+        value = (first >> (available - width)) & _low_mask(width)
+        next_bit = cursor.bit + width
+        next_lane = cursor.lane
+        if next_bit == UInt16(64)
+            next_bit = UInt16(0)
+            next_lane += UInt16(1)
+        end
+        return value, _DenseBitCursor(cursor.block, cursor.limbs, next_lane, next_bit)
+    end
+
+    remaining = width - available
+    second, block, limbs, lane =
+        _next_stream_limb_unchecked(rng, family, cursor.block, cursor.limbs, cursor.lane)
+    value =
+        ((first & _low_mask(available)) << remaining) | (second >> (UInt16(64) - remaining))
+    return value, _DenseBitCursor(block, limbs, lane, remaining)
+end
+
+@inline _dense_fill_group(::Type{Bool}) = 64
+@inline _dense_fill_group(::Type{UInt32}) = 2
+@inline _dense_fill_group(::Type{Float32}) = 8
+@inline _dense_fill_group(::Type{UInt64}) = 1
+@inline _dense_fill_group(::Type{Float64}) = 1
+
+@inline function _fill_uniform_dense_cpu!(
+    rng,
+    position,
+    destination::Array{Bool},
+    ::Type{Bool},
+    indices,
+)
+    isempty(indices) && return nothing
+    cursor = _dense_cursor(rng, FAMILY_BITS, _position_block(position), position.bit)
+    index = first(indices)
+    last_index = last(indices)
+    while index + 63 <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(64))
+        @inbounds for lane = 0:63
+            destination[index+lane] = !iszero((raw >> (63 - lane)) & UInt64(1))
+        end
+        index += 64
+    end
+    @inbounds while index <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(1))
+        destination[index] = _from_bits(Bool, raw)
+        index += 1
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_dense_cpu!(
+    rng,
+    position,
+    destination::Array{UInt32},
+    ::Type{UInt32},
+    indices,
+)
+    isempty(indices) && return nothing
+    cursor = _dense_cursor(rng, FAMILY_BITS, _position_block(position), position.bit)
+    index = first(indices)
+    last_index = last(indices)
+    @inbounds while index + 1 <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(64))
+        destination[index] = _from_bits(UInt32, raw >> 32)
+        destination[index+1] = _from_bits(UInt32, raw)
+        index += 2
+    end
+    @inbounds while index <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(32))
+        destination[index] = _from_bits(UInt32, raw)
+        index += 1
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_dense_cpu!(
+    rng,
+    position,
+    destination::Array{Float32},
+    ::Type{Float32},
+    indices,
+)
+    isempty(indices) && return nothing
+    cursor = _dense_cursor(rng, FAMILY_BITS, _position_block(position), position.bit)
+    index = first(indices)
+    last_index = last(indices)
+    @inbounds while index + 7 <= last_index
+        first, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(64))
+        second, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(64))
+        third, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(64))
+        destination[index] = _from_bits(Float32, first >> 40)
+        destination[index+1] = _from_bits(Float32, (first >> 16) & UInt64(0xffffff))
+        destination[index+2] =
+            _from_bits(Float32, ((first & UInt64(0xffff)) << 8) | (second >> 56))
+        destination[index+3] = _from_bits(Float32, (second >> 32) & UInt64(0xffffff))
+        destination[index+4] = _from_bits(Float32, (second >> 8) & UInt64(0xffffff))
+        destination[index+5] =
+            _from_bits(Float32, ((second & UInt64(0xff)) << 16) | (third >> 48))
+        destination[index+6] = _from_bits(Float32, (third >> 24) & UInt64(0xffffff))
+        destination[index+7] = _from_bits(Float32, third & UInt64(0xffffff))
+        index += 8
+    end
+    @inbounds while index <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(24))
+        destination[index] = _from_bits(Float32, raw)
+        index += 1
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_dense_cpu!(
+    rng,
+    position,
+    destination::Array{T},
+    ::Type{T},
+    indices,
+) where {T<:Union{UInt64,Float64}}
+    isempty(indices) && return nothing
+    cursor = _dense_cursor(rng, FAMILY_BITS, _position_block(position), position.bit)
+    width = Val(_draw_bits(T))
+    @inbounds for index in indices
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, width)
+        destination[index] = _from_bits(T, raw)
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_dense_cpu!(
+    rng,
+    position,
+    destination::BitArray,
+    ::Type{Bool},
+    indices,
+)
+    isempty(indices) && return nothing
+    first_index = first(indices)
+    iszero((first_index - 1) & 63) ||
+        return _fill_uniform_unchecked!(rng, position, destination, Bool, indices)
+
+    cursor = _dense_cursor(rng, FAMILY_BITS, _position_block(position), position.bit)
+    index = first_index
+    last_index = last(indices)
+    chunk = ((first_index - 1) >> 6) + 1
+    @inbounds while index + 63 <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(64))
+        # Stream bits are MSB-first; BitArray chunks store their first bit lowest.
+        destination.chunks[chunk] = bitreverse(raw)
+        index += 64
+        chunk += 1
+    end
+    if index <= last_index
+        raw = UInt64(0)
+        offset = 0
+        @inbounds while index <= last_index
+            bit, cursor = _take_dense_bits_unchecked(rng, FAMILY_BITS, cursor, Val(1))
+            raw |= bit << offset
+            index += 1
+            offset += 1
+        end
+        @inbounds destination.chunks[chunk] = raw
+    end
+    return nothing
+end
+
+@inline _fill_uniform_dense_cpu!(rng, position, destination, ::Type{T}, indices) where {T} =
+    _fill_uniform_unchecked!(rng, position, destination, T, indices)
+
 KernelAbstractions.@kernel function _uniform_fill_kernel!(
     rng,
     destination,
@@ -128,8 +326,11 @@ end
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
 const _CPU_FILL_MIN_WORKITEMS = 4
 
-@inline _dense_fill_chunk_elements(::Type{T}) where {T} =
-    Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_draw_bits(T)))
+@inline function _dense_fill_chunk_elements(::Type{T}) where {T}
+    raw = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_draw_bits(T)))
+    group = _dense_fill_group(T)
+    return raw - raw % group
+end
 @inline function _dense_fill_bounds(workitem::Int, count::Int, chunk_elements::Int)
     first = (workitem - 1) * chunk_elements + 1
     chunk_count = min(chunk_elements, count - first + 1)
@@ -146,7 +347,7 @@ KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
     first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
     bits_lo, bits_hi = _bit_span(UInt64(first - 1), _draw_bits(T))
     position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_uniform_unchecked!(rng, position, destination, T, first:last)
+    _fill_uniform_dense_cpu!(rng, position, destination, T, first:last)
 end
 
 KernelAbstractions.@kernel function _uniform_fill_dense_serial_kernel!(
@@ -154,7 +355,7 @@ KernelAbstractions.@kernel function _uniform_fill_dense_serial_kernel!(
     destination,
     ::Type{T},
 ) where {T}
-    _fill_uniform_unchecked!(rng, destination, T)
+    _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
 end
 
 @inline _fill_backend(destination) = KernelAbstractions.get_backend(destination)
@@ -169,7 +370,7 @@ end
 function _launch_uniform!(
     backend::KernelAbstractions.CPU,
     rng,
-    destination::Array{T},
+    destination::Union{Array{T},BitArray},
     ::Type{T},
 ) where {T}
     chunk_elements = _dense_fill_chunk_elements(T)
@@ -200,7 +401,7 @@ end
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
     if !threaded && rng.device isa MLDataDevices.CPUDevice
-        _fill_uniform_unchecked!(rng, destination, T)
+        _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
         return next_rng, destination
     end
     backend = _fill_backend(destination)
