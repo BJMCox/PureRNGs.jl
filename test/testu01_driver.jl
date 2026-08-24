@@ -105,6 +105,10 @@ end
     @test !TestU01Driver._passes(prevfloat(0.001))
     @test !TestU01Driver._passes(nextfloat(0.999))
     @test !TestU01Driver._passes(NaN)
+
+    TestU01Driver._write_completion(io, 32, false)
+    @test String(take!(io)) ==
+          "# completed\ttrue\n# completed_cases\t32\n# all_within_summary_interval\tfalse\n"
 end
 
 @testset "TestU01 version and case validation need no library" begin

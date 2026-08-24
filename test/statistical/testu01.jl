@@ -187,6 +187,13 @@ function _write_result(
     return nothing
 end
 
+function _write_completion(io::IO, cases::Int, passed::Bool)
+    println(io, "# completed\ttrue")
+    println(io, "# completed_cases\t", cases)
+    println(io, "# all_within_summary_interval\t", passed)
+    return nothing
+end
+
 function _create_generator(api::TestU01API, stream::Symbol, name::String)
     if stream === :bits
         symbol, callback = :unif01_CreateExternGenBits, BITS_CALLBACK
@@ -320,13 +327,21 @@ function main(args::Vector{String})
     _check_library_version(library)
     api = TestU01API(library)
     passed = try
-        open(output, "w") do io
+        final_output = abspath(output)
+        temporary, io = mktemp(dirname(final_output); cleanup = false)
+        try
             _write_metadata(io, battery, _identities(library))
             all_passed = true
             for case in cases
                 all_passed &= _run_case!(io, api, battery, case...)
             end
+            _write_completion(io, length(cases), all_passed)
+            close(io)
+            mv(temporary, final_output)
             all_passed
+        catch
+            isopen(io) && close(io)
+            rethrow()
         end
     finally
         Libdl.dlclose(api.handle)
