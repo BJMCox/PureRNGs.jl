@@ -3,17 +3,6 @@ using Random: Xoshiro, rand
 
 const RangeIR = PureRNGs
 const RANGE_INTS = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-const RANGE_FAMILIES = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-)
-
 struct UnionIntegerRange <: AbstractRange{Union{Int8,UInt8}} end
 
 _range_reference_block(position::RangeIR._Position64) = position.block
@@ -218,7 +207,7 @@ end
         typemax(Int64):Int64(-1):typemin(Int64),
     )
 
-    for F in RANGE_FAMILIES
+    for F in FAMILY_TYPES
         block_bits = Int(RangeIR._block_bits(F(0)))
         for bit in unique(UInt16.((0, 1, 31, 63, block_bits - 1))), range in ranges
             rng = _range_positioned(F, 0x551, UInt64(9), bit)
@@ -238,7 +227,7 @@ end
 @testset "R8 and R53 mixed primitive and range positions" begin
     small = UInt16(3):UInt16(41)
     wide = UInt64(0):(UInt64(1)<<32)
-    for F in RANGE_FAMILIES
+    for F in FAMILY_TYPES
         rng = _range_positioned(F, 0x552, UInt64(11), UInt16(63))
         first_expected = _reference_uniform(rng, UInt32)
         rng, first_value = rand_next(rng, UInt32)
@@ -267,7 +256,7 @@ end
 @testset "R53 and R54 range capacity and validation" begin
     small = UInt8(1):UInt8(7)
     wide = UInt64(0):(UInt64(1)<<32)
-    for F in RANGE_FAMILIES, (range, width) in ((small, 64), (wide, 128))
+    for F in FAMILY_TYPES, (range, width) in ((small, 64), (wide, 128))
         base = F(0x553)
         capacity = _range_capacity(base)
         last_position = _range_position_from_absolute(base, capacity - width)
@@ -292,7 +281,7 @@ end
         @test_throws ArgumentError rand_next(exhausted, range)
     end
 
-    for F in RANGE_FAMILIES
+    for F in FAMILY_TYPES
         rng = F(0x554)
         for range in (Int8(2):Int8(1), UInt64(1):UInt64(0))
             @test_throws ArgumentError rand(rng, range)
@@ -351,7 +340,7 @@ end
         @test RangeIR._mulhi128_by64(lo, hi, wide_span) == expected_wide
     end
 
-    for F in RANGE_FAMILIES,
+    for F in FAMILY_TYPES,
         range in (
             Int8(-2):Int8(3),
             UInt16(9):Int16(-2):UInt16(1),

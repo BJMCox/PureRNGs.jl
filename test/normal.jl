@@ -222,7 +222,7 @@ end
 end
 
 @testset "R28 packed scalar normals" begin
-    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+    for F in FAMILY_TYPES, T in NORMAL_TYPES
         for bit in (UInt16(0), UInt16(23), UInt16(51), UInt16(63))
             rng = _positioned(F, 0x742, UInt64(9), bit)
             expected = _reference_normal(rng, T)
@@ -247,7 +247,7 @@ end
 end
 
 @testset "R8 and R53 normal family, capacity, and mixed positions" begin
-    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+    for F in FAMILY_TYPES, T in NORMAL_TYPES
         rng = _positioned(F, 0x743, UInt64(4), UInt16(61))
         normal_raw = _reference_extract(
             rng,
@@ -295,7 +295,7 @@ end
 end
 
 @testset "R23 and R30 scalar normal methods, inference, allocation, and IR" begin
-    for F in SCALAR_FAMILIES
+    for F in FAMILY_TYPES
         rng = F(0x744)
         default_next, default_value = randn_next(rng)
         typed_next, typed_value = randn_next(rng, Float64)
@@ -363,7 +363,7 @@ end
 
 @testset "R23, R24, and R26 packed normal fills and allocations" begin
     @test :randn_next! in names(IR)
-    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+    for F in FAMILY_TYPES, T in NORMAL_TYPES
         block_bits = IR._block_bits(F(0x747))
         for bit in (UInt16(0), UInt16(23), UInt16(63), UInt16(block_bits - 1))
             rng = _positioned(F, 0x747, UInt64(6), bit)
@@ -477,7 +477,7 @@ end
     @test eltype(default_empty) === Float64
     @test default_empty_next === exhausted
 
-    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+    for F in FAMILY_TYPES, T in NORMAL_TYPES
         last = _terminal_normal_rng(F, T)
         destination = fill(one(T), 2)
         before = copy(destination)
@@ -520,7 +520,7 @@ end
 end
 
 @testset "R23 and R30 normal fill methods, inference, allocation, and IR" begin
-    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+    for F in FAMILY_TYPES, T in NORMAL_TYPES
         rng = F(0x74d)
         destination = Vector{T}(undef, 7)
         @test which(randn!, (typeof(rng), typeof(destination))).module === IR

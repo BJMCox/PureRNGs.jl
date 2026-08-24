@@ -1,17 +1,5 @@
-const ALLOCATING_FAMILIES = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-)
-const ALLOCATING_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
-
 @testset "R23-R26 CPU allocating uniform draws" begin
-    for F in ALLOCATING_FAMILIES, T in ALLOCATING_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
         rng = F(0x62a)
         original_position = rng.position
 
@@ -63,7 +51,7 @@ const ALLOCATING_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
 end
 
 @testset "R23 and R24 CPU allocating defaults and return order" begin
-    for F in ALLOCATING_FAMILIES
+    for F in FAMILY_TYPES
         rng = F(0x62b)
         typed_next, typed = rand_next(rng, Float64, 2, 3)
         default_next, default = rand_next(rng, 2, 3)
@@ -78,7 +66,7 @@ end
 
 @testset "R23, R47, and R49 CPU allocating method surface" begin
     rng = Philox4x32(0x62c)
-    for T in ALLOCATING_UNIFORM_TYPES
+    for T in SCALAR_UNIFORM_TYPES
         @test which(rand, (typeof(rng), Type{T}, Int)).module === PureRNGs
         @test which(rand_next, (typeof(rng), Type{T}, Int)).module === PureRNGs
         @test Base.kwarg_decl(which(rand, (typeof(rng), Type{T}, Int))) == Symbol[]

@@ -1,8 +1,6 @@
 using InteractiveUtils: code_llvm
 
 const RangeAllocIR = PureRNGs
-const RANGE_ALLOCATING_TYPES = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-
 _small_allocating_range(::Type{T}) where {T<:Signed} = T(-31):T(3):T(41)
 _small_allocating_range(::Type{T}) where {T<:Unsigned} = T(2):T(3):T(74)
 
@@ -16,7 +14,7 @@ function _chained_range(rng, range, count)
 end
 
 @testset "R23-R26 and R55 CPU allocating range draws" begin
-    for F in RANGE_FAMILIES, T in RANGE_ALLOCATING_TYPES
+    for F in FAMILY_TYPES, T in RANGE_INTS
         range = _small_allocating_range(T)
         rng = _range_positioned(F, 0x65a, UInt64(7), UInt16(61))
         original_position = rng.position
@@ -53,7 +51,7 @@ end
         UInt64(0):typemax(UInt64),
         UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd),
     )
-    for F in RANGE_FAMILIES, range in ranges
+    for F in FAMILY_TYPES, range in ranges
         rng = _range_positioned(F, 0x65b, UInt64(9), UInt16(63))
         expected_next, expected = _chained_range(rng, range, 9)
         next_rng, values = rand_next(rng, range, 3, 3)
@@ -98,7 +96,7 @@ end
 
 @testset "R53-R55 allocating range validation and capacity" begin
     nonempty = UInt16(2):UInt16(3):UInt16(20)
-    for F in RANGE_FAMILIES
+    for F in FAMILY_TYPES
         base = F(0x65c)
         terminal_position =
             base.position isa RangeAllocIR._Position64 ?
@@ -134,7 +132,7 @@ end
         @test_throws ArgumentError rand_next(base, nonempty, 2, -1)
     end
 
-    for F in RANGE_FAMILIES, range in (UInt8(1):UInt8(7), UInt64(0):(UInt64(1)<<32))
+    for F in FAMILY_TYPES, range in (UInt8(1):UInt8(7), UInt64(0):(UInt64(1)<<32))
         base = F(0x65d)
         width = _range_reference_width(length(range) % UInt64)
         capacity = _range_capacity(base)
@@ -160,7 +158,7 @@ end
 
 @testset "R23, R47, and R49 allocating range method surface" begin
     rng = Philox4x32(0x65e)
-    for T in RANGE_ALLOCATING_TYPES
+    for T in RANGE_INTS
         range = _small_allocating_range(T)
         @test which(rand, (typeof(rng), typeof(range), Int)).module === RangeAllocIR
         @test which(rand_next, (typeof(rng), typeof(range), Int)).module === RangeAllocIR

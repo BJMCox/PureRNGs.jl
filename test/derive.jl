@@ -1,16 +1,5 @@
 using MLDataDevices
 
-const DERIVATION_FAMILIES = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-)
-
 const DERIVE_TAG = UInt32(0xc0ffee00)
 const SPLIT_SUBTAG = UInt32(0)
 const FOLD_SUBTAG = UInt32(1)
@@ -142,7 +131,7 @@ end
 end
 
 @testset "R20 derivation state law" begin
-    for F in DERIVATION_FAMILIES
+    for F in FAMILY_TYPES
         rng = F(123)
         moved = PureRNGs._reserve(rng, UInt64(7), UInt64(0))
         children = splitrng(rng)
@@ -301,7 +290,7 @@ end
 end
 
 @testset "R21 request forms and bounds" begin
-    for F in DERIVATION_FAMILIES
+    for F in FAMILY_TYPES
         rng = F(123)
         @test splitrng(rng, Val(0)) === ()
         @test splitrng(rng, 0) == typeof(rng)[]
@@ -344,7 +333,7 @@ end
 end
 
 @testset "R30 inference and allocation" begin
-    for F in DERIVATION_FAMILIES
+    for F in FAMILY_TYPES
         rng = F(123)
         @test @inferred(splitrng(rng, Val(3))) isa NTuple{3,typeof(rng)}
         @test @inferred(subrng(rng, 42)) isa typeof(rng)

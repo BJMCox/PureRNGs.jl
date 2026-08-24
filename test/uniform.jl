@@ -5,16 +5,6 @@ const IR = PureRNGs
 const KA = PureRNGs.KernelAbstractions
 const MLD = PureRNGs.MLDataDevices
 
-const SCALAR_FAMILIES = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-)
 const SCALAR_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
 
 const PACKED_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
@@ -269,7 +259,7 @@ end
         @test IR._draw_bits(T) === UInt16(width)
     end
 
-    for F in SCALAR_FAMILIES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
         rng = _positioned(F, 0x521, UInt64(9), UInt16(61))
         position = rng.position
         expected = _reference_uniform(rng, T)
@@ -284,7 +274,7 @@ end
 
 @testset "R24, R26, and R53 mixed packed continuation" begin
     trace = (Bool, Float64, Float32, UInt64, UInt32, Bool, Float64)
-    for F in SCALAR_FAMILIES
+    for F in FAMILY_TYPES
         rng = _positioned(F, 0x522, UInt64(11), UInt16(63))
         cursor = rng
         for T in trace
@@ -298,7 +288,7 @@ end
 end
 
 @testset "R29 packed addressed draws" begin
-    for F in SCALAR_FAMILIES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
         rng = _positioned(F, 0x523, UInt64(5), UInt16(47))
         cursor = rng
         for i = 1:9
@@ -360,7 +350,7 @@ end
 end
 
 @testset "R26 packed CPU fills, shapes, views, and BitArray" begin
-    for F in SCALAR_FAMILIES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
         rng = _positioned(F, 0x524, UInt64(7), UInt16(61))
         expected_rng, expected = _reference_chain(rng, T, 12)
 
@@ -397,7 +387,7 @@ end
         @test all(iszero, @view threaded_storage[1:2:23])
     end
 
-    for F in SCALAR_FAMILIES, count in (0, 1, 7, 65, 67)
+    for F in FAMILY_TYPES, count in (0, 1, 7, 65, 67)
         rng = _positioned(F, 0x525, UInt64(4), UInt16(63))
         expected_rng, expected = _reference_chain(rng, Bool, count)
         ordinary = BitArray(undef, count)
@@ -417,7 +407,7 @@ end
               expected_rng.position
     end
 
-    for F in SCALAR_FAMILIES
+    for F in FAMILY_TYPES
         rng = _positioned(F, 0x525, UInt64(4), UInt16(63))
         expected_rng, expected = _reference_chain(rng, Bool, 12)
         destination = BitArray(undef, 3, 4)
@@ -429,7 +419,7 @@ end
 end
 
 @testset "R26 dense codec phases, tails, and cached blocks" begin
-    for F in SCALAR_FAMILIES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
         group = IR._dense_fill_group(T)
         counts = unique((0, max(0, group - 1), group, group + 1, 2group + 3))
         block_bits = IR._block_bits(F(0x5250))
@@ -472,7 +462,7 @@ end
         @test destination == expected
     end
 
-    for F in SCALAR_FAMILIES, count in (1, 63, 64, 65, 129)
+    for F in FAMILY_TYPES, count in (1, 63, 64, 65, 129)
         rng = _positioned(F, 0x5250, UInt64(8), UInt16(47))
         _, expected = _reference_chain(rng, Bool, count)
         destination = BitArray(undef, count)
@@ -746,7 +736,7 @@ end
     @test empty_result === empty
     @test empty_next === exhausted
 
-    for F in SCALAR_FAMILIES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
         base = F(0x528)
         width = IR._draw_bits(T)
         position =
@@ -785,7 +775,7 @@ end
 end
 
 @testset "R23 and R30 packed uniform method, inference, allocation, and IR" begin
-    for F in SCALAR_FAMILIES
+    for F in FAMILY_TYPES
         rng = F(0x529)
         default_next, default_value = rand_next(rng)
         typed_next, typed_value = rand_next(rng, Float64)
