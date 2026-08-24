@@ -1,0 +1,16 @@
+name = "PureRNGsDistributionsConformance"
+uuid = "264ce5c3-a21d-4cd9-a791-d3d491d847a9"
+version = "0.1.0"
+
+[deps]
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+PureRNGs = "2ccaadc3-3d9a-45d4-a2ec-95a2424790b7"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+PureRNGs = {path = "../../.."}
+
+[compat]
+Distributions = "0.25"
+Test = "1"
+julia = "1.10"
