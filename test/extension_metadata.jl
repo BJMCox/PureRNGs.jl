@@ -1,12 +1,18 @@
 using TOML
 
-@testset "CUDA extension metadata and base surface" begin
+@testset "R36-R38 extension metadata and base surface" begin
     project = TOML.parsefile(joinpath(pkgdir(PureRNGs), "Project.toml"))
 
-    @test project["weakdeps"]["CUDA"] == "052768ef-5323-5732-b1bb-66c8b64840ba"
-    @test project["extensions"]["PureRNGsCUDAExt"] == "CUDA"
+    @test project["weakdeps"] == Dict(
+        "AMDGPU" => "21141c5a-9bdb-4563-92ae-f87d6854732e",
+        "CUDA" => "052768ef-5323-5732-b1bb-66c8b64840ba",
+    )
+    @test project["extensions"] ==
+          Dict("PureRNGsAMDGPUExt" => "AMDGPU", "PureRNGsCUDAExt" => "CUDA")
+    @test project["compat"]["AMDGPU"] == "2"
     @test project["compat"]["CUDA"] == "5.8, 6"
 
+    @test Base.get_extension(PureRNGs, :PureRNGsAMDGPUExt) === nothing
     @test Base.get_extension(PureRNGs, :PureRNGsCUDAExt) === nothing
 
     @test names(PureRNGs) == [
