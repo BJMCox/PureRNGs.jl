@@ -96,7 +96,8 @@ splitrng(rng::AbstractPureRNG) = splitrng(rng, Val(2))
 end
 
 function splitrng(rng::R, count::Integer) where {R<:AbstractPureRNG}
-    count >= 0 || throw(ArgumentError("n must be non-negative"))
+    0 <= count <= typemax(Int) ||
+        throw(ArgumentError("n must satisfy 0 <= n <= typemax(Int)"))
     _check_split_count(rng, count)
     children = Vector{R}(undef, count)
     for i in eachindex(children)

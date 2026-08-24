@@ -270,6 +270,7 @@ end
         @test splitrng(rng, 3) == collect(splitrng(rng, Val(3)))
         @test splitrng(rng, Int8(3)) == collect(splitrng(rng, Val(3)))
         @test_throws ArgumentError splitrng(rng, -1)
+        @test_throws ArgumentError splitrng(rng, big(typemax(Int)) + 1)
         @test_throws ArgumentError splitrng(rng, Val(-1))
         @test_throws ArgumentError splitrng(rng, Val(UInt32(2)))
     end

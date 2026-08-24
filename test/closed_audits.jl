@@ -188,7 +188,7 @@ end
         "[R57]-[R59]",
         "[R61]",
     ]
-    @test consistency_rules == ["[R26]", "[R29]", "[R33]", "[R60]"]
+    @test consistency_rules == ["[R26]", "[R29]", "[R33]", "[R60]", "[R39]"]
 end
 
 @testset "R47 and row 744 implemented deterministic error closure" begin

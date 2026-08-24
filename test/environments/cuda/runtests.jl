@@ -335,6 +335,7 @@ device = MLD.CUDADevice(primary)
         child = subrng(advanced, UInt64(0x71))
         children = splitrng(advanced, Val(2))
         dynamic_children = splitrng(advanced, 2)
+        @test_throws ArgumentError splitrng(advanced, big(typemax(Int)) + 1)
         @test advanced.position != gpu_rng.position
         @test child.key == subrng(gpu_rng, UInt64(0x71)).key
         @test getfield.(children, :key) == getfield.(splitrng(gpu_rng, Val(2)), :key)
