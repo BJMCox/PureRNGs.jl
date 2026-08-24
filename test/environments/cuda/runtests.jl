@@ -242,22 +242,36 @@ const K128_RANGE = UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd)
 
 struct DeviceAgnosticPopulation{T}
     values::Vector{T}
+    starts::Base.RefValue{Int}
 end
+
+DeviceAgnosticPopulation(values::Vector{T}) where {T} =
+    DeviceAgnosticPopulation{T}(values, Ref(0))
 
 Base.IteratorSize(::Type{<:DeviceAgnosticPopulation}) = Base.HasLength()
 Base.IteratorEltype(::Type{<:DeviceAgnosticPopulation}) = Base.HasEltype()
 Base.eltype(::Type{DeviceAgnosticPopulation{T}}) where {T} = T
 Base.length(population::DeviceAgnosticPopulation) = length(population.values)
-Base.iterate(population::DeviceAgnosticPopulation, state...) =
-    iterate(population.values, state...)
+function Base.iterate(population::DeviceAgnosticPopulation)
+    population.starts[] += 1
+    return iterate(population.values)
+end
+Base.iterate(population::DeviceAgnosticPopulation, state) =
+    iterate(population.values, state)
 MLD.get_device(::DeviceAgnosticPopulation) = nothing
 
 struct DeviceAgnosticArray{T} <: AbstractVector{T}
     values::Vector{T}
+    reads::Base.RefValue{Int}
 end
 
+DeviceAgnosticArray(values::Vector{T}) where {T} = DeviceAgnosticArray{T}(values, Ref(0))
+
 Base.size(population::DeviceAgnosticArray) = size(population.values)
-Base.getindex(population::DeviceAgnosticArray, index::Int) = population.values[index]
+function Base.getindex(population::DeviceAgnosticArray, index::Int)
+    population.reads[] += 1
+    return population.values[index]
+end
 Base.eachindex(population::DeviceAgnosticArray) = reverse(eachindex(population.values))
 MLD.get_device(::DeviceAgnosticArray) = nothing
 
@@ -860,6 +874,7 @@ end
         @test iterable_values isa CuArray{Int16,1}
         @test Array(iterable_values) == expected_iterable
         @test iterable_next.position == expected_iterable_next.position
+        @test iterable.starts[] == 1
 
         agnostic_array = DeviceAgnosticArray(collect(Int16(21):Int16(31)))
         array_next, array_values = randsample_next(gpu_rng, agnostic_array, 9)
@@ -868,6 +883,7 @@ end
         @test array_values isa CuArray{Int16,1}
         @test Array(array_values) == expected_array
         @test array_next.position == expected_array_next.position
+        @test agnostic_array.reads[] == length(agnostic_array)
 
         empty = CuArray{Int32}(undef, 0)
         empty_next, empty_values = randsample_next(gpu_rng, empty, 0)
@@ -884,6 +900,32 @@ end
         @test error isa ArgumentError
         @test occursin("device", sprint(showerror, error))
     end
+
+    limit_rng = device(Philox4x32(0x91b))
+    limit_population = CUDA.CuArray(Int32[1])
+    too_many = big(typemax(Int)) + 1
+    @test_throws ArgumentError randsample(limit_rng, limit_population, too_many)
+    @test_throws ArgumentError randsample_next(limit_rng, limit_population, too_many)
+
+    audit_population = DeviceAgnosticPopulation(collect(Int32(1):Int32(13)))
+    randsample(limit_rng, DeviceAgnosticPopulation(copy(audit_population.values)), 9)
+    profiled_result = Ref{Any}()
+    profile = CUDA.Profile.profile_internally(; concurrent = false, trace = true) do
+        profiled_result[] = randsample(limit_rng, audit_population, 9)
+    end
+    @test audit_population.starts[] == 1
+    @test profiled_result[] isa CUDA.CuArray{Int32,1}
+    # The integrated profiler adds its own eight-byte H2D warm-up copy.
+    h2d_sizes = [
+        profile.device.size[index] for index in eachindex(profile.device.name) if
+        profile.device.name[index] == "[copy pageable to device memory]"
+    ]
+    d2h_sizes = [
+        profile.device.size[index] for index in eachindex(profile.device.name) if
+        profile.device.name[index] == "[copy device to pageable memory]"
+    ]
+    @test sort(h2d_sizes) == [8, sizeof(Int32) * length(audit_population)]
+    @test isempty(d2h_sizes)
 end
 
 @testset "GPU-bound scalar inference, allocation, and IR" begin
@@ -1057,6 +1099,15 @@ end
     end
     @test error isa ArgumentError
     @test occursin("weights device", sprint(showerror, error))
+
+    too_many = big(typemax(Int)) + 1
+    @test_throws ArgumentError randsample(range_rng, gpu_population, gpu_weights, too_many)
+    @test_throws ArgumentError randsample_next(
+        range_rng,
+        gpu_population,
+        gpu_weights,
+        too_many,
+    )
 
     for invalid in (
         CUDA.CuArray([1.0, -1.0, 2.0]),
