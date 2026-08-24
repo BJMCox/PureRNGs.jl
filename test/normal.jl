@@ -1,5 +1,5 @@
 using InteractiveUtils: code_llvm
-using Random: randn
+using Random: randn, randn!
 
 const NORMAL_TYPES = (Float32, Float64)
 
@@ -133,6 +133,25 @@ function _terminal_normal_rng(F, ::Type{T}) where {T}
         IR._Position128(typemax(UInt64), typemax(UInt64), bit)
     end
     return IR._rebuild(rng, position, rng.device)
+end
+
+function _reference_normal_chain(rng, ::Type{T}, count::Int) where {T}
+    values = Vector{T}(undef, count)
+    cursor = rng
+    for index in eachindex(values)
+        values[index] = _reference_normal(cursor, T)
+        cursor = IR._rebuild(
+            cursor,
+            _reference_position(cursor, _normal_width(T)),
+            cursor.device,
+        )
+    end
+    return cursor, values
+end
+
+function _serial_normal_fill_allocations(rng, destination)
+    randn_next!(rng, destination; threaded = false)
+    return @allocated randn_next!(rng, destination; threaded = false)
 end
 
 @testset "R13 and R28 packed normal raw golden vectors" begin
@@ -340,4 +359,218 @@ end
 
     @test_throws ArgumentError randnat(rng, Float64, 0)
     @test_throws ArgumentError randnat(rng, Float32, -1)
+end
+
+@testset "R23, R24, and R26 packed normal fills and allocations" begin
+    @test :randn_next! in names(IR)
+    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+        block_bits = IR._block_bits(F(0x747))
+        for bit in (UInt16(0), UInt16(23), UInt16(63), UInt16(block_bits - 1))
+            rng = _positioned(F, 0x747, UInt64(6), bit)
+            next_rng, expected = _reference_normal_chain(rng, T, 17)
+
+            serial = Vector{T}(undef, 17)
+            threaded = similar(serial)
+            @test randn!(rng, serial; threaded = false) === serial
+            @test randn!(rng, threaded; threaded = true) === threaded
+            sync_cpu()
+            @test serial == threaded == expected
+            @test rng.position.bit == bit
+
+            continued_next, continued = randn_next!(rng, similar(serial))
+            sync_cpu()
+            @test continued == expected
+            @test continued_next.position == next_rng.position
+
+            matrix = randn(rng, T, 1, 17)
+            sync_cpu()
+            @test vec(matrix) == expected
+            @test size(matrix) == (1, 17)
+            @test rng.position.bit == bit
+
+            allocated_next, allocated = randn_next(rng, T, 17)
+            sync_cpu()
+            @test allocated == expected
+            @test allocated_next.position == next_rng.position
+        end
+
+        rng = _positioned(F, 0x748, UInt64(3), UInt16(61))
+        next_rng, expected = _reference_normal_chain(rng, T, 12)
+        storage = fill(zero(T), 24)
+        destination = @view storage[2:2:24]
+        view_next, returned = randn_next!(rng, destination; threaded = false)
+        @test returned === destination
+        @test collect(destination) == expected
+        @test all(iszero, @view storage[1:2:23])
+        @test view_next.position == next_rng.position
+
+        threaded_storage = fill(zero(T), 24)
+        threaded_view = @view threaded_storage[2:2:24]
+        randn!(rng, threaded_view; threaded = true)
+        sync_cpu()
+        @test collect(threaded_view) == expected
+        @test all(iszero, @view threaded_storage[1:2:23])
+    end
+
+    rng = Philox4x32(0x749)
+    default_next, default_values = randn_next(rng, 2, 3)
+    typed_next, typed_values = randn_next(rng, Float64, 2, 3)
+    sync_cpu()
+    @test default_values == typed_values
+    @test default_next.position == typed_next.position
+    @test size(default_values) == (2, 3)
+    @test_throws ArgumentError randn(rng, Float32, -1)
+    @test_throws ArgumentError randn_next(rng, -1)
+
+    noncpu = IR._rebuild(rng, rng.position, MLD.UnknownDevice())
+    @test !applicable(randn, noncpu, Float32, 1)
+    @test !applicable(randn_next, noncpu, Float32, 1)
+    @test !applicable(randn_next, noncpu, 1)
+end
+
+@testset "R26 normal fill parallel seams and caller task" begin
+    for T in NORMAL_TYPES
+        rng = _positioned(Philox4x32, 0x74a, UInt64(4), UInt16(61))
+        chunk_elements = IR._normal_fill_chunk_elements(T)
+        for delta in (-1, 0, 1)
+            count = 4chunk_elements + delta
+            serial = Vector{T}(undef, count)
+            threaded = similar(serial)
+            serial_next, _ = randn_next!(rng, serial; threaded = false)
+            threaded_next, _ = randn_next!(rng, threaded; threaded = true)
+            sync_cpu()
+            @test threaded == serial
+            @test threaded_next.position == serial_next.position
+        end
+    end
+
+    rng = _positioned(Philox4x32, 0x74b, UInt64(3), UInt16(29))
+    caller = current_task()
+    probe = TaskWriteProbe(Vector{Float64}(undef, 37))
+    next_rng, returned = randn_next!(rng, probe; threaded = false)
+    expected_rng, expected = _reference_normal_chain(rng, Float64, 37)
+    @test returned === probe
+    @test all(task -> task === caller, probe.writers)
+    @test probe.data == expected
+    @test next_rng.position == expected_rng.position
+end
+
+@testset "R30, R39, R40, and R54 normal fill validation" begin
+    rng = Philox4x32(0x74c)
+    wrong = WrongDeviceArray(Float32[])
+    @test_throws ArgumentError randn!(rng, wrong)
+    @test_throws ArgumentError randn_next!(rng, wrong)
+    @test_throws TypeError randn!(rng, wrong; threaded = 1)
+
+    exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
+    empty = Float32[]
+    @test randn!(exhausted, empty; threaded = false) === empty
+    empty_next, empty_result = randn_next!(exhausted, empty; threaded = false)
+    @test empty_result === empty
+    @test empty_next === exhausted
+    @test isempty(randn(exhausted, Float32, 0))
+    allocated_empty_next, allocated_empty = randn_next(exhausted, Float32, 0)
+    @test isempty(allocated_empty)
+    @test allocated_empty_next === exhausted
+    default_empty_next, default_empty = randn_next(exhausted, 0)
+    @test isempty(default_empty)
+    @test eltype(default_empty) === Float64
+    @test default_empty_next === exhausted
+
+    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+        last = _terminal_normal_rng(F, T)
+        destination = fill(one(T), 2)
+        before = copy(destination)
+        @test_throws ArgumentError randn!(last, destination; threaded = false)
+        @test destination == before
+        @test_throws ArgumentError randn_next!(last, destination; threaded = false)
+        @test destination == before
+
+        final = Vector{T}(undef, 1)
+        final_next, _ = randn_next!(last, final; threaded = false)
+        @test final[1] === _reference_normal(last, T)
+        expected_terminal =
+            last.position isa IR._Position64 ? IR._terminal64(IR._max_block(last)) :
+            IR._terminal128()
+        @test final_next.position == expected_terminal
+
+        pure_final = randn(last, T, 1)
+        allocating_final_next, allocating_final = randn_next(last, T, 1)
+        sync_cpu()
+        @test pure_final == allocating_final == final
+        @test allocating_final_next.position == expected_terminal
+
+        insufficient_position = if last.position isa IR._Position64
+            IR._Position64(IR._max_block(last), last.position.bit + UInt16(1))
+        else
+            IR._Position128(typemax(UInt64), typemax(UInt64), last.position.bit + UInt16(1))
+        end
+        insufficient = IR._rebuild(last, insufficient_position, last.device)
+        @test_throws ArgumentError randn(insufficient, T, 1)
+        @test_throws ArgumentError randn_next(insufficient, T, 1)
+    end
+
+    lookups = Ref(0)
+    probe = BackendProbe(Vector{Float64}(undef, 17), lookups)
+    randn!(rng, probe; threaded = false)
+    @test lookups[] == 0
+    randn!(rng, probe; threaded = true)
+    sync_cpu()
+    @test lookups[] == 1
+end
+
+@testset "R23 and R30 normal fill methods, inference, allocation, and IR" begin
+    for F in SCALAR_FAMILIES, T in NORMAL_TYPES
+        rng = F(0x74d)
+        destination = Vector{T}(undef, 7)
+        @test which(randn!, (typeof(rng), typeof(destination))).module === IR
+        @test which(randn_next!, (typeof(rng), typeof(destination))).module === IR
+        @test @inferred(randn!(rng, destination; threaded = false)) === destination
+        @test @inferred(randn_next!(rng, destination; threaded = false)) isa
+              Tuple{typeof(rng),typeof(destination)}
+        @test @inferred(randn(rng, T, 2, 3)) isa Matrix{T}
+        @test @inferred(randn_next(rng, T, 2, 3)) isa Tuple{typeof(rng),Matrix{T}}
+        @test _serial_normal_fill_allocations(rng, destination) == 0
+    end
+
+    default_rng = Philox4x32(0x74d)
+    @test @inferred(randn_next(default_rng, 2, 3)) isa
+          Tuple{typeof(default_rng),Matrix{Float64}}
+
+    rng = Philox4x64(0x74e)
+    destination = Vector{Float64}(undef, 7)
+    signature = Tuple{
+        typeof(rng),
+        typeof(rng.position),
+        typeof(destination),
+        Type{Float64},
+        Base.OneTo{Int},
+    }
+    for (function_, call_signature) in (
+        (randn_next!, Tuple{typeof(rng),typeof(destination)}),
+        (IR._fill_normal_dense_cpu!, signature),
+    )
+        typed_ir = sprint(show, code_typed(function_, call_signature; optimize = true))
+        llvm_ir = sprint() do io
+            code_llvm(
+                io,
+                function_,
+                call_signature;
+                raw = false,
+                dump_module = false,
+                optimize = true,
+            )
+        end
+        @test !occursin("BigInt", typed_ir)
+        @test !occursin("UInt128", typed_ir)
+        @test !occursin(r"\bi128\b", llvm_ir)
+    end
+
+    @test Base.kwarg_decl(which(randn!, (typeof(rng), typeof(destination)))) == [:threaded]
+    @test Base.kwarg_decl(which(randn_next!, (typeof(rng), typeof(destination)))) ==
+          [:threaded]
+    @test !applicable(randn!, rng, Vector{Float16}(undef, 1))
+    @test !applicable(randn_next!, rng, Vector{UInt64}(undef, 1))
+    @test_throws TypeError randn!(rng, destination; threaded = 1)
+    @test_throws MethodError randn!(rng, destination; serial = false)
 end

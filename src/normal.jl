@@ -155,3 +155,145 @@ for T in (Float32, Float64)
             _draw_normal_unchecked(_addressed_rng(rng, _normal_bits($T), i), $T)
     end
 end
+
+@inline function _fill_normal_unchecked!(
+    rng::_ScalarUniformFamily,
+    position,
+    destination,
+    ::Type{T},
+    indices,
+) where {T}
+    width = UInt64(_normal_bits(T))
+    shift = _block_shift(rng)
+    remaining = length(indices)
+    @inbounds for index in indices
+        destination[index] = _draw_normal_unchecked(rng, position, T)
+        remaining -= 1
+        iszero(remaining) ||
+            (position = _advance_position_unchecked(position, width, UInt64(0), shift))
+    end
+    return nothing
+end
+
+@inline _normal_from_bits(::Type{T}, value::UInt64) where {T} =
+    _as241(_normal_midpoint(T, value))
+
+@inline function _fill_normal_dense_cpu!(
+    rng,
+    position,
+    destination::Array{T},
+    ::Type{T},
+    indices,
+) where {T<:Union{Float32,Float64}}
+    isempty(indices) && return nothing
+    cursor = _dense_cursor(rng, FAMILY_NORMAL, _position_block(position), position.bit)
+    width = Val(_normal_bits(T))
+    @inbounds for index in indices
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_NORMAL, cursor, width)
+        destination[index] = _normal_from_bits(T, raw)
+    end
+    return nothing
+end
+
+@inline _fill_normal_dense_cpu!(rng, position, destination, ::Type{T}, indices) where {T} =
+    _fill_normal_unchecked!(rng, position, destination, T, indices)
+
+KernelAbstractions.@kernel function _normal_fill_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+) where {T}
+    _fill_normal_unchecked!(rng, rng.position, destination, T, eachindex(destination))
+end
+
+@inline _normal_fill_chunk_elements(::Type{T}) where {T} =
+    Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_normal_bits(T)))
+
+KernelAbstractions.@kernel function _normal_fill_dense_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+    chunk_elements,
+) where {T}
+    workitem = @index(Global, Linear)
+    first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _normal_bits(T))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_normal_dense_cpu!(rng, position, destination, T, first:last)
+end
+
+KernelAbstractions.@kernel function _normal_fill_dense_serial_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+) where {T}
+    _fill_normal_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
+end
+
+function _launch_normal!(backend, rng, destination, ::Type{T}) where {T}
+    _normal_fill_kernel!(backend)(rng, destination, T; ndrange = 1)
+    return destination
+end
+
+function _launch_normal!(
+    backend::KernelAbstractions.CPU,
+    rng,
+    destination::Array{T},
+    ::Type{T},
+) where {T}
+    chunk_elements = _normal_fill_chunk_elements(T)
+    workitems = cld(length(destination), chunk_elements)
+    if workitems < _CPU_FILL_MIN_WORKITEMS
+        _normal_fill_dense_serial_kernel!(backend)(rng, destination, T; ndrange = 1)
+        return destination
+    end
+    _normal_fill_dense_kernel!(backend)(
+        rng,
+        destination,
+        T,
+        chunk_elements;
+        ndrange = workitems,
+        workgroupsize = 1,
+    )
+    return destination
+end
+
+@inline function _randn_next_fill!(
+    rng::_ScalarUniformFamily,
+    destination::AbstractArray{T},
+    threaded::Bool,
+) where {T}
+    _check_fill_device(rng, destination)
+    _check_fill_serviceability(rng, destination, T)
+    bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _normal_bits(T))
+    next_rng = _reserve(rng, bits_lo, bits_hi)
+    isempty(destination) && return next_rng, destination
+    if !threaded && rng.device isa MLDataDevices.CPUDevice
+        _fill_normal_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
+        return next_rng, destination
+    end
+    backend = _fill_backend(destination)
+    _launch_normal!(backend, rng, destination, T)
+    return next_rng, destination
+end
+
+for T in (Float32, Float64)
+    @eval begin
+        @inline function Random.randn!(
+            rng::_ScalarUniformFamily,
+            destination::AbstractArray{$T};
+            threaded::Bool = true,
+        )
+            _, result = _randn_next_fill!(rng, destination, threaded)
+            return result
+        end
+
+        @inline function randn_next!(
+            rng::_ScalarUniformFamily,
+            destination::AbstractArray{$T};
+            threaded::Bool = true,
+        )
+            return _randn_next_fill!(rng, destination, threaded)
+        end
+    end
+end

@@ -18,6 +18,7 @@ export Philox2x32,
     rand_next,
     rand_next!,
     randn_next,
+    randn_next!,
     randat,
     randnat
 
@@ -30,6 +31,7 @@ include("derive.jl")
 include("uniform.jl")
 include("uniform_allocating.jl")
 include("normal.jl")
+include("normal_allocating.jl")
 include("integers.jl")
 
 end # module PureRNGs
