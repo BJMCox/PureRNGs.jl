@@ -3,14 +3,19 @@ module PureRNGsTestU01
 import PureRNGs
 import Libdl
 
-const DRIVER_SCHEMA = 1
+const DRIVER_SCHEMA = 2
 const TESTU01_VERSION = v"1.2.3"
 const ROOT_SEED = 12345
 const CHILD_COUNT = 8
 # TestU01 1.2.3 battery summaries list values outside this interval, then state
 # that all remaining tests passed.
-const PASS_MIN = 0.001
-const PASS_MAX = 0.999
+const DIAGNOSTIC_MIN = 0.001
+const DIAGNOSTIC_MAX = 0.999
+const R50_CASE_COUNT = 32
+const R50_P_VALUES_PER_CASE = 15
+const R50_P_VALUE_COUNT = R50_CASE_COUNT * R50_P_VALUES_PER_CASE
+const RELEASE_ALPHA = 0.001 / R50_P_VALUE_COUNT
+const RELEASE_MAX = 1.0 - RELEASE_ALPHA
 const FAMILY_TYPES = (
     PureRNGs.Philox2x32,
     PureRNGs.Philox4x32,
@@ -106,7 +111,13 @@ function _check_library_version(library::AbstractString)
     return nothing
 end
 
-@inline _passes(p_value::Float64) = PASS_MIN <= p_value <= PASS_MAX
+@inline _is_finite(p_value::Float64) = isfinite(p_value)
+@inline _within_diagnostic(p_value::Float64) =
+    _is_finite(p_value) && DIAGNOSTIC_MIN <= p_value <= DIAGNOSTIC_MAX
+@inline _within_release(p_value::Float64) =
+    _is_finite(p_value) && RELEASE_ALPHA <= p_value <= RELEASE_MAX
+@inline _is_suspect(p_value::Float64) =
+    _within_release(p_value) && !_within_diagnostic(p_value)
 
 @inline function _battery_pointer(api::TestU01API, battery::Symbol)
     battery in BATTERIES || throw(ArgumentError("unknown battery: $battery"))
@@ -133,7 +144,12 @@ function _write_metadata(io::IO, battery::Symbol, identities)
         :interleave => "round-robin, one value per child in child order",
         :bits_api => "unif01_CreateExternGenBits(UInt32)",
         :uniform_api => "unif01_CreateExternGen01(Float64)",
-        :testu01_summary_interval => "[$PASS_MIN, $PASS_MAX]",
+        :diagnostic_interval => "[$DIAGNOSTIC_MIN, $DIAGNOSTIC_MAX]",
+        :release_alpha => RELEASE_ALPHA,
+        :release_interval => "[$RELEASE_ALPHA, $RELEASE_MAX]",
+        :expected_cases => R50_CASE_COUNT,
+        :expected_p_values_per_case => R50_P_VALUES_PER_CASE,
+        :expected_p_values => R50_P_VALUE_COUNT,
     )
     for (key, value) in metadata
         println(io, "# ", key, '\t', _field(value))
@@ -151,7 +167,7 @@ function _write_metadata(io::IO, battery::Symbol, identities)
     end
     println(
         io,
-        "battery\tfamily\tstream\tschedule\tstatistic_index\tstatistic_name\tp_value\tp_value_bits\twithin_summary_interval",
+        "battery\tfamily\tstream\tschedule\tstatistic_index\tstatistic_name\tp_value\tp_value_bits\tfinite\twithin_diagnostic_interval\twithin_release_interval\tsuspect",
     )
     return nothing
 end
@@ -179,7 +195,10 @@ function _write_result(
                 _field(name),
                 repr(p_value),
                 bits,
-                _passes(p_value),
+                _is_finite(p_value),
+                _within_diagnostic(p_value),
+                _within_release(p_value),
+                _is_suspect(p_value),
             ),
             '\t',
         ),
@@ -187,10 +206,34 @@ function _write_result(
     return nothing
 end
 
-function _write_completion(io::IO, cases::Int, passed::Bool)
+function _write_case_count(
+    io::IO,
+    battery::Symbol,
+    family,
+    stream::Symbol,
+    schedule::Symbol,
+    count::Int,
+)
+    println(
+        io,
+        "# case_p_value_count\t",
+        join((battery, _family_name(family), stream, schedule, count), '\t'),
+    )
+    return nothing
+end
+
+function _write_completion(io::IO, status)
     println(io, "# completed\ttrue")
-    println(io, "# completed_cases\t", cases)
-    println(io, "# all_within_summary_interval\t", passed)
+    println(io, "# completed_cases\t", status.completed_cases)
+    println(io, "# completed_p_values\t", status.completed_p_values)
+    println(io, "# all_p_values_finite\t", status.all_finite)
+    println(io, "# all_within_diagnostic_interval\t", status.all_diagnostic)
+    println(io, "# all_within_release_interval\t", status.all_release)
+    println(io, "# all_case_counts_valid\t", status.counts_valid)
+    println(io, "# release_applicable\t", status.release_applicable)
+    println(io, "# matrix_complete\t", status.matrix_complete)
+    println(io, "# r50_release_passed\t", status.release_passed)
+    println(io, "# diagnostic_run_passed\t", status.diagnostic_passed)
     return nothing
 end
 
@@ -233,19 +276,63 @@ function _run_case!(
         end
     end
 
-    passed = true
     test_count = Int(unsafe_load(Ptr{Cint}(_symbol(api, :bbattery_NTests))))
     test_names = Ptr{Ptr{UInt8}}(_symbol(api, :bbattery_TestNames))
     p_values = Ptr{Cdouble}(_symbol(api, :bbattery_pVal))
-    for index = 1:test_count
+    all_finite = true
+    all_diagnostic = true
+    all_release = true
+    for index = 1:max(test_count, 0)
         name_pointer = unsafe_load(test_names, index)
         test_name = name_pointer == C_NULL ? "" : unsafe_string(name_pointer)
         p_value = unsafe_load(p_values, index)
         _write_result(io, battery, F, stream, schedule, index, test_name, p_value)
-        passed &= _passes(p_value)
+        all_finite &= _is_finite(p_value)
+        all_diagnostic &= _within_diagnostic(p_value)
+        all_release &= _within_release(p_value)
     end
+    _write_case_count(io, battery, F, stream, schedule, test_count)
     flush(io)
-    return passed
+    return (
+        p_values = test_count,
+        complete = true,
+        all_finite = all_finite,
+        all_diagnostic = all_diagnostic,
+        all_release = all_release,
+    )
+end
+
+function _r50_status(battery::Symbol, cases, results)
+    completed_cases = count(result -> result.complete, results)
+    completed_p_values = sum(result -> result.p_values, results; init = 0)
+    all_finite = all(result -> result.all_finite, results)
+    all_diagnostic = all(result -> result.all_diagnostic, results)
+    all_release = all(result -> result.all_release, results)
+    counts_valid = if battery === :SmallCrush
+        all(result -> result.p_values == R50_P_VALUES_PER_CASE, results)
+    else
+        all(result -> result.p_values >= 0, results)
+    end
+    release_applicable = battery === :SmallCrush && cases == _matrix()
+    matrix_complete =
+        release_applicable &&
+        completed_cases == R50_CASE_COUNT &&
+        completed_p_values == R50_P_VALUE_COUNT
+    release_passed = matrix_complete && counts_valid && all_finite && all_release
+    diagnostic_passed =
+        completed_cases == length(cases) && counts_valid && all_finite && all_diagnostic
+    return (;
+        completed_cases,
+        completed_p_values,
+        all_finite,
+        all_diagnostic,
+        all_release,
+        counts_valid,
+        release_applicable,
+        matrix_complete,
+        release_passed,
+        diagnostic_passed,
+    )
 end
 
 function _battery(name::AbstractString)
@@ -331,14 +418,14 @@ function main(args::Vector{String})
         temporary, io = mktemp(dirname(final_output); cleanup = false)
         try
             _write_metadata(io, battery, _identities(library))
-            all_passed = true
-            for case in cases
-                all_passed &= _run_case!(io, api, battery, case...)
+            results = map(cases) do case
+                _run_case!(io, api, battery, case...)
             end
-            _write_completion(io, length(cases), all_passed)
+            status = _r50_status(battery, cases, results)
+            _write_completion(io, status)
             close(io)
             mv(temporary, final_output)
-            all_passed
+            status.release_applicable ? status.release_passed : status.diagnostic_passed
         catch
             isopen(io) && close(io)
             rethrow()

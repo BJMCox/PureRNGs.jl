@@ -10,6 +10,10 @@ const TestU01Driver = PureRNGsTestU01
     @test Set(getindex.(matrix, 2)) == Set(TestU01Driver.STREAMS)
     @test Set(last.(matrix)) == Set(TestU01Driver.SCHEDULES)
     @test TestU01Driver.BATTERIES === (:SmallCrush, :Crush, :BigCrush)
+    @test TestU01Driver.R50_CASE_COUNT == 32
+    @test TestU01Driver.R50_P_VALUES_PER_CASE == 15
+    @test TestU01Driver.R50_P_VALUE_COUNT == 480
+    @test TestU01Driver.RELEASE_ALPHA === 0.001 / 480
 end
 
 @testset "TestU01 sequential state follows continuation draws" begin
@@ -74,13 +78,19 @@ end
         "interleave",
         "bits_api",
         "uniform_api",
-        "testu01_summary_interval",
+        "diagnostic_interval",
+        "release_alpha",
+        "release_interval",
+        "expected_cases",
+        "expected_p_values_per_case",
+        "expected_p_values",
     )
         @test occursin("# $field\t", metadata)
     end
+    @test occursin("# schema\t2\n", metadata)
     @test endswith(
         metadata,
-        "battery\tfamily\tstream\tschedule\tstatistic_index\tstatistic_name\tp_value\tp_value_bits\twithin_summary_interval\n",
+        "battery\tfamily\tstream\tschedule\tstatistic_index\tstatistic_name\tp_value\tp_value_bits\tfinite\twithin_diagnostic_interval\twithin_release_interval\tsuspect\n",
     )
     @test occursin(
         "# file_sha256\tdriver\ttest/statistical/testu01.jl\t$("a"^64)\n",
@@ -99,16 +109,107 @@ end
     )
     row = String(take!(io))
     @test row ==
-          "SmallCrush\tPhilox2x32\tbits\tsequential\t3\tname with space\t0.5\t3fe0000000000000\ttrue\n"
-    @test TestU01Driver._passes(0.001)
-    @test TestU01Driver._passes(0.999)
-    @test !TestU01Driver._passes(prevfloat(0.001))
-    @test !TestU01Driver._passes(nextfloat(0.999))
-    @test !TestU01Driver._passes(NaN)
+          "SmallCrush\tPhilox2x32\tbits\tsequential\t3\tname with space\t0.5\t3fe0000000000000\ttrue\ttrue\ttrue\tfalse\n"
 
-    TestU01Driver._write_completion(io, 32, false)
+    TestU01Driver._write_case_count(io, :SmallCrush, Philox2x32, :bits, :sequential, 15)
     @test String(take!(io)) ==
-          "# completed\ttrue\n# completed_cases\t32\n# all_within_summary_interval\tfalse\n"
+          "# case_p_value_count\tSmallCrush\tPhilox2x32\tbits\tsequential\t15\n"
+
+    status = (
+        completed_cases = 32,
+        completed_p_values = 480,
+        all_finite = true,
+        all_diagnostic = false,
+        all_release = true,
+        counts_valid = true,
+        release_applicable = true,
+        matrix_complete = true,
+        release_passed = true,
+        diagnostic_passed = true,
+    )
+    TestU01Driver._write_completion(io, status)
+    @test String(take!(io)) ==
+          "# completed\ttrue\n# completed_cases\t32\n# completed_p_values\t480\n# all_p_values_finite\ttrue\n# all_within_diagnostic_interval\tfalse\n# all_within_release_interval\ttrue\n# all_case_counts_valid\ttrue\n# release_applicable\ttrue\n# matrix_complete\ttrue\n# r50_release_passed\ttrue\n# diagnostic_run_passed\ttrue\n"
+end
+
+@testset "TestU01 diagnostic and release intervals are distinct" begin
+    alpha = TestU01Driver.RELEASE_ALPHA
+    release_max = TestU01Driver.RELEASE_MAX
+    @test TestU01Driver._within_diagnostic(0.001)
+    @test TestU01Driver._within_diagnostic(0.999)
+    @test !TestU01Driver._within_diagnostic(prevfloat(0.001))
+    @test !TestU01Driver._within_diagnostic(nextfloat(0.999))
+    @test TestU01Driver._within_release(alpha)
+    @test TestU01Driver._within_release(release_max)
+    @test !TestU01Driver._within_release(prevfloat(alpha))
+    @test !TestU01Driver._within_release(nextfloat(release_max))
+    @test TestU01Driver._is_suspect(prevfloat(0.001))
+    @test TestU01Driver._is_suspect(nextfloat(0.999))
+    @test TestU01Driver._is_suspect(0.9993672821429762)
+    for value in (NaN, Inf, -Inf)
+        @test !TestU01Driver._is_finite(value)
+        @test !TestU01Driver._within_diagnostic(value)
+        @test !TestU01Driver._within_release(value)
+        @test !TestU01Driver._is_suspect(value)
+    end
+end
+
+@testset "TestU01 release requires the complete R50 matrix" begin
+    matrix = TestU01Driver._matrix()
+    good = (
+        p_values = 15,
+        complete = true,
+        all_finite = true,
+        all_diagnostic = true,
+        all_release = true,
+    )
+    status = TestU01Driver._r50_status(:SmallCrush, matrix, fill(good, 32))
+    @test status.completed_cases == 32
+    @test status.completed_p_values == 480
+    @test status.counts_valid
+    @test status.release_applicable
+    @test status.matrix_complete
+    @test status.release_passed
+    @test status.diagnostic_passed
+
+    shard = TestU01Driver._r50_status(:SmallCrush, matrix[1:1], [good])
+    @test !shard.release_applicable
+    @test !shard.matrix_complete
+    @test !shard.release_passed
+    @test shard.diagnostic_passed
+
+    suspect = merge(good, (all_diagnostic = false,))
+    shard = TestU01Driver._r50_status(:SmallCrush, matrix[1:1], [suspect])
+    @test !shard.release_applicable
+    @test !shard.diagnostic_passed
+
+    wrong_count = merge(good, (p_values = 14,))
+    status = TestU01Driver._r50_status(:SmallCrush, matrix, [fill(good, 31); wrong_count])
+    @test !status.counts_valid
+    @test !status.matrix_complete
+    @test !status.release_passed
+    @test !status.diagnostic_passed
+
+    nonfinite = merge(good, (all_finite = false, all_release = false))
+    status = TestU01Driver._r50_status(:SmallCrush, matrix, [fill(good, 31); nonfinite])
+    @test !status.all_finite
+    @test !status.all_release
+    @test status.matrix_complete
+    @test !status.release_passed
+    @test !status.diagnostic_passed
+
+    incomplete = merge(good, (complete = false,))
+    status = TestU01Driver._r50_status(:SmallCrush, matrix, [fill(good, 31); incomplete])
+    @test status.completed_cases == 31
+    @test !status.matrix_complete
+    @test !status.release_passed
+    @test !status.diagnostic_passed
+
+    crush = TestU01Driver._r50_status(:Crush, matrix[1:1], [good])
+    @test !crush.release_applicable
+    @test !crush.matrix_complete
+    @test !crush.release_passed
+    @test crush.diagnostic_passed
 end
 
 @testset "TestU01 version and case validation need no library" begin

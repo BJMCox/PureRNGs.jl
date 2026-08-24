@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 14
+Status: normative specification, revision 15
 Date: 2026-08-24
 
 ## 1. Reading rules
@@ -449,18 +449,34 @@ randnat(rng, ::Type{T}, i::Integer)          :: T
   relative preimage bias is below `2^-32` for the 64-bit path and below
   `2^-64` for the 128-bit path.
   Empty ranges throw `ArgumentError`.
-- [R50] Statistical quality: every family passes TestU01 SmallCrush at
-  minimum under this pinned configuration. TestU01 version: 1.2.3.
-  Root generator: `F(12345)`.
-  Bits stream: the `UInt32` draw sequence, fed to TestU01 as 32-bit
-  integers. Uniform stream: the uniform `Float64` draw sequence, fed as
-  doubles. Sequential run: the root generator's continuation chain.
-  Interleaved run: the eight children of `splitrng(root, 8)`,
-  round-robin, one value per child per turn in child order. The matrix
-  is every family times {bits, uniform} times {sequential, interleaved}.
-  Release architecture: the x86-64 Linux CPU release runner. The run
-  log — the driver package and its version, configuration, and every
-  p-value — is committed in-repo. A failure blocks release.
+- [R50] Statistical quality: the complete pinned TestU01 SmallCrush matrix
+  passes the release rule below. TestU01 version: 1.2.3. Root generator:
+  `F(12345)`. Bits stream: the `UInt32` draw sequence, fed to TestU01 as
+  32-bit integers. Uniform stream: the uniform `Float64` draw sequence, fed
+  as doubles. Sequential run: the root generator's continuation chain.
+  Interleaved run: the eight children of `splitrng(root, 8)`, round-robin,
+  one value per child per turn in child order.
+
+  The matrix is every family times {bits, uniform} times {sequential,
+  interleaved}: 32 cases. SmallCrush 1.2.3 returns exactly 15 p-values per
+  case, hence 480 p-values for the complete matrix.
+
+  The inclusive TestU01 summary interval `[0.001, 0.999]` is diagnostic. The
+  inclusive release interval is `[α, 1 - α]`, where `α = 0.001 / 480`,
+  computed in `Float64`. This per-tail Bonferroni allocation bounds
+  matrix-wide two-tail false rejection by `0.002` without assuming
+  independence.
+
+  A non-finite p-value, a case returning other than 15 p-values, an incomplete
+  case, or any p-value outside the release interval blocks release. A finite
+  p-value outside the diagnostic interval but inside the release interval is
+  recorded as suspect and does not block release.
+
+  Release architecture: the x86-64 Linux CPU release runner. The committed
+  run log records the driver package and version, configuration, every
+  p-value, both interval classifications, every case count, and matrix
+  completion. Runs at other root seeds are nonnormative diagnostics and do
+  not affect release.
 
 ## 6. Sampling with replacement
 
@@ -484,10 +500,11 @@ randsample_next(rng::R, iter,
 
 - [R56] These eight methods are the complete sampling surface. Sampling is
   with replacement. A form without `k` returns as many samples as the
-  population contains. A form with `k` returns exactly `k` samples.
+  population contains. A form with `k` returns exactly `k` samples when
+  `0 <= k <= typemax(Int)` and throws `ArgumentError` otherwise.
   `randsample` reads the held position and leaves the generator unchanged.
   `randsample_next` returns `(next_rng, values)`.
-- [R57] The population is any finite iterable for which
+- [R57] The population’s device is compatible when
   `MLDataDevices.get_device(iter)` equals the generator device or returns
   `nothing`. `nothing` means device-agnostic and is compatible with every
   generator device; `AbstractRange` has this status. Any other device result
@@ -525,9 +542,9 @@ randsample_next(rng::R, iter,
   the threshold. This algorithm is normative.
 - [R60] Sampling validates the complete population, `k`, and weights before
   drawing. Device validation occurs first. It throws `ArgumentError` for
-  negative `k`, an empty population with positive `k`, a weight-length
-  mismatch, a non-finite or negative weight, or a non-finite or non-positive
-  total. Zero weights are valid.
+  negative `k`, `k > typemax(Int)`, an empty population with positive `k`, a
+  weight-length mismatch, a non-finite or negative weight, or a non-finite or
+  non-positive total. Zero weights are valid.
   Empty unweighted sampling with `k == 0` returns an empty vector. Batch
   results equal chained one-sample continuation calls and obey prefix
   stability. Every sampling call has a fixed logical-bit count, preflights its
@@ -723,7 +740,7 @@ The complete set of public-API throws:
 | integer-range draw | range is empty | `ArgumentError` |
 | `rand`/`randn` or their continuation forms with dims | any negative dim | `ArgumentError` (Base array semantics) |
 | `rand(rng)` or `randn(rng)` untyped on an immutable generator | always | `ArgumentError` naming the typed form ([R23]) |
-| `randsample`/`randsample_next` | `k < 0` | `ArgumentError` |
+| `randsample`/`randsample_next` | `k < 0` or `k > typemax(Int)` | `ArgumentError` |
 | `randsample`/`randsample_next` | empty population and `k > 0` | `ArgumentError` |
 | `randsample`/`randsample_next` | positive population cardinality exceeds `typemax(UInt64)`, or a no-`k` result length exceeds `typemax(Int)` | `ArgumentError` |
 | weighted `randsample`/`randsample_next` | weight-length mismatch, non-finite or negative weight, or non-finite or non-positive total | `ArgumentError` |
@@ -793,7 +810,7 @@ the R41 preview tier and do not block.
 | Derivation ignores parent position, resets child position, preserves device, and repeats stable purposes | R17-R21, R38 | CPU+CUDA |
 | Unweighted sampling: four population shapes, all `k` forms, 64/128-bit fixed-work reduction, integer ranges, O(k) path, prefix stability | R56-R58, R60 | CPU+CUDA |
 | Weighted sampling: raw weights, 53-bit thresholds, one sorted batch, zero weights, restored order, chained-scalar equality | R56, R57, R59, R60 | CPU+CUDA |
-| Sampling validation and counter exhaustion produce no partial result | R60 | CPU+CUDA |
+| Sampling validation, including both `k` bounds, and counter exhaustion produce no partial result | R56, R60 | CPU+CUDA |
 | Purity: repeated calls identical; pure draws and derivation leave parent unchanged | R5, R20, R56 | CPU |
 | Distributions.jl smoke on `StatefulRNG`: `rand(m, dist)`, `rand(m, dist, n)` | R34 | CPU |
 | `StatefulRNG` matches continuation draws for primitive, `Bool`, normal, and range calls; hooks equal the pinned method set | R32-R34, R52 | CPU |
@@ -812,7 +829,7 @@ the R41 preview tier and do not block.
 | Reserved-tag audit: every assigned tag and family word equals R9-R10 | R9, R10 | CPU |
 | Stream-law closed-list audit identifies version 3 and every value-determining rule | R44 | CPU |
 | Error audit: deterministic public throws equal section 11 exactly | R47 | CPU |
-| Statistical suite: SmallCrush minimum under the [R50] pinned configuration, with the committed run log | R50 | CPU |
+| Statistical suite: complete 32-case, 480-p-value SmallCrush matrix under the [R50] diagnostic and Bonferroni release intervals, with the committed complete run log | R50 | CPU |
 
 ## 14. References
 
