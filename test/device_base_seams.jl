@@ -13,6 +13,8 @@ mutable struct SeamArray{T,N} <: AbstractArray{T,N}
     device::SeamDevice
 end
 
+struct SeamBackend <: SeamKA.Backend end
+
 const _SeamRNG = Union{Philox4x32{SeamDevice},Philox4x64{SeamDevice}}
 
 Base.size(array::SeamArray) = size(array.data)
@@ -136,6 +138,12 @@ end
 end
 
 @testset "generic positioned workitems stay inside device context" begin
+    seam_backend = SeamBackend()
+    seam_rng = _seam_rng(SeamDevice(Symbol[], false, true))
+    @test SeamIR._device_uniform_fill_plan(seam_backend, seam_rng, UInt64) === nothing
+    @test SeamIR._device_normal_fill_plan(seam_backend, seam_rng, Float64) === nothing
+    @test SeamIR._device_range_fill_plan(seam_backend, seam_rng, UInt64(17)) === nothing
+
     for (T, width, fill!) in (
         (UInt64, UInt16(64), SeamIR._rand_next_fill!),
         (Float64, UInt16(52), SeamIR._randn_next_fill!),

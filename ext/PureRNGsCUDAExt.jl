@@ -18,6 +18,35 @@ const _CUDAFamily = Union{
     IR.Threefry4x64{<:_NamedCUDADevice},
 }
 
+@inline function IR._device_uniform_fill_plan(
+    ::CUDA.CUDABackend,
+    rng::_CUDAFamily,
+    ::Type{T},
+) where {T}
+    cooperative = IR._cooperative_uniform_fill(rng, T)
+    return cooperative === nothing ?
+           (Val(:grouped), IR._device_uniform_fill_group(rng, T)) :
+           (Val(:cooperative), cooperative...)
+end
+
+@inline function IR._device_normal_fill_plan(
+    ::CUDA.CUDABackend,
+    rng::_CUDAFamily,
+    ::Type{T},
+) where {T}
+    cooperative = IR._cooperative_normal_fill(rng, T)
+    return cooperative === nothing ? (Val(:grouped), IR._device_normal_fill_group(T)) :
+           (Val(:cooperative), cooperative...)
+end
+
+@inline function IR._device_range_fill_plan(
+    ::CUDA.CUDABackend,
+    rng::_CUDAFamily,
+    span::UInt64,
+)
+    return IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
+end
+
 @inline function (device::_NamedCUDADevice)(rng::IR.AbstractPureRNG)
     return IR._rebuild(rng, rng.position, device)
 end
