@@ -168,6 +168,10 @@ end
     # 68a432f195091fff370c858b5ef80617ec3bf3399ff9db8bfa4cc06ca753f5e3.
     # Pinned testbed commit for unchanged cores and layouts:
     # 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d.
+    # Public normal result bits were captured on aarch64 macOS and verified on
+    # x86-64 Linux. R43 permits final AS241 results to differ elsewhere.
+    exact_public_results =
+        (Sys.ARCH, Sys.KERNEL) in ((:aarch64, :Darwin), (:x86_64, :Linux))
     expected = (
         (
             0x72d8ec,
@@ -257,8 +261,10 @@ end
         @test got64 === UInt64(raw64)
         @test reinterpret(UInt32, IR._normal_midpoint(Float32, got32)) === midpoint32
         @test reinterpret(UInt64, IR._normal_midpoint(Float64, got64)) === midpoint64
-        @test reinterpret(UInt32, randn(rng, Float32)) === normal32
-        @test reinterpret(UInt64, randn(rng, Float64)) === normal64
+        if exact_public_results
+            @test reinterpret(UInt32, randn(rng, Float32)) === normal32
+            @test reinterpret(UInt64, randn(rng, Float64)) === normal64
+        end
     end
 end
 
