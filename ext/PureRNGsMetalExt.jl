@@ -6,7 +6,6 @@ import Random
 
 const IR = PureRNGs
 const _Metal32Family = IR._Backend32Family{IR._MetalBackend}
-const _Metal64Family = IR._Backend64Family{IR._MetalBackend}
 const _MetalFamily = IR._BackendFamily{IR._MetalBackend}
 
 @noinline function _metal_device_error()
