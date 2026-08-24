@@ -14,6 +14,21 @@ const FAMILY_BITS = UInt32(0x00000000)
 @inline _block(rng::Philox4x32, family::UInt32, block::UInt64) =
     _philox4x32((block % UInt32, (block >> 32) % UInt32, family, UInt32(0)), rng.key)
 
+@inline function _blocks4(rng::Philox4x32, family::UInt32, block::UInt64)
+    high = (block >> 32) % UInt32
+    a = (block % UInt32, high, family, UInt32(0))
+    block += UInt64(1)
+    high += UInt32(iszero(block % UInt32))
+    b = (block % UInt32, high, family, UInt32(0))
+    block += UInt64(1)
+    high += UInt32(iszero(block % UInt32))
+    c = (block % UInt32, high, family, UInt32(0))
+    block += UInt64(1)
+    high += UInt32(iszero(block % UInt32))
+    d = (block % UInt32, high, family, UInt32(0))
+    return _philox4x32_blocks4(a, b, c, d, rng.key)
+end
+
 @inline _block(rng::Threefry4x32, family::UInt32, block::UInt64) =
     _threefry4x32((block % UInt32, (block >> 32) % UInt32, family, UInt32(0)), rng.key)
 

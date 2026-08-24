@@ -103,6 +103,37 @@ Base.setindex!(array::WrongDeviceArray, value, indices...) =
     setindex!(array.data, value, indices...)
 MLD.get_device(::WrongDeviceArray) = MLD.UnknownDevice()
 
+struct Blocks4ProbeDevice
+    scalar_calls::Base.RefValue{Int}
+    blocks4_calls::Base.RefValue{Int}
+end
+
+@inline function IR._block(
+    rng::Philox4x32{Blocks4ProbeDevice},
+    family::UInt32,
+    block::UInt64,
+)
+    rng.device.scalar_calls[] += 1
+    return IR._philox4x32(
+        (block % UInt32, (block >> 32) % UInt32, family, UInt32(0)),
+        rng.key,
+    )
+end
+
+@inline function IR._blocks4(
+    rng::Philox4x32{Blocks4ProbeDevice},
+    family::UInt32,
+    block::UInt64,
+)
+    rng.device.blocks4_calls[] += 1
+    high = (block >> 32) % UInt32
+    counters = ntuple(Val(4)) do lane
+        value = block + UInt64(lane - 1)
+        (value % UInt32, (value >> 32) % UInt32, family, UInt32(0))
+    end
+    return IR._philox4x32_blocks4(counters..., rng.key)
+end
+
 _reference_position_block(position::IR._Position64) = position.block
 _reference_position_block(position::IR._Position128) = (position.lo, position.hi)
 
@@ -536,6 +567,157 @@ end
         sync_cpu()
         @test threaded == serial
         @test _padding_is_zero(threaded)
+    end
+end
+
+@testset "Philox4x32 four-block dense fills" begin
+    scalar_calls = Ref(0)
+    blocks4_calls = Ref(0)
+    probe_device = Blocks4ProbeDevice(scalar_calls, blocks4_calls)
+    probe_base = Philox4x32(0x5254)
+    probe_rng = IR._rebuild(probe_base, probe_base.position, probe_device)
+    for (T, count, expected_scalar, expected_blocks4) in (
+        (Bool, 511, 4, 0),
+        (Bool, 512, 0, 1),
+        (UInt32, 15, 4, 0),
+        (UInt32, 16, 0, 1),
+        (UInt32, 64, 0, 4),
+        (UInt64, 8, 0, 1),
+        (Float32, 63, 12, 0),
+        (Float32, 64, 0, 3),
+        (Float64, 10, 5, 0),
+    )
+        scalar_calls[] = 0
+        blocks4_calls[] = 0
+        destination = Vector{T}(undef, count)
+        IR._fill_uniform_dense_cpu!(
+            probe_rng,
+            probe_rng.position,
+            destination,
+            T,
+            eachindex(destination),
+        )
+        @test scalar_calls[] == expected_scalar
+        @test blocks4_calls[] == expected_blocks4
+    end
+    scalar_calls[] = 0
+    blocks4_calls[] = 0
+    terminal_rng = IR._rebuild(
+        probe_rng,
+        IR._Position64(IR._max_block(probe_rng), UInt16(96)),
+        probe_device,
+    )
+    terminal_destination = Vector{UInt32}(undef, 1)
+    IR._fill_uniform_dense_cpu!(
+        terminal_rng,
+        terminal_rng.position,
+        terminal_destination,
+        UInt32,
+        eachindex(terminal_destination),
+    )
+    @test scalar_calls[] == 1
+    @test blocks4_calls[] == 0
+
+    for T in SCALAR_UNIFORM_TYPES,
+        bit in (UInt16(0), UInt16(1), UInt16(31), UInt16(63), UInt16(127)),
+        delta in (-1, 0, 1)
+
+        x4_group =
+            T === Bool ? 512 : T === UInt32 ? 16 : T === UInt64 ? 8 : T === Float32 ? 64 : 1
+        group = max(
+            IR._dense_fill_group(T),
+            cld(4 * 128 - Int(bit), _uniform_width(T)),
+            x4_group,
+        )
+        count = group + delta
+        count < 0 && continue
+        rng = _positioned(Philox4x32, 0x5254, UInt64(9), bit)
+        expected_rng, expected = _reference_chain(rng, T, count)
+        destination = Vector{T}(undef, count)
+        next_rng, result = rand_next!(rng, destination; threaded = false)
+        @test result === destination
+        @test destination == expected
+        @test next_rng.position == expected_rng.position
+    end
+
+    for T in SCALAR_UNIFORM_TYPES, bit in (UInt16(0), UInt16(61)), delta in (-1, 0, 1)
+        rng = _positioned(Philox4x32, 0x5255, UInt64(5), bit)
+        chunk = IR._dense_fill_chunk_elements(T)
+        count = 4chunk + delta
+        serial = Vector{T}(undef, count)
+        threaded = similar(serial)
+        rand_next!(rng, serial; threaded = false)
+        rand_next!(rng, threaded; threaded = true)
+        sync_cpu()
+        @test threaded == serial
+    end
+
+    terminal_base = Philox4x32(0x5255)
+    for (T, count, blocks) in (
+        (Bool, 512, UInt64(4)),
+        (UInt32, 16, UInt64(4)),
+        (UInt64, 8, UInt64(4)),
+        (Float32, 64, UInt64(12)),
+    )
+        position =
+            IR._Position64(IR._max_block(terminal_base) - blocks + UInt64(1), UInt16(0))
+        rng = IR._rebuild(terminal_base, position, terminal_base.device)
+        expected = map(1:count) do index
+            cursor = IR._rebuild(
+                rng,
+                _reference_position(rng, (index - 1) * _uniform_width(T)),
+                rng.device,
+            )
+            _reference_uniform(cursor, T)
+        end
+        destination = Vector{T}(undef, count)
+        next_rng, result = rand_next!(rng, destination; threaded = false)
+        @test result == expected
+        @test next_rng.position == IR._terminal64(IR._max_block(rng))
+    end
+
+    base = Philox4x32(0x5256)
+    for T in SCALAR_UNIFORM_TYPES
+        width = IR._draw_bits(T)
+        position = IR._Position64(IR._max_block(base), IR._block_bits(base) - width)
+        rng = IR._rebuild(base, position, base.device)
+        destination = Vector{T}(undef, 1)
+        next_rng, result = rand_next!(rng, destination; threaded = false)
+        @test result[1] === _reference_uniform(rng, T)
+        @test next_rng.position == IR._terminal64(IR._max_block(rng))
+    end
+
+    rng = Philox4x32(0x5257)
+    for T in (Bool, UInt32, UInt64, Float32)
+        destination = Vector{T}(undef, 1024)
+        @test @inferred(rand_next!(rng, destination; threaded = false)) isa
+              Tuple{typeof(rng),typeof(destination)}
+        rand_next!(rng, destination; threaded = false)
+        @test _serial_fill_allocations(rng, destination) == 0
+        signature = Tuple{
+            typeof(rng),
+            typeof(rng.position),
+            typeof(destination),
+            Type{T},
+            Base.OneTo{Int},
+        }
+        typed_ir = sprint(
+            show,
+            code_typed(IR._fill_uniform_dense_cpu!, signature; optimize = true),
+        )
+        llvm_ir = sprint() do io
+            code_llvm(
+                io,
+                IR._fill_uniform_dense_cpu!,
+                signature;
+                raw = false,
+                dump_module = false,
+                optimize = true,
+            )
+        end
+        @test !occursin("BigInt", typed_ir)
+        @test !occursin("UInt128", typed_ir)
+        @test !occursin(r"\bi128\b", llvm_ir)
     end
 end
 

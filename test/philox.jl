@@ -22,6 +22,36 @@ end
     ) == (0xd16cfe09, 0x94fdcceb, 0x5001e420, 0x24126ea1)
 end
 
+@inline function _consume_blocks4(rng, family, block)
+    blocks = PureRNGs._blocks4(rng, family, block)
+    return blocks[1][1] ⊻ blocks[2][1] ⊻ blocks[3][1] ⊻ blocks[4][1]
+end
+@noinline _blocks4_allocations(rng) =
+    @allocated _consume_blocks4(rng, PureRNGs.FAMILY_BITS, UInt64(7))
+
+@testset "Philox4x32 four-block core" begin
+    for family in (UInt32(0), UInt32(1), UInt32(0x89abcdef)),
+        block in (
+            UInt64(0),
+            UInt64(1),
+            UInt64(0xfffffffe),
+            UInt64(0xffffffff),
+            UInt64(0x1_00000000),
+            typemax(UInt64) - UInt64(3),
+        )
+
+        rng = Philox4x32((UInt32(0x01234567), UInt32(0x89abcdef)))
+        @test PureRNGs._blocks4(rng, family, block) ==
+              ntuple(i -> PureRNGs._block(rng, family, block + UInt64(i - 1)), Val(4))
+    end
+
+    rng = Philox4x32(0x1234)
+    @test @inferred(PureRNGs._blocks4(rng, PureRNGs.FAMILY_BITS, UInt64(7))) isa
+          NTuple{4,NTuple{4,UInt32}}
+    _consume_blocks4(rng, PureRNGs.FAMILY_BITS, UInt64(7))
+    @test _blocks4_allocations(rng) == 0
+end
+
 @testset "Philox2x64-10 KAT" begin
     @test PureRNGs._philox2x64(
         (0x0000000000000000, 0x0000000000000000),

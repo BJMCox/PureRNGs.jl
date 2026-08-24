@@ -57,12 +57,32 @@ end
     return ctr
 end
 
+@inline _philox4x32_bump(key::NTuple{2,UInt32}) =
+    (key[1] + _PHILOX_W32_0, key[2] + _PHILOX_W32_1)
+
 @inline function _philox4x32(ctr::NTuple{4,UInt32}, key::NTuple{2,UInt32})
     for round = 1:10
         ctr = _philox4x32_round(ctr, key)
-        round == 10 || (key = (key[1] + _PHILOX_W32_0, key[2] + _PHILOX_W32_1))
+        round == 10 || (key = _philox4x32_bump(key))
     end
     return ctr
+end
+
+@inline function _philox4x32_blocks4(
+    a::NTuple{4,UInt32},
+    b::NTuple{4,UInt32},
+    c::NTuple{4,UInt32},
+    d::NTuple{4,UInt32},
+    key::NTuple{2,UInt32},
+)
+    Base.Cartesian.@nexprs 10 i -> begin
+        a = _philox4x32_round(a, key)
+        b = _philox4x32_round(b, key)
+        c = _philox4x32_round(c, key)
+        d = _philox4x32_round(d, key)
+        i < 10 && (key = _philox4x32_bump(key))
+    end
+    return a, b, c, d
 end
 
 @inline function _philox2x64(ctr::NTuple{2,UInt64}, key::NTuple{1,UInt64})
