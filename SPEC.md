@@ -1,6 +1,6 @@
 # PureRNGs version 0 specification
 
-Status: normative specification, revision 16
+Status: normative specification, revision 17
 Date: 2026-08-24
 
 ## 1. Reading rules
@@ -193,13 +193,13 @@ subrng(rng::R, purpose::Integer) :: R
   children at position zero. The same parent key and purpose always produce
   the same `subrng` child. The docstrings state these facts and show stable
   purpose ids for independent roles.
-- [R21] `splitrng(rng, n)` throws `ArgumentError` for `n < 0` and returns
-  an empty `Vector{R}` for `n = 0`. The `Val{N}` form obeys the same
-  bounds: `N` is a non-negative `Int`, and every request form on a narrow
-  family throws `ArgumentError` once a child index reaches `2^32 - 1`
-  ([R12b]). Documentation presents the integer form as the ordinary API.
-  The `Val` form exists for compile-time tuple size, allocation-free code,
-  and GPU kernels.
+- [R21] `splitrng(rng, n)` requires `0 <= n <= typemax(Int)`, throws
+  `ArgumentError` otherwise, and returns an empty `Vector{R}` for `n = 0`.
+  The `Val{N}` form obeys the same bounds: `N` is a non-negative `Int`, and
+  every request form on a narrow family throws `ArgumentError` once a child
+  index reaches `2^32 - 1` ([R12b]). Documentation presents the integer form
+  as the ordinary API. The `Val` form exists for compile-time tuple size,
+  allocation-free code, and GPU kernels.
 - [R22] Collision statement. The `splitrng` and `subrng` docstrings and the
   documentation's splitting page state: child keys are core output, two
   derivations collide with probability about `n^2 / 2^(k+1)` for `n`
@@ -654,11 +654,12 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   of `nothing` is device-agnostic. Every returned supported device instance
   is mapped to its unparameterized `CPUDevice`, `CUDADevice`,
   `AMDGPUDevice`, or `MetalDevice` wrapper, then compared with
-  `MLDataDevices.get_device_type(rng.device)`. Sampling therefore supports
-  inputs that define only `get_device`. The generator is `isbits`, so
-  binding moves no data. `splitrng`, `subrng`, and every continuation
-  preserve the binding. Applying another supported device preserves the key
-  and position and changes only the token.
+  `MLDataDevices.get_device_type(rng.device)`. Defining only `get_device` is
+  sufficient for this equality classification; it does not establish the
+  backend applicability required by [R39]. The generator is
+  `isbits`, so binding moves no data. `splitrng`, `subrng`, and every
+  continuation preserve the binding. Applying another supported device
+  preserves the key and position and changes only the token.
 - [R39] Placement invariant: device-closed for data, host-transparent for
   logical state. Section 5 allocating draws on a device-bound generator
   return arrays allocated on that device and generate every value there.
@@ -670,10 +671,18 @@ xs  = rand(rng, Float32, 1_000_000)   # device array
   result on the generator device. The sole sampling host-staging exceptions
   are the device-agnostic populations in [R57] and device-agnostic weights in
   [R59]. Sampling may copy one validation-status `Bool` from the device to
-  the host. Thresholds, sort and order indices, selections, and results
-  remain on the generator device. The `threaded` fill keyword controls CPU
-  task use only. On non-CPU backends both values preserve the ordinary
-  backend launch path.
+  the host. On a non-CPU backend, every directly used input must support its
+  specified ordinal access in backend kernels, and every staged or result
+  element type must be storable by that backend. These are applicability
+  conditions, not deterministic contract checks. An unsupported case fails
+  through the backend or foreign code under [R47]; it introduces no new
+  public error. For applicable inputs, thresholds, sort and order indices,
+  selections, and results remain on the generator device, and the exact
+  [R57]-[R59] value rules apply. Backend applicability decides whether a
+  non-CPU request is served, not the value of a served request, and lies
+  outside the stream law. The `threaded` fill keyword controls CPU task use
+  only. On non-CPU backends both values preserve the ordinary backend launch
+  path.
 - [R40] The typed `threaded` keyword is validated before fill preflight.
   After it passes, fills validate in fixed order: destination device ([R39]),
   [R41] serviceability, then size. A fill that passes validation with an
@@ -742,6 +751,8 @@ composition of stream-law rules — [R26] batch and mixed-type sequencing,
 [R29] addressed indexing, [R33] the bridge, and [R60] sampling order and
 prefix stability — are consistency laws. They introduce no value of their
 own. A change to one that changes any value changes a listed stream-law rule.
+The [R39] backend-applicability conditions decide whether a non-CPU request is
+served and are not value-determining stream-law content.
 
 - [R44] This closed set is stream-law version 4. Any change to a
   value-determining rule requires a new stream-law version.
@@ -753,7 +764,7 @@ The complete set of public-API throws:
 | Call | Condition | Error |
 | --- | --- | --- |
 | `F(seed)`, `Random.seed!(m, seed)` | `seed < 0` or `seed >= 2^key_bits` | `ArgumentError` |
-| `splitrng(rng, n)` or `splitrng(rng, Val(N))` | `n < 0`, or `N` is not a non-negative `Int` | `ArgumentError` |
+| `splitrng(rng, n)` or `splitrng(rng, Val(N))` | `n < 0` or `n > typemax(Int)`, or `N` is not a non-negative `Int` | `ArgumentError` |
 | `splitrng` on a narrow family | child index at or beyond `2^32 - 1` (the reserved fold namespace, [R12b]) | `ArgumentError` |
 | `randat`/`randnat` | `i < 1` or addressed bit span exceeds the remaining family region ([R29]) | `ArgumentError` |
 | any nonempty pure, continuation, or destination draw | required bit span exceeds the remaining family region, including an exhausted generator ([R53], [R54]) | `ArgumentError` |
@@ -803,7 +814,12 @@ otherwise. Rows marked CPU+CUDA also run on CUDA. Rows marked with one
 backend run only there. Release requires every CPU, CPU+CUDA, CUDA, and
 Reactant row green ([R41], [R42]). The Metal row follows the R41
 experimental tier and does not block. AMDGPU reruns of the suite follow
-the R41 preview tier and do not block.
+the R41 preview tier and do not block. Successful CUDA sampling value,
+placement, and staging clauses apply only to cases that meet the [R39]
+backend-kernel-indexability and storage conditions. Device-mismatch checks,
+deterministic validation, and error obligations remain unconditional.
+Unsupported applicability cases otherwise fail through the backend or foreign
+code under [R47].
 
 | Test | Verifies | Backend |
 | --- | --- | --- |
@@ -827,7 +843,7 @@ the R41 preview tier and do not block.
 | `randat`/`randnat` equal indexed fills | R29 | CPU+CUDA |
 | Unit and stepped integer ranges: scalar, arrays, continuation, 64/128-bit work, capacity, and no materialization | R55 | CPU+CUDA |
 | Interleaved primitives, ranges, and normals use one bit position and separate family regions | R8, R26, R51, R53 | CPU |
-| Derivation ignores parent position, resets child position, preserves device, and repeats stable purposes | R17-R21, R38 | CPU+CUDA |
+| Derivation ignores parent position, resets child position, preserves device, repeats stable purposes, and enforces dynamic and `Val` split-count bounds | R17-R21, R38 | CPU+CUDA |
 | Unweighted sampling: canonical Cartesian array ordinals, native iterable order, direct integer ranges, all `k` forms, 64/128-bit fixed-work reduction, O(k) path, and prefix stability | R56-R58, R60 | CPU+CUDA |
 | Weighted sampling: canonical population-weight alignment, ordinal `Float64` conversion, exact left-fold totals and scans, 53-bit thresholds, one sorted batch, zero weights, restored order, and chained-scalar equality | R56, R57, R59, R60 | CPU+CUDA |
 | Sampling validation, including both `k` bounds, and counter exhaustion produce no partial result | R56, R60 | CPU+CUDA |
