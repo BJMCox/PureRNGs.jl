@@ -140,7 +140,7 @@ end
 ) where {W}
     cursor = _ensure_dense_cursor(rng, family, cursor)
     width = UInt16(W)
-    first = _select_stream_limb(cursor.limbs, cursor.lane)
+    first = _select_tuple_value(cursor.limbs, cursor.lane)
     available = UInt16(64) - cursor.bit
     if width <= available
         value = (first >> (available - width)) & _low_mask(width)
@@ -166,6 +166,168 @@ end
 @inline _dense_fill_group(::Type{Float32}) = 8
 @inline _dense_fill_group(::Type{UInt64}) = 1
 @inline _dense_fill_group(::Type{Float64}) = 1
+
+@inline _fill_group_size(::Val{N}) where {N} = N
+
+@inline _device_uniform_fill_group(rng, ::Type{Bool}) = Val(4)
+@inline _device_uniform_fill_group(rng::_NarrowFamily, ::Type{UInt32}) = Val(2)
+@inline _device_uniform_fill_group(rng::_Position64Family, ::Type{UInt32}) = Val(4)
+@inline _device_uniform_fill_group(rng::_Position128Family, ::Type{UInt32}) = Val(8)
+@inline _device_uniform_fill_group(rng::_NarrowFamily, ::Type{UInt64}) = Val(1)
+@inline _device_uniform_fill_group(rng::_Position64Family, ::Type{UInt64}) = Val(2)
+@inline _device_uniform_fill_group(rng::_Position128Family, ::Type{UInt64}) = Val(4)
+@inline _device_uniform_fill_group(rng, ::Type{Float32}) = Val(4)
+@inline _device_uniform_fill_group(rng, ::Type{Float64}) = Val(4)
+
+@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))
+@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
+@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
+@inline _cooperative_uniform_fill(rng, T) = nothing
+@inline _device_uniform_fill_plan(backend, rng, T) = nothing
+
+@inline function _fill_grouped_cursor!(
+    rng,
+    position,
+    destination,
+    ::Type{T},
+    first::Int,
+    ::Val{N},
+    width,
+    family::UInt32,
+    codec,
+) where {T,N}
+    cursor = _dense_cursor(rng, family, _position_block(position), position.bit)
+    last = length(destination)
+    @inbounds for offset = 0:(N-1)
+        index = first + offset
+        index > last && break
+        raw, cursor = _take_dense_bits_unchecked(rng, family, cursor, width)
+        destination[index] = _cooperative_value(codec, T, raw)
+    end
+    return nothing
+end
+
+@inline _uniform_cursor!(rng, position, destination, T, first, group) =
+    _fill_grouped_cursor!(
+        rng,
+        position,
+        destination,
+        T,
+        first,
+        group,
+        Val(_draw_bits(T)),
+        FAMILY_BITS,
+        Val(:uniform),
+    )
+
+@inline function _fill_uniform_grouped_unchecked!(
+    rng::_ScalarUniform32Family,
+    position,
+    destination,
+    ::Type{Bool},
+    first::Int,
+    group::Val{N},
+) where {N}
+    word_bit = position.bit & UInt16(31)
+    word_bit + UInt16(N) <= UInt16(32) ||
+        return _uniform_cursor!(rng, position, destination, Bool, first, group)
+    words = _block(rng, FAMILY_BITS, _position_block(position))
+    word = _select_tuple_value(words, position.bit >> UInt16(5))
+    last = length(destination)
+    @inbounds for offset = 0:(N-1)
+        index = first + offset
+        index > last && break
+        destination[index] =
+            !iszero((word >> (UInt16(31) - word_bit - UInt16(offset))) & UInt32(1))
+    end
+    return nothing
+end
+
+@inline _fill_uniform_grouped_unchecked!(rng, position, destination, T, first, group) =
+    _uniform_cursor!(rng, position, destination, T, first, group)
+
+@inline function _fill_uniform_grouped_unchecked!(
+    rng,
+    position,
+    destination,
+    ::Type{Bool},
+    first::Int,
+    group::Val{N},
+) where {N}
+    word_bit = position.bit & UInt16(63)
+    word_bit + UInt16(N) <= UInt16(64) ||
+        return _uniform_cursor!(rng, position, destination, Bool, first, group)
+    limbs = _stream_limbs(rng, FAMILY_BITS, _position_block(position))
+    word = _select_tuple_value(limbs, position.bit >> UInt16(6))
+    last = length(destination)
+    @inbounds for offset = 0:(N-1)
+        index = first + offset
+        index > last && break
+        destination[index] = !iszero((word >> (UInt16(63) - word_bit - offset)) & 1)
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_grouped_unchecked!(
+    rng::_ScalarUniform32Family,
+    position,
+    destination,
+    ::Type{UInt32},
+    first::Int,
+    group::Val{N},
+) where {N}
+    iszero(position.bit) && UInt16(32N) == _block_bits(rng) ||
+        return _uniform_cursor!(rng, position, destination, UInt32, first, group)
+    words = _block(rng, FAMILY_BITS, _position_block(position))
+    last = length(destination)
+    @inbounds for offset = 0:(N-1)
+        index = first + offset
+        index > last && break
+        destination[index] = _select_tuple_value(words, UInt16(offset))
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_grouped_unchecked!(
+    rng,
+    position,
+    destination,
+    ::Type{UInt32},
+    first::Int,
+    group::Val{N},
+) where {N}
+    iszero(position.bit) && UInt16(32N) == _block_bits(rng) ||
+        return _uniform_cursor!(rng, position, destination, UInt32, first, group)
+    limbs = _stream_limbs(rng, FAMILY_BITS, _position_block(position))
+    last = length(destination)
+    @inbounds for offset = 0:(N-1)
+        index = first + offset
+        index > last && break
+        word = _select_tuple_value(limbs, UInt16(offset >> 1))
+        destination[index] = iseven(offset) ? (word >> UInt16(32)) % UInt32 : word % UInt32
+    end
+    return nothing
+end
+
+@inline function _fill_uniform_grouped_unchecked!(
+    rng,
+    position,
+    destination,
+    ::Type{UInt64},
+    first::Int,
+    group::Val{N},
+) where {N}
+    iszero(position.bit) && UInt16(64N) == _block_bits(rng) ||
+        return _uniform_cursor!(rng, position, destination, UInt64, first, group)
+    limbs = _stream_limbs(rng, FAMILY_BITS, _position_block(position))
+    last = length(destination)
+    @inbounds for offset = 0:(N-1)
+        index = first + offset
+        index > last && break
+        destination[index] = _select_tuple_value(limbs, UInt16(offset))
+    end
+    return nothing
+end
 
 @inline function _fill_dense_cursor!(
     rng,
@@ -474,6 +636,69 @@ KernelAbstractions.@kernel function _uniform_fill_kernel!(
     @inbounds destination[index] = _draw_unchecked(rng, position, T)
 end
 
+KernelAbstractions.@kernel function _uniform_fill_grouped_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+    group::Val{N},
+) where {T,N}
+    workitem = @index(Global, Linear)
+    first = (workitem - 1) * N + 1
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _draw_bits(T))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_uniform_grouped_unchecked!(rng, position, destination, T, first, group)
+end
+
+@inline _cooperative_value(::Val{:uniform}, ::Type{T}, raw) where {T} = _from_bits(T, raw)
+@inline _fill_width(::Val{:uniform}, ::Type{T}) where {T} = _draw_bits(T)
+@inline _fill_family(::Val{:uniform}) = FAMILY_BITS
+@inline _fill_kernel(::Val{:uniform}) = _uniform_fill_kernel!
+@inline _fill_grouped_kernel(::Val{:uniform}) = _uniform_fill_grouped_kernel!
+
+KernelAbstractions.@kernel function _fill_cooperative_kernel!(
+    rng::Philox4x32,
+    destination,
+    ::Type{T},
+    ::Val{W},
+    ::Val{O},
+    ::Val{L},
+    family::UInt32,
+    codec,
+) where {T,W,O,L}
+    group = @index(Group, Linear)
+    lane = @index(Local, Linear)
+    first = (group - 1) * O + 1
+    outputs = min(O, length(destination) - first + 1)
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), UInt16(W))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    blocks = cld(Int(position.bit) + outputs * W, 128)
+    shared = @localmem UInt64 (2 * cld(127 + O * W, 128),)
+
+    block_offset = lane - 1
+    while block_offset < blocks
+        limbs = _stream_limbs(rng, family, position.block + UInt64(block_offset))
+        @inbounds begin
+            shared[2block_offset+1] = limbs[1]
+            shared[2block_offset+2] = limbs[2]
+        end
+        block_offset += L
+    end
+    @synchronize
+
+    write_group = @index(Group, Linear)
+    write_lane = @index(Local, Linear)
+    write_first = (write_group - 1) * O + 1
+    write_outputs = min(O, length(destination) - write_first + 1)
+    write_bits_lo, write_bits_hi = _bit_span(UInt64(write_first - 1), UInt16(W))
+    write_position = _advance_position_unchecked(rng, write_bits_lo, write_bits_hi)
+    output = write_lane - 1
+    while output < write_outputs
+        raw = _local_dense_bits(shared, Int(write_position.bit) + output * W, Val(W))
+        @inbounds destination[write_first+output] = _cooperative_value(codec, T, raw)
+        output += L
+    end
+end
+
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
 const _CPU_FILL_MIN_WORKITEMS = 4
 
@@ -513,9 +738,62 @@ end
 @inline _fill_backend(destination::BitArray) =
     KernelAbstractions.get_backend(destination.chunks)
 
-function _launch_uniform!(backend, rng, destination, ::Type{T}) where {T}
-    _uniform_fill_kernel!(backend)(rng, destination, T; ndrange = length(destination))
+@inline function _launch_device_fill!(
+    backend,
+    rng,
+    destination,
+    ::Type{T},
+    codec,
+    ::Nothing,
+) where {T}
+    _fill_kernel(codec)(backend)(rng, destination, T; ndrange = length(destination))
     return destination
+end
+
+@inline function _launch_device_fill!(
+    backend,
+    rng,
+    destination,
+    ::Type{T},
+    codec,
+    plan::Tuple{Val{:grouped},Val{N}},
+) where {T,N}
+    group = plan[2]
+    workitems = cld(length(destination), _fill_group_size(group))
+    _fill_grouped_kernel(codec)(backend)(rng, destination, T, group; ndrange = workitems)
+    return destination
+end
+
+@inline function _launch_device_fill!(
+    backend,
+    rng,
+    destination,
+    ::Type{T},
+    codec,
+    plan::Tuple{Val{:cooperative},Val{O},Val{L}},
+) where {T,O,L}
+    outputs, workgroup = plan[2], plan[3]
+    output_count = _fill_group_size(outputs)
+    workgroup_size = _fill_group_size(workgroup)
+    groups = cld(length(destination), output_count)
+    _fill_cooperative_kernel!(backend)(
+        rng,
+        destination,
+        T,
+        Val(_fill_width(codec, T)),
+        outputs,
+        workgroup,
+        _fill_family(codec),
+        codec;
+        ndrange = groups * workgroup_size,
+        workgroupsize = workgroup_size,
+    )
+    return destination
+end
+
+@inline function _launch_uniform!(backend, rng, destination, ::Type{T}) where {T}
+    plan = _device_uniform_fill_plan(backend, rng, T)
+    return _launch_device_fill!(backend, rng, destination, T, Val(:uniform), plan)
 end
 
 function _launch_uniform!(

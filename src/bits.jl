@@ -63,12 +63,26 @@ end
     return lo, block[2] + UInt64(iszero(lo))
 end
 
-@inline function _select_stream_limb(limbs::NTuple{N,UInt64}, lane::UInt16) where {N}
-    value = limbs[1]
-    for index = 2:N
-        value = ifelse(lane == index - 1, limbs[index], value)
+@inline function _select_tuple_value(values::Tuple{T,Vararg{T}}, lane::UInt16) where {T}
+    value = values[1]
+    for index = 2:length(values)
+        value = ifelse(lane == index - 1, values[index], value)
     end
     return value
+end
+
+@inline function _local_dense_bits(storage, bit::Int, ::Val{W}) where {W}
+    lane = (bit >> 6) + 1
+    word_bit = bit & 63
+    first = @inbounds storage[lane]
+    available = 64 - word_bit
+    if W <= available
+        return (first >> (available - W)) & _low_mask(UInt16(W))
+    end
+    remaining = W - available
+    second = @inbounds storage[lane+1]
+    return ((first & _low_mask(UInt16(available))) << remaining) |
+           (second >> (64 - remaining))
 end
 
 @inline _low_mask(width::UInt16) = typemax(UInt64) >> (UInt16(64) - width)
@@ -82,7 +96,7 @@ end
 ) where {N}
     next_lane = lane + UInt16(1)
     if next_lane < UInt16(N)
-        return _select_stream_limb(limbs, next_lane), block, limbs, next_lane
+        return _select_tuple_value(limbs, next_lane), block, limbs, next_lane
     end
     next_block = _next_stream_block_unchecked(block)
     next_limbs = _stream_limbs(rng, family, next_block)
@@ -101,7 +115,7 @@ end
     limbs = _stream_limbs(rng, family, block)
     lane = bit >> UInt16(6)
     word_bit = bit & UInt16(63)
-    first = _select_stream_limb(limbs, lane)
+    first = _select_tuple_value(limbs, lane)
     available = UInt16(64) - word_bit
 
     if width <= available
@@ -118,7 +132,7 @@ end
     limbs = _stream_limbs(rng, family, block)
     lane = bit >> UInt16(6)
     word_bit = bit & UInt16(63)
-    first = _select_stream_limb(limbs, lane)
+    first = _select_tuple_value(limbs, lane)
     second, block, limbs, lane =
         _next_stream_limb_unchecked(rng, family, block, limbs, lane)
     iszero(word_bit) && return second, first

@@ -1,7 +1,7 @@
 module PureRNGs
 
 import KernelAbstractions
-using KernelAbstractions: @index
+using KernelAbstractions: @index, @localmem, @synchronize
 import MLDataDevices
 import Random
 

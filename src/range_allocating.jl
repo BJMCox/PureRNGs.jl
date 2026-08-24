@@ -26,6 +26,28 @@
     return nothing
 end
 
+@inline _device_range_fill_plan(backend, rng, span) = nothing
+
+@inline function _fill_range_grouped_unchecked!(
+    rng,
+    position,
+    destination,
+    range,
+    span::UInt64,
+    first::Int,
+    ::Val{2},
+)
+    cursor = _dense_cursor(rng, FAMILY_RANGE, _position_block(position), position.bit)
+    last = length(destination)
+    @inbounds for offset = 0:1
+        index = first + offset
+        index > last && break
+        candidate, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+        destination[index] = _range_value(range, _reduce_range_candidate(candidate, span))
+    end
+    return nothing
+end
+
 
 KernelAbstractions.@kernel function _range_fill_cpu_kernel!(
     rng,
@@ -50,16 +72,46 @@ KernelAbstractions.@kernel function _range_fill_kernel!(rng, destination, range,
     @inbounds destination[index] = _draw_range_unchecked(rng, position, range, span)
 end
 
+KernelAbstractions.@kernel function _range_fill_grouped_kernel!(
+    rng,
+    destination,
+    range,
+    span,
+    group::Val{2},
+)
+    workitem = @index(Global, Linear)
+    first = (workitem - 1) * 2 + 1
+    width = _range_bits(span)
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), width)
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_range_grouped_unchecked!(rng, position, destination, range, span, first, group)
+end
+
 @inline function _launch_range!(backend, rng, destination, range, span)
-    _range_fill_kernel!(backend)(
+    plan = _device_range_fill_plan(backend, rng, span)
+    if plan === nothing
+        _range_fill_kernel!(backend)(
+            rng,
+            destination,
+            range,
+            span;
+            ndrange = length(destination),
+        )
+        return destination
+    end
+    group = plan[2]
+    workitems = cld(length(destination), _fill_group_size(group))
+    _range_fill_grouped_kernel!(backend)(
         rng,
         destination,
         range,
-        span;
-        ndrange = length(destination),
+        span,
+        group;
+        ndrange = workitems,
     )
     return destination
 end
+
 
 @inline function _launch_range!(
     backend::KernelAbstractions.CPU,

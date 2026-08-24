@@ -113,6 +113,14 @@ end
 @inline _normal_bits(::Type{Float32}) = UInt16(23)
 @inline _normal_bits(::Type{Float64}) = UInt16(52)
 
+@inline _device_normal_fill_group(::Type{Float32}) = Val(8)
+@inline _device_normal_fill_group(::Type{Float64}) = Val(4)
+
+@inline _cooperative_normal_fill(::Philox4x32, ::Type{Float32}) = (Val(512), Val(32))
+@inline _cooperative_normal_fill(::Philox4x32, ::Type{Float64}) = (Val(512), Val(32))
+@inline _cooperative_normal_fill(rng, T) = nothing
+@inline _device_normal_fill_plan(backend, rng, T) = nothing
+
 @inline function _draw_normal_unchecked(
     rng::_ScalarUniformFamily,
     position,
@@ -177,6 +185,29 @@ end
 
 @inline _normal_from_bits(::Type{T}, value::UInt64) where {T} =
     _as241(_normal_midpoint(T, value))
+@inline _cooperative_value(::Val{:normal}, ::Type{T}, raw) where {T} =
+    _normal_from_bits(T, raw)
+
+@inline function _fill_normal_grouped_unchecked!(
+    rng,
+    position,
+    destination,
+    ::Type{T},
+    first::Int,
+    ::Val{N},
+) where {T,N}
+    return _fill_grouped_cursor!(
+        rng,
+        position,
+        destination,
+        T,
+        first,
+        Val(N),
+        Val(_normal_bits(T)),
+        FAMILY_NORMAL,
+        Val(:normal),
+    )
+end
 
 @inline function _fill_normal_dense_cpu!(
     rng,
@@ -209,6 +240,24 @@ KernelAbstractions.@kernel function _normal_fill_kernel!(
     @inbounds destination[index] = _draw_normal_unchecked(rng, position, T)
 end
 
+KernelAbstractions.@kernel function _normal_fill_grouped_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+    group::Val{N},
+) where {T,N}
+    workitem = @index(Global, Linear)
+    first = (workitem - 1) * N + 1
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _normal_bits(T))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_normal_grouped_unchecked!(rng, position, destination, T, first, group)
+end
+
+@inline _fill_width(::Val{:normal}, ::Type{T}) where {T} = _normal_bits(T)
+@inline _fill_family(::Val{:normal}) = FAMILY_NORMAL
+@inline _fill_kernel(::Val{:normal}) = _normal_fill_kernel!
+@inline _fill_grouped_kernel(::Val{:normal}) = _normal_fill_grouped_kernel!
+
 @inline _normal_fill_chunk_elements(::Type{T}) where {T} =
     Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_normal_bits(T)))
 
@@ -233,9 +282,9 @@ KernelAbstractions.@kernel function _normal_fill_dense_serial_kernel!(
     _fill_normal_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
 end
 
-function _launch_normal!(backend, rng, destination, ::Type{T}) where {T}
-    _normal_fill_kernel!(backend)(rng, destination, T; ndrange = length(destination))
-    return destination
+@inline function _launch_normal!(backend, rng, destination, ::Type{T}) where {T}
+    plan = _device_normal_fill_plan(backend, rng, T)
+    return _launch_device_fill!(backend, rng, destination, T, Val(:normal), plan)
 end
 
 function _launch_normal!(
