@@ -12,6 +12,7 @@ const _CUDA_FILL_THREADS = 256
 # Large-fill benchmarks select this multiple of the device thread-capacity block count.
 const _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER = 128
 const _CUDA_U32X4 = NTuple{4,VecElement{UInt32}}
+const _CUDA_F32X4 = NTuple{4,VecElement{Float32}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
 
 struct _CUDAPhiloxPack{T}
@@ -24,6 +25,12 @@ end
     ::Type{T},
 ) where {T<:Union{UInt32,UInt64}} = (Val(:philox4x32_packed),)
 
+@inline IR._device_uniform_fill_plan(
+    ::CUDA.CUDABackend,
+    rng::_CUDAPhilox4x32,
+    ::Type{Float32},
+) = (Val(:cooperative), IR._cooperative_uniform_fill(rng, Float32)..., Val(4))
+
 @inline function IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
     rng::_CUDAFamily,
@@ -33,6 +40,31 @@ end
     return cooperative === nothing ?
            (Val(:grouped), IR._device_uniform_fill_group(rng, T)) :
            (Val(:cooperative), cooperative...)
+end
+
+@inline function IR._launch_device_fill!(
+    backend::CUDA.CUDABackend,
+    rng::_CUDAPhilox4x32,
+    destination,
+    ::Type{Float32},
+    codec::Val{:uniform},
+    plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{4}},
+) where {O,L}
+    if !_philox4x32_f32_layout(destination)
+        return IR._launch_device_fill!(
+            backend,
+            rng,
+            destination,
+            Float32,
+            codec,
+            (Val(:cooperative), plan[2], plan[3]),
+        )
+    end
+
+    packed = reinterpret(_CUDA_F32X4, vec(destination))
+    stream_aligned = Val(_stream_aligned_philox4x32_f32_fill(rng, destination, plan[2]))
+    IR._launch_cooperative_fill!(backend, rng, packed, Float32, codec, plan, stream_aligned)
+    return destination
 end
 
 @inline _philox4x32_packed(limbs, ::Type{UInt32}) = (
@@ -82,6 +114,14 @@ end
            destination isa CUDA.DenseCuArray{T} &&
            iszero(UInt(pointer(destination)) & UInt(_CUDA_FILL_ALIGNMENT - 1))
 end
+
+@inline _philox4x32_f32_layout(destination) =
+    iszero(length(destination) % 4) &&
+    destination isa CUDA.DenseCuArray{Float32} &&
+    iszero(UInt(pointer(destination)) & UInt(_CUDA_FILL_ALIGNMENT - 1))
+
+@inline _stream_aligned_philox4x32_f32_fill(rng, destination, outputs) =
+    iszero(rng.position.bit) && iszero(length(destination) % IR._fill_group_size(outputs))
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,

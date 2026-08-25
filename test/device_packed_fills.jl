@@ -33,6 +33,8 @@ function _packed_cooperative_values(
         Val(width),
         outputs,
         workgroup,
+        Val(1),
+        Val(false),
         family,
         codec;
         ndrange = groups * workgroup_size,
@@ -89,6 +91,8 @@ end
         Val(1),
         outputs,
         workgroup,
+        Val(1),
+        Val(false),
         PackedDeviceIR.FAMILY_BITS,
         Val(:uniform);
         ndrange = workgroup_size,

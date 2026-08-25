@@ -664,40 +664,94 @@ KernelAbstractions.@kernel function _fill_cooperative_kernel!(
     ::Val{W},
     ::Val{O},
     ::Val{L},
+    ::Val{P},
+    ::Val{S},
     family::UInt32,
     codec,
-) where {T,W,O,L}
+) where {T,W,O,L,P,S}
     group = @index(Group, Linear)
     lane = @index(Local, Linear)
-    first = (group - 1) * O + 1
-    outputs = min(O, length(destination) - first + 1)
-    bits_lo, bits_hi = _bit_span(UInt64(first - 1), UInt16(W))
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    blocks = cld(Int(position.bit) + outputs * W, 128)
-    shared = @localmem UInt64 (2 * cld(127 + O * W, 128),)
-
-    block_offset = lane - 1
-    while block_offset < blocks
-        limbs = _stream_limbs(rng, family, position.block + UInt64(block_offset))
-        @inbounds begin
-            shared[2block_offset+1] = limbs[1]
-            shared[2block_offset+2] = limbs[2]
+    shared = @localmem UInt64 (2 * cld((S ? 0 : 127) + O * W, 128),)
+    if S
+        blocks = cld(O * W, 128)
+        first_block = rng.position.block + UInt64((group - 1) * blocks)
+        block_offset = lane - 1
+        while block_offset < blocks
+            limbs = _stream_limbs(rng, family, first_block + UInt64(block_offset))
+            @inbounds begin
+                shared[2block_offset+1] = limbs[1]
+                shared[2block_offset+2] = limbs[2]
+            end
+            block_offset += L
         end
-        block_offset += L
+    else
+        first = (group - 1) * O + 1
+        outputs = min(O, P * length(destination) - first + 1)
+        bits_lo, bits_hi = _bit_span(UInt64(first - 1), UInt16(W))
+        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+        blocks = cld(Int(position.bit) + outputs * W, 128)
+
+        block_offset = lane - 1
+        while block_offset < blocks
+            limbs = _stream_limbs(rng, family, position.block + UInt64(block_offset))
+            @inbounds begin
+                shared[2block_offset+1] = limbs[1]
+                shared[2block_offset+2] = limbs[2]
+            end
+            block_offset += L
+        end
     end
     @synchronize
 
     write_group = @index(Group, Linear)
     write_lane = @index(Local, Linear)
-    write_first = (write_group - 1) * O + 1
-    write_outputs = min(O, length(destination) - write_first + 1)
-    write_bits_lo, write_bits_hi = _bit_span(UInt64(write_first - 1), UInt16(W))
-    write_position = _advance_position_unchecked(rng, write_bits_lo, write_bits_hi)
-    output = write_lane - 1
-    while output < write_outputs
-        raw = _local_dense_bits(shared, Int(write_position.bit) + output * W, Val(W))
-        @inbounds destination[write_first+output] = _cooperative_value(codec, T, raw)
-        output += L
+    if S
+        pack = write_lane - 1
+        packs = O ÷ P
+        first_pack = (write_group - 1) * packs + 1
+        while pack < packs
+            @inbounds destination[first_pack+pack] =
+                _cooperative_pack(codec, T, shared, P * pack * W, Val(P), Val(W))
+            pack += L
+        end
+    else
+        write_first = (write_group - 1) * O + 1
+        write_outputs = min(O, P * length(destination) - write_first + 1)
+        write_bits_lo, write_bits_hi = _bit_span(UInt64(write_first - 1), UInt16(W))
+        write_position = _advance_position_unchecked(rng, write_bits_lo, write_bits_hi)
+        if P == 1
+            output = write_lane - 1
+            while output < write_outputs
+                raw =
+                    _local_dense_bits(shared, Int(write_position.bit) + output * W, Val(W))
+                @inbounds destination[write_first+output] =
+                    _cooperative_value(codec, T, raw)
+                output += L
+            end
+        else
+            output = P * (write_lane - 1)
+            while output < write_outputs
+                bit = Int(write_position.bit) + output * W
+                index = ((write_first - 1) + output) ÷ P + 1
+                @inbounds destination[index] =
+                    _cooperative_pack(codec, T, shared, bit, Val(P), Val(W))
+                output += P * L
+            end
+        end
+    end
+end
+
+@inline function _cooperative_pack(
+    codec,
+    T,
+    shared,
+    bit,
+    outputs_per_store::Val{P},
+    ::Val{W},
+) where {P,W}
+    return ntuple(outputs_per_store) do lane
+        raw = _local_dense_bits(shared, bit + (lane - 1) * W, Val(W))
+        VecElement(_cooperative_value(codec, T, raw))
     end
 end
 
@@ -774,10 +828,28 @@ end
     codec,
     plan::Tuple{Val{:cooperative},Val{O},Val{L}},
 ) where {T,O,L}
+    return _launch_cooperative_fill!(backend, rng, destination, T, codec, plan, Val(false))
+end
+
+@inline _outputs_per_store(::Tuple{Val{:cooperative},Val{O},Val{L}}) where {O,L} = Val(1)
+@inline _outputs_per_store(
+    plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{4}},
+) where {O,L} = plan[4]
+
+@inline function _launch_cooperative_fill!(
+    backend,
+    rng,
+    destination,
+    ::Type{T},
+    codec,
+    plan,
+    stream_aligned::Val{S},
+) where {T,S}
     outputs, workgroup = plan[2], plan[3]
+    outputs_per_store = _outputs_per_store(plan)
     output_count = _fill_group_size(outputs)
     workgroup_size = _fill_group_size(workgroup)
-    groups = cld(length(destination), output_count)
+    groups = cld(_fill_group_size(outputs_per_store) * length(destination), output_count)
     _fill_cooperative_kernel!(backend)(
         rng,
         destination,
@@ -785,6 +857,8 @@ end
         Val(_fill_width(codec, T)),
         outputs,
         workgroup,
+        outputs_per_store,
+        stream_aligned,
         _fill_family(codec),
         codec;
         ndrange = groups * workgroup_size,
