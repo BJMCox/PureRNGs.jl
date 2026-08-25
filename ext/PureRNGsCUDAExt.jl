@@ -14,11 +14,15 @@ const _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER = 128
 const _CUDA_U32X4 = NTuple{4,VecElement{UInt32}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
 
+struct _CUDAPhiloxPack{T}
+    lanes::_CUDA_U32X4
+end
+
 @inline IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAPhilox4x32,
-    ::Type{UInt64},
-) = (Val(:philox4x32_u64),)
+    ::Type{T},
+) where {T<:Union{UInt32,UInt64}} = (Val(:philox4x32_packed),)
 
 @inline function IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
@@ -31,26 +35,37 @@ const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
            (Val(:cooperative), cooperative...)
 end
 
-KernelAbstractions.@kernel function _philox4x32_u64_kernel!(rng, destination)
+@inline _philox4x32_packed(limbs, ::Type{UInt32}) = (
+    VecElement((limbs[1] >> 32) % UInt32),
+    VecElement(limbs[1] % UInt32),
+    VecElement((limbs[2] >> 32) % UInt32),
+    VecElement(limbs[2] % UInt32),
+)
+
+@inline _philox4x32_packed(limbs, ::Type{UInt64}) = (
+    VecElement(limbs[1] % UInt32),
+    VecElement((limbs[1] >> 32) % UInt32),
+    VecElement(limbs[2] % UInt32),
+    VecElement((limbs[2] >> 32) % UInt32),
+)
+
+@inline _philox4x32_packed(limbs, ::Type{_CUDAPhiloxPack{T}}) where {T} =
+    _CUDAPhiloxPack{T}(_philox4x32_packed(limbs, T))
+
+KernelAbstractions.@kernel function _philox4x32_packed_kernel!(rng, destination)
     index = KernelAbstractions.@index(Global, Linear)
-    grid = KernelAbstractions.@ndrange()
-    stride = grid[1]
+    stride = KernelAbstractions.@ndrange()[1]
     while index <= length(destination)
         limbs =
             IR._stream_limbs(rng, IR.FAMILY_BITS, rng.position.block + UInt64(index - 1))
-        # VecElement lanes follow little-endian memory order for two stream UInt64 values.
-        @inbounds destination[index] = (
-            VecElement(limbs[1] % UInt32),
-            VecElement((limbs[1] >> 32) % UInt32),
-            VecElement(limbs[2] % UInt32),
-            VecElement((limbs[2] >> 32) % UInt32),
-        )
+        # VecElement lanes follow the result type's little-endian memory order.
+        @inbounds destination[index] = _philox4x32_packed(limbs, eltype(destination))
         index += stride
     end
 end
 
-@inline function _philox4x32_u64_blocks(pairs::Int)
-    blocks = cld(pairs, _CUDA_FILL_THREADS)
+@inline function _philox4x32_packed_blocks(packs::Int)
+    blocks = cld(packs, _CUDA_FILL_THREADS)
     blocks <= _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER && return blocks
     device = CUDA.device()
     multiprocessors = CUDA.attribute(device, CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
@@ -61,10 +76,10 @@ end
     return min(blocks, _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER * thread_capacity_blocks)
 end
 
-@inline function _aligned_philox4x32_u64_fill(rng, destination)
+@inline function _aligned_philox4x32_fill(rng, destination, ::Type{T}) where {T}
     return iszero(rng.position.bit) &&
-           iseven(length(destination)) &&
-           destination isa CUDA.DenseCuArray{UInt64} &&
+           iszero(length(destination) % (_CUDA_FILL_ALIGNMENT ÷ sizeof(T))) &&
+           destination isa CUDA.DenseCuArray{T} &&
            iszero(UInt(pointer(destination)) & UInt(_CUDA_FILL_ALIGNMENT - 1))
 end
 
@@ -72,25 +87,24 @@ end
     backend::CUDA.CUDABackend,
     rng::_CUDAPhilox4x32,
     destination,
-    ::Type{UInt64},
+    ::Type{T},
     codec::Val{:uniform},
-    ::Tuple{Val{:philox4x32_u64}},
-)
-    if !_aligned_philox4x32_u64_fill(rng, destination)
+    ::Tuple{Val{:philox4x32_packed}},
+) where {T<:Union{UInt32,UInt64}}
+    if !_aligned_philox4x32_fill(rng, destination, T)
         return IR._launch_device_fill!(
             backend,
             rng,
             destination,
-            UInt64,
+            T,
             codec,
-            (Val(:grouped), IR._device_uniform_fill_group(rng, UInt64)),
+            (Val(:grouped), IR._device_uniform_fill_group(rng, T)),
         )
     end
 
-    packed = reinterpret(_CUDA_U32X4, vec(destination))
-    pairs = length(packed)
-    blocks = _philox4x32_u64_blocks(pairs)
-    _philox4x32_u64_kernel!(backend)(
+    packed = reinterpret(_CUDAPhiloxPack{T}, vec(destination))
+    blocks = _philox4x32_packed_blocks(length(packed))
+    _philox4x32_packed_kernel!(backend)(
         rng,
         packed;
         ndrange = blocks * _CUDA_FILL_THREADS,

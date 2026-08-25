@@ -383,7 +383,8 @@ end
         plan = IR._device_uniform_fill_plan(backend, rng, T)
         expected_kind =
             F === Philox4x32 && T in COOPERATIVE_UNIFORM_TYPES ? Val(:cooperative) :
-            F === Philox4x32 && T === UInt64 ? Val(:philox4x32_u64) : Val(:grouped)
+            F === Philox4x32 && T in (UInt32, UInt64) ? Val(:philox4x32_packed) :
+            Val(:grouped)
         dispatch =
             which(IR._device_uniform_fill_plan, Tuple{typeof(backend),typeof(rng),Type{T}})
         @test (dispatch.module, plan[1]) === (extension_module, expected_kind)
@@ -411,59 +412,63 @@ end
     end
 end
 
-@testset "CUDA Philox4x32 UInt64 packed stores preserve the stream" begin
+@testset "CUDA Philox4x32 packed stores preserve the stream" begin
     rng = device(Philox4x32(0x784))
     count = 4096
-    expected_next, expected =
-        _chain(rng, current -> rand_next(current, UInt64), count, UInt64)
-
-    allocated_next, allocated = rand_next(rng, UInt64, 64, 64)
-    @test Array(allocated) == reshape(expected, 64, 64)
-    @test allocated_next.position == expected_next.position
-
     extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
-    direct = CUDA.CuArray{UInt64}(undef, 1024)
-    @test extension_module._aligned_philox4x32_u64_fill(rng, direct)
-    packed = reinterpret(extension_module._CUDA_U32X4, direct)
     backend = CUDA.CUDABackend()
-    kernel = extension_module._philox4x32_u64_kernel!(backend)
-    kernel(
-        rng,
-        packed;
-        ndrange = extension_module._CUDA_FILL_THREADS,
-        workgroupsize = extension_module._CUDA_FILL_THREADS,
-    )
-    IR.KernelAbstractions.synchronize(backend)
-    @test Array(direct) == expected[1:1024]
+    kernel = extension_module._philox4x32_packed_kernel!(backend)
 
-    positioned = _positioned_at_bit(rng, UInt64(9), UInt16(0))
-    _check_public_packed_fill(positioned, UInt64, count, rand_next, rand_next!)
-    for bit in (UInt16(5), UInt16(64))
-        offset = _positioned_at_bit(rng, UInt64(9), bit)
-        _check_public_packed_fill(offset, UInt64, 64, rand_next, rand_next!)
+    for T in (UInt32, UInt64)
+        outputs_per_pack = extension_module._CUDA_FILL_ALIGNMENT ÷ sizeof(T)
+        expected_next, expected = _chain(rng, current -> rand_next(current, T), count, T)
+
+        allocated_next, allocated = rand_next(rng, T, 64, 64)
+        @test Array(allocated) == reshape(expected, 64, 64)
+        @test allocated_next.position == expected_next.position
+
+        direct_count = 512outputs_per_pack
+        direct = CUDA.CuArray{T}(undef, direct_count)
+        @test extension_module._aligned_philox4x32_fill(rng, direct, T)
+        packed = reinterpret(extension_module._CUDAPhiloxPack{T}, direct)
+        kernel(
+            rng,
+            packed;
+            ndrange = extension_module._CUDA_FILL_THREADS,
+            workgroupsize = extension_module._CUDA_FILL_THREADS,
+        )
+        IR.KernelAbstractions.synchronize(backend)
+        @test Array(direct) == expected[1:direct_count]
+
+        positioned = _positioned_at_bit(rng, UInt64(9), UInt16(0))
+        _check_public_packed_fill(positioned, T, count, rand_next, rand_next!)
+        for bit in (UInt16(5), UInt16(64))
+            offset = _positioned_at_bit(rng, UInt64(9), bit)
+            _check_public_packed_fill(offset, T, 64, rand_next, rand_next!)
+        end
+
+        _check_public_packed_fill(rng, T, 65, rand_next, rand_next!)
+
+        aligned_first = outputs_per_pack + 1
+        storage = CUDA.CuArray{T}(undef, aligned_first + 63)
+        expected_fallback_next = _chain(rng, current -> rand_next(current, T), 64, T)[1]
+        for (first, eligible) in ((2, false), (aligned_first, true))
+            view = @view storage[first:(first+63)]
+            @test extension_module._aligned_philox4x32_fill(rng, view, T) === eligible
+            fallback_next, returned = rand_next!(rng, view)
+            @test returned === view
+            @test Array(view) == expected[1:64]
+            @test fallback_next.position == expected_fallback_next.position
+        end
+
+        terminal_rng = _positioned_at_bit(rng, typemax(UInt64), UInt16(0))
+        terminal_expected, terminal_values =
+            _chain(terminal_rng, current -> rand_next(current, T), outputs_per_pack, T)
+        terminal_destination = CUDA.fill(T(0xdeadbeef), outputs_per_pack)
+        terminal_next, _ = rand_next!(terminal_rng, terminal_destination)
+        @test Array(terminal_destination) == terminal_values
+        @test terminal_next.position == terminal_expected.position == _terminal(rng)
     end
-
-    _check_public_packed_fill(rng, UInt64, 65, rand_next, rand_next!)
-
-    storage = CUDA.CuArray{UInt64}(undef, 67)
-    expected_fallback_next =
-        _chain(rng, current -> rand_next(current, UInt64), 64, UInt64)[1]
-    for (first, eligible) in ((2, false), (3, true))
-        view = @view storage[first:(first+63)]
-        @test extension_module._aligned_philox4x32_u64_fill(rng, view) === eligible
-        fallback_next, returned = rand_next!(rng, view)
-        @test returned === view
-        @test Array(view) == expected[1:64]
-        @test fallback_next.position == expected_fallback_next.position
-    end
-
-    terminal_rng = _positioned_at_bit(rng, typemax(UInt64), UInt16(0))
-    terminal_expected, terminal_values =
-        _chain(terminal_rng, current -> rand_next(current, UInt64), 2, UInt64)
-    terminal_destination = CUDA.fill(UInt64(0xdeadbeef), 2)
-    terminal_next, _ = rand_next!(terminal_rng, terminal_destination)
-    @test Array(terminal_destination) == terminal_values
-    @test terminal_next.position == terminal_expected.position == _terminal(rng)
 end
 
 @testset "public fill plan classes launch CUDA kernels" begin
@@ -658,27 +663,30 @@ end
 @testset "device compilation, typed IR, and launch independence" begin
     extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
     packed_rng = device(Philox4x32(0x785))
-    packed = reinterpret(extension_module._CUDA_U32X4, CUDA.CuArray{UInt64}(undef, 1024))
     backend = CUDA.CUDABackend()
-    kernel = extension_module._philox4x32_u64_kernel!(backend)
-    packed_typed = IR.KernelAbstractions.@ka_code_typed kernel(
-        packed_rng,
-        packed,
-        ndrange = extension_module._CUDA_FILL_THREADS,
-        workgroupsize = extension_module._CUDA_FILL_THREADS,
-    )
-    packed_typed_text = sprint(show, packed_typed)
-    packed_llvm_text = sprint() do io
-        CUDA.@device_code_llvm io = io kernel(
+    kernel = extension_module._philox4x32_packed_kernel!(backend)
+    for T in (UInt32, UInt64)
+        packed =
+            reinterpret(extension_module._CUDAPhiloxPack{T}, CUDA.CuArray{T}(undef, 1024))
+        packed_typed = IR.KernelAbstractions.@ka_code_typed kernel(
             packed_rng,
-            packed;
+            packed,
             ndrange = extension_module._CUDA_FILL_THREADS,
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
+        packed_typed_text = sprint(show, packed_typed)
+        packed_llvm_text = sprint() do io
+            CUDA.@device_code_llvm io = io kernel(
+                packed_rng,
+                packed;
+                ndrange = extension_module._CUDA_FILL_THREADS,
+                workgroupsize = extension_module._CUDA_FILL_THREADS,
+            )
+        end
+        @test !occursin("UInt128", packed_typed_text)
+        @test !occursin("BigInt", packed_typed_text)
+        @test !occursin(r"\bi128\b", packed_llvm_text)
     end
-    @test !occursin("UInt128", packed_typed_text)
-    @test !occursin("BigInt", packed_typed_text)
-    @test !occursin(r"\bi128\b", packed_llvm_text)
 
     for F in FAMILIES
         rng = device(F(0x123456))
