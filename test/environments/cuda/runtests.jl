@@ -381,8 +381,10 @@ end
     for F in FAMILIES, T in UNIFORM_TYPES
         rng = device(F(0x123456))
         plan = IR._device_uniform_fill_plan(backend, rng, T)
+        cooperative = IR._cooperative_uniform_fill(rng, T)
         expected_kind =
-            F === Philox4x32 && T in COOPERATIVE_UNIFORM_TYPES ? Val(:cooperative) :
+            cooperative !== nothing ? Val(:cooperative) :
+            T === Bool ? Val(:bool_blocks) :
             F === Philox4x32 && T in (UInt32, UInt64) ? Val(:philox4x32_packed) :
             Val(:grouped)
         dispatch =
@@ -413,6 +415,53 @@ end
             which(IR._device_range_fill_plan, Tuple{typeof(backend),typeof(rng),UInt64})
         actual_kind = plan === nothing ? nothing : plan[1]
         @test (dispatch.module, actual_kind) === (extension_module, expected_kind)
+    end
+end
+
+@testset "CUDA Bool packed paths preserve every family stream" begin
+    extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
+    backend = CUDA.CUDABackend()
+    for F in FAMILIES
+        rng = device(F(0x787))
+        block_bits = Int(IR._block_bits(rng))
+        packs_per_block = extension_module._bool_packs_per_block(rng)
+        plan = IR._device_uniform_fill_plan(backend, rng, Bool)
+        cooperative = IR._cooperative_uniform_fill(rng, Bool)
+        expected_plan =
+            cooperative === nothing ? (Val(:bool_blocks), packs_per_block) :
+            (Val(:cooperative), cooperative...)
+        @test plan == expected_plan
+
+        count = 2block_bits
+        _check_public_packed_fill(rng, Bool, count, rand_next, rand_next!)
+        positioned = _positioned_at_bit(rng, UInt64(9), UInt16(0))
+        _check_public_packed_fill(positioned, Bool, count, rand_next, rand_next!)
+
+        offset = _positioned_at_bit(rng, UInt64(9), UInt16(5))
+        _check_public_packed_fill(offset, Bool, block_bits, rand_next, rand_next!)
+        _check_public_packed_fill(rng, Bool, block_bits + 1, rand_next, rand_next!)
+
+        storage = CUDA.CuArray{Bool}(undef, block_bits + 16)
+        expected_next, expected =
+            _chain(rng, current -> rand_next(current, Bool), block_bits, Bool)
+        for (first, eligible) in ((2, false), (17, true))
+            view = @view storage[first:(first+block_bits-1)]
+            plan[1] === Val(:bool_blocks) &&
+                @test(extension_module._aligned_bool_block_fill(rng, view) === eligible)
+            filled_next, returned = rand_next!(rng, view)
+            @test returned === view
+            @test Array(view) == expected
+            @test filled_next.position == expected_next.position
+        end
+
+        terminal_position =
+            rng.position isa IR._Position64 ?
+            IR._Position64(IR._max_block(rng), UInt16(0)) :
+            IR._Position128(typemax(UInt64), typemax(UInt64), UInt16(0))
+        terminal_rng = IR._rebuild(rng, terminal_position, rng.device)
+        terminal =
+            _check_public_packed_fill(terminal_rng, Bool, block_bits, rand_next, rand_next!)
+        @test terminal.position == _terminal(rng)
     end
 end
 
@@ -510,7 +559,7 @@ end
 
 @testset "public fill plan classes launch CUDA kernels" begin
     cases = (
-        () -> rand(device(Philox4x32(0x771)), Bool, 9),
+        () -> rand(device(Threefry2x32(0x771)), Bool, 64),
         () -> randn(device(Philox4x32(0x772)), Float64, 9),
         () -> rand(device(Threefry2x32(0x773)), UInt32, 9),
         () -> randn(device(Threefry2x32(0x774)), Float32, 9),
@@ -723,6 +772,48 @@ end
         @test !occursin("UInt128", packed_typed_text)
         @test !occursin("BigInt", packed_typed_text)
         @test !occursin(r"\bi128\b", packed_llvm_text)
+    end
+
+    bool_kernel = IR._uniform_fill_bool_blocks_kernel!(backend)
+    for F in FAMILIES
+        bool_rng = device(F(0x787))
+        plan = IR._device_uniform_fill_plan(backend, bool_rng, Bool)
+        plan[1] === Val(:bool_blocks) || continue
+        packs_per_block = plan[2]
+        packed = reinterpret(
+            NTuple{16,VecElement{Bool}},
+            CUDA.CuArray{Bool}(undef, Int(IR._block_bits(bool_rng))),
+        )
+        bool_typed = IR.KernelAbstractions.@ka_code_typed bool_kernel(
+            bool_rng,
+            packed,
+            packs_per_block,
+            ndrange = 1,
+            workgroupsize = 1,
+        )
+        bool_typed_text = sprint(show, bool_typed)
+        bool_llvm_text = sprint() do io
+            CUDA.@device_code_llvm io = io bool_kernel(
+                bool_rng,
+                packed,
+                packs_per_block;
+                ndrange = 1,
+                workgroupsize = 1,
+            )
+        end
+        @test !occursin("UInt128", bool_typed_text)
+        @test !occursin("BigInt", bool_typed_text)
+        @test !occursin(r"\bi128\b", bool_llvm_text)
+        bool_sass = sprint() do io
+            CUDA.@device_code_sass io = io bool_kernel(
+                bool_rng,
+                packed,
+                packs_per_block;
+                ndrange = 1,
+                workgroupsize = 1,
+            )
+        end
+        @test occursin("STG.E.128", bool_sass)
     end
 
     float_plan = IR._device_uniform_fill_plan(backend, packed_rng, Float32)

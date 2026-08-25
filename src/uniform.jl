@@ -755,6 +755,29 @@ end
     end
 end
 
+KernelAbstractions.@kernel function _uniform_fill_bool_blocks_kernel!(
+    rng,
+    destination,
+    ::Val{P},
+) where {P}
+    block_ordinal = @index(Global, Linear)
+    stride = KernelAbstractions.@ndrange()[1]
+    block_count = length(destination) ÷ P
+    while block_ordinal <= block_count
+        bits_lo, bits_hi = _bit_span(UInt64(block_ordinal - 1), _block_bits(rng))
+        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+        limbs = _stream_limbs(rng, FAMILY_BITS, _position_block(position))
+        first_pack = (block_ordinal - 1) * P + 1
+        pack = 0
+        while pack < P
+            @inbounds destination[first_pack+pack] =
+                _cooperative_pack(Val(:uniform), Bool, limbs, 16pack, Val(16), Val(1))
+            pack += 1
+        end
+        block_ordinal += stride
+    end
+end
+
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
 const _CPU_FILL_MIN_WORKITEMS = 4
 

@@ -102,6 +102,25 @@ end
     @test only(destination) == PackedDeviceIR._draw_unchecked(terminal, Bool)
 end
 
+@testset "natural-block Bool stores preserve every family stream" begin
+    kernel = PackedDeviceIR._uniform_fill_bool_blocks_kernel!(PackedDeviceKA.CPU())
+    for F in FAMILY_TYPES
+        base = F(0x787)
+        position =
+            base.position isa PackedDeviceIR._Position64 ?
+            PackedDeviceIR._Position64(UInt64(3), UInt16(0)) :
+            PackedDeviceIR._Position128(UInt64(3), UInt64(7), UInt16(0))
+        rng = PackedDeviceIR._rebuild(base, position, base.device)
+        block_bits = Int(PackedDeviceIR._block_bits(rng))
+        packs_per_block = Val(block_bits ÷ 16)
+        values = Vector{Bool}(undef, 2block_bits)
+        packed = reinterpret(NTuple{16,VecElement{Bool}}, values)
+        kernel(rng, packed, packs_per_block; ndrange = 1, workgroupsize = 1)
+        PackedDeviceKA.synchronize(PackedDeviceKA.CPU())
+        @test values == _reference_chain(rng, Bool, length(values))[2]
+    end
+end
+
 @testset "grouped device uniform codec preserves packed stream" begin
     for F in FAMILY_TYPES, T in (Bool, UInt32, UInt64, Float32, Float64)
         rng = _packed_device_rng(F)

@@ -13,7 +13,10 @@ const _CUDA_FILL_THREADS = 256
 const _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER = 128
 const _CUDA_U32X4 = NTuple{4,VecElement{UInt32}}
 const _CUDA_F32X4 = NTuple{4,VecElement{Float32}}
+const _CUDA_B8X16 = NTuple{16,VecElement{Bool}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
+
+@inline _bool_packs_per_block(rng) = Val(Int(IR._block_bits(rng)) ÷ 16)
 
 struct _CUDAPhiloxPack{T}
     lanes::_CUDA_U32X4
@@ -37,9 +40,9 @@ end
     ::Type{T},
 ) where {T}
     cooperative = IR._cooperative_uniform_fill(rng, T)
-    return cooperative === nothing ?
-           (Val(:grouped), IR._device_uniform_fill_group(rng, T)) :
-           (Val(:cooperative), cooperative...)
+    cooperative === nothing || return (Val(:cooperative), cooperative...)
+    T === Bool && return (Val(:bool_blocks), _bool_packs_per_block(rng))
+    return (Val(:grouped), IR._device_uniform_fill_group(rng, T))
 end
 
 @inline function IR._launch_device_fill!(
@@ -96,7 +99,7 @@ KernelAbstractions.@kernel function _philox4x32_packed_kernel!(rng, destination)
     end
 end
 
-@inline function _philox4x32_packed_blocks(packs::Int)
+@inline function _cuda_packed_blocks(packs::Int)
     blocks = cld(packs, _CUDA_FILL_THREADS)
     blocks <= _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER && return blocks
     device = CUDA.device()
@@ -106,6 +109,44 @@ end
     thread_capacity_blocks =
         multiprocessors * max(1, threads_per_multiprocessor ÷ _CUDA_FILL_THREADS)
     return min(blocks, _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER * thread_capacity_blocks)
+end
+
+@inline _aligned_bool_block_fill(rng, destination) =
+    iszero(rng.position.bit) &&
+    iszero(length(destination) % Int(IR._block_bits(rng))) &&
+    destination isa CUDA.DenseCuArray{Bool} &&
+    iszero(UInt(pointer(destination)) & UInt(_CUDA_FILL_ALIGNMENT - 1))
+
+@inline function IR._launch_device_fill!(
+    backend::CUDA.CUDABackend,
+    rng::_CUDAFamily,
+    destination,
+    ::Type{Bool},
+    codec::Val{:uniform},
+    plan::Tuple{Val{:bool_blocks},Val{P}},
+) where {P}
+    if !_aligned_bool_block_fill(rng, destination)
+        return IR._launch_device_fill!(
+            backend,
+            rng,
+            destination,
+            Bool,
+            codec,
+            (Val(:grouped), IR._device_uniform_fill_group(rng, Bool)),
+        )
+    end
+
+    packed = reinterpret(_CUDA_B8X16, vec(destination))
+    workitems = length(packed) ÷ P
+    blocks = _cuda_packed_blocks(workitems)
+    IR._uniform_fill_bool_blocks_kernel!(backend)(
+        rng,
+        packed,
+        plan[2];
+        ndrange = blocks * _CUDA_FILL_THREADS,
+        workgroupsize = _CUDA_FILL_THREADS,
+    )
+    return destination
 end
 
 @inline function _aligned_philox4x32_fill(rng, destination, ::Type{T}) where {T}
@@ -143,7 +184,7 @@ end
     end
 
     packed = reinterpret(_CUDAPhiloxPack{T}, vec(destination))
-    blocks = _philox4x32_packed_blocks(length(packed))
+    blocks = _cuda_packed_blocks(length(packed))
     _philox4x32_packed_kernel!(backend)(
         rng,
         packed;
