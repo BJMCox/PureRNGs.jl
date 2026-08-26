@@ -228,6 +228,11 @@ function _positioned_at_bit(rng, block::UInt64, bit::UInt16)
 end
 
 const COOPERATIVE_UNIFORM_TYPES = (Bool, Float32, Float64)
+const NATURAL_128_TYPES = (
+    (Philox4x32, UInt32),
+    (Philox4x32, UInt64),
+    (Threefry4x32, UInt32),
+)
 const PACKED_DRAW_SPECS = (
     (Bool, rand_next, rand_next!, UInt16(1), false),
     (UInt32, rand_next, rand_next!, UInt16(32), false),
@@ -385,7 +390,7 @@ end
         expected_kind =
             cooperative !== nothing ? Val(:cooperative) :
             T === Bool ? Val(:bool_blocks) :
-            F === Philox4x32 && T in (UInt32, UInt64) ? Val(:philox4x32_packed) :
+            (F, T) in NATURAL_128_TYPES ? Val(:natural128_packed) :
             Val(:grouped)
         dispatch =
             which(IR._device_uniform_fill_plan, Tuple{typeof(backend),typeof(rng),Type{T}})
@@ -498,14 +503,14 @@ end
     @test terminal.position == _terminal(rng)
 end
 
-@testset "CUDA Philox4x32 packed stores preserve the stream" begin
-    rng = device(Philox4x32(0x784))
+@testset "CUDA natural 128-bit stores preserve the stream" begin
     count = 4096
     extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
     backend = CUDA.CUDABackend()
-    kernel = extension_module._philox4x32_packed_kernel!(backend)
+    kernel = extension_module._natural128_packed_kernel!(backend)
 
-    for T in (UInt32, UInt64)
+    for (F, T) in NATURAL_128_TYPES
+        rng = device(F(0x784))
         outputs_per_pack = extension_module._CUDA_FILL_ALIGNMENT ÷ sizeof(T)
         expected_next, expected = _chain(rng, current -> rand_next(current, T), count, T)
 
@@ -515,8 +520,8 @@ end
 
         direct_count = 512outputs_per_pack
         direct = CUDA.CuArray{T}(undef, direct_count)
-        @test extension_module._aligned_philox4x32_fill(rng, direct, T)
-        packed = reinterpret(extension_module._CUDAPhiloxPack{T}, direct)
+        @test extension_module._aligned_natural128_fill(rng, direct, T)
+        packed = reinterpret(extension_module._CUDANatural128Pack{T}, direct)
         kernel(
             rng,
             packed;
@@ -540,7 +545,7 @@ end
         expected_fallback_next = _chain(rng, current -> rand_next(current, T), 64, T)[1]
         for (first, eligible) in ((2, false), (aligned_first, true))
             view = @view storage[first:(first+63)]
-            @test extension_module._aligned_philox4x32_fill(rng, view, T) === eligible
+            @test extension_module._aligned_natural128_fill(rng, view, T) === eligible
             fallback_next, returned = rand_next!(rng, view)
             @test returned === view
             @test Array(view) == expected[1:64]
@@ -748,12 +753,14 @@ end
 
 @testset "device compilation, typed IR, and launch independence" begin
     extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
-    packed_rng = device(Philox4x32(0x785))
     backend = CUDA.CUDABackend()
-    kernel = extension_module._philox4x32_packed_kernel!(backend)
-    for T in (UInt32, UInt64)
-        packed =
-            reinterpret(extension_module._CUDAPhiloxPack{T}, CUDA.CuArray{T}(undef, 1024))
+    kernel = extension_module._natural128_packed_kernel!(backend)
+    for (F, T) in NATURAL_128_TYPES
+        packed_rng = device(F(0x785))
+        packed = reinterpret(
+            extension_module._CUDANatural128Pack{T},
+            CUDA.CuArray{T}(undef, 1024),
+        )
         packed_typed = IR.KernelAbstractions.@ka_code_typed kernel(
             packed_rng,
             packed,
@@ -772,6 +779,15 @@ end
         @test !occursin("UInt128", packed_typed_text)
         @test !occursin("BigInt", packed_typed_text)
         @test !occursin(r"\bi128\b", packed_llvm_text)
+        packed_sass = sprint() do io
+            CUDA.@device_code_sass io = io kernel(
+                packed_rng,
+                packed;
+                ndrange = extension_module._CUDA_FILL_THREADS,
+                workgroupsize = extension_module._CUDA_FILL_THREADS,
+            )
+        end
+        @test occursin("STG.E.128", packed_sass)
     end
 
     bool_kernel = IR._uniform_fill_bool_blocks_kernel!(backend)
@@ -816,6 +832,7 @@ end
         @test occursin("STG.E.128", bool_sass)
     end
 
+    packed_rng = device(Philox4x32(0x785))
     float_plan = IR._device_uniform_fill_plan(backend, packed_rng, Float32)
     float_packed = reinterpret(
         extension_module._CUDA_F32X4,

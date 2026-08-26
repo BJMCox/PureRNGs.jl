@@ -8,6 +8,8 @@ import Random
 const IR = PureRNGs
 const _CUDAFamily = IR._BackendFamily{IR._CUDABackend}
 const _CUDAPhilox4x32 = IR.Philox4x32{IR._CUDABackend}
+const _CUDAThreefry4x32 = IR.Threefry4x32{IR._CUDABackend}
+const _CUDANatural128 = Union{_CUDAPhilox4x32,_CUDAThreefry4x32}
 const _CUDA_FILL_THREADS = 256
 # Large-fill benchmarks select this multiple of the device thread-capacity block count.
 const _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER = 128
@@ -18,7 +20,7 @@ const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
 
 @inline _bool_packs_per_block(rng) = Val(Int(IR._block_bits(rng)) ÷ 16)
 
-struct _CUDAPhiloxPack{T}
+struct _CUDANatural128Pack{T}
     lanes::_CUDA_U32X4
 end
 
@@ -26,7 +28,13 @@ end
     ::CUDA.CUDABackend,
     ::_CUDAPhilox4x32,
     ::Type{T},
-) where {T<:Union{UInt32,UInt64}} = (Val(:philox4x32_packed),)
+) where {T<:Union{UInt32,UInt64}} = (Val(:natural128_packed),)
+
+@inline IR._device_uniform_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAThreefry4x32,
+    ::Type{UInt32},
+) = (Val(:natural128_packed),)
 
 @inline IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
@@ -70,31 +78,31 @@ end
     return destination
 end
 
-@inline _philox4x32_packed(limbs, ::Type{UInt32}) = (
+@inline _natural128_packed(limbs, ::Type{UInt32}) = (
     VecElement((limbs[1] >> 32) % UInt32),
     VecElement(limbs[1] % UInt32),
     VecElement((limbs[2] >> 32) % UInt32),
     VecElement(limbs[2] % UInt32),
 )
 
-@inline _philox4x32_packed(limbs, ::Type{UInt64}) = (
+@inline _natural128_packed(limbs, ::Type{UInt64}) = (
     VecElement(limbs[1] % UInt32),
     VecElement((limbs[1] >> 32) % UInt32),
     VecElement(limbs[2] % UInt32),
     VecElement((limbs[2] >> 32) % UInt32),
 )
 
-@inline _philox4x32_packed(limbs, ::Type{_CUDAPhiloxPack{T}}) where {T} =
-    _CUDAPhiloxPack{T}(_philox4x32_packed(limbs, T))
+@inline _natural128_packed(limbs, ::Type{_CUDANatural128Pack{T}}) where {T} =
+    _CUDANatural128Pack{T}(_natural128_packed(limbs, T))
 
-KernelAbstractions.@kernel function _philox4x32_packed_kernel!(rng, destination)
+KernelAbstractions.@kernel function _natural128_packed_kernel!(rng, destination)
     index = KernelAbstractions.@index(Global, Linear)
     stride = KernelAbstractions.@ndrange()[1]
     while index <= length(destination)
         limbs =
             IR._stream_limbs(rng, IR.FAMILY_BITS, rng.position.block + UInt64(index - 1))
         # VecElement lanes follow the result type's little-endian memory order.
-        @inbounds destination[index] = _philox4x32_packed(limbs, eltype(destination))
+        @inbounds destination[index] = _natural128_packed(limbs, eltype(destination))
         index += stride
     end
 end
@@ -149,7 +157,7 @@ end
     return destination
 end
 
-@inline function _aligned_philox4x32_fill(rng, destination, ::Type{T}) where {T}
+@inline function _aligned_natural128_fill(rng, destination, ::Type{T}) where {T}
     return iszero(rng.position.bit) &&
            iszero(length(destination) % (_CUDA_FILL_ALIGNMENT ÷ sizeof(T))) &&
            destination isa CUDA.DenseCuArray{T} &&
@@ -166,13 +174,13 @@ end
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
-    rng::_CUDAPhilox4x32,
+    rng::_CUDANatural128,
     destination,
     ::Type{T},
     codec::Val{:uniform},
-    ::Tuple{Val{:philox4x32_packed}},
+    ::Tuple{Val{:natural128_packed}},
 ) where {T<:Union{UInt32,UInt64}}
-    if !_aligned_philox4x32_fill(rng, destination, T)
+    if !_aligned_natural128_fill(rng, destination, T)
         return IR._launch_device_fill!(
             backend,
             rng,
@@ -183,9 +191,9 @@ end
         )
     end
 
-    packed = reinterpret(_CUDAPhiloxPack{T}, vec(destination))
+    packed = reinterpret(_CUDANatural128Pack{T}, vec(destination))
     blocks = _cuda_packed_blocks(length(packed))
-    _philox4x32_packed_kernel!(backend)(
+    _natural128_packed_kernel!(backend)(
         rng,
         packed;
         ndrange = blocks * _CUDA_FILL_THREADS,
