@@ -3,12 +3,7 @@ pushfirst!(LOAD_PATH, normpath(joinpath(@__DIR__, "..")))
 using Documenter
 using PureRNGs
 
-DocMeta.setdocmeta!(
-    PureRNGs,
-    :DocTestSetup,
-    :(using PureRNGs);
-    recursive = true,
-)
+DocMeta.setdocmeta!(PureRNGs, :DocTestSetup, :(using PureRNGs); recursive = true)
 
 makedocs(
     sitename = "PureRNGs.jl",

@@ -108,10 +108,8 @@ end
 end
 
 @testset "R38 active-device documentation" begin
-    documentation = read(
-        joinpath(pkgdir(PureRNGs), "docs", "src", "guides", "devices.md"),
-        String,
-    )
+    documentation =
+        read(joinpath(pkgdir(PureRNGs), "docs", "src", "guides", "devices.md"), String)
     @test occursin("discards any physical device", documentation)
     @test occursin("active device", documentation)
     @test occursin("CUDA.device!", documentation)
