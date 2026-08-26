@@ -185,10 +185,11 @@ if Metal.functional()
             cpu_rng = F(0x81c)
             rng = MetalDevice()(cpu_rng)
             next_rng, values = IR.randn_next(rng, Float32, 17)
-            expected_next, expected = IR.randn_next(cpu_rng, Float32, 17)
+            repeat_next, repeated = IR.randn_next(rng, Float32, 17)
+            expected_next, _ = IR.randn_next(cpu_rng, Float32, 17)
             @test values isa Metal.MtlArray{Float32,1}
-            @test Array(values) == expected
-            @test next_rng.position == expected_next.position
+            @test Array(values) == Array(repeated)
+            @test next_rng.position == repeat_next.position == expected_next.position
         end
     end
 else
