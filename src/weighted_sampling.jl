@@ -60,6 +60,8 @@ KernelAbstractions.@kernel function _prepare_weights_kernel!(
     converted,
     total_result,
     invalid_result,
+    cumulative,
+    validate_elements,
 )
     if @index(Global, Linear) == 1
         _convert_and_fold_weights!(
@@ -67,8 +69,8 @@ KernelAbstractions.@kernel function _prepare_weights_kernel!(
             converted,
             total_result,
             invalid_result,
-            nothing,
-            Val(true),
+            cumulative,
+            validate_elements,
         )
     end
 end
@@ -112,7 +114,9 @@ function _prepare_weights(rng, weights, agnostic::Bool)
             source,
             converted,
             total_result,
-            invalid_result;
+            invalid_result,
+            nothing,
+            Val(true);
             ndrange = 1,
         )
     end

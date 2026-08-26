@@ -280,25 +280,6 @@ end
     return order
 end
 
-KernelAbstractions.@kernel function _prepare_cumulative_weights_kernel!(
-    source,
-    total_result,
-    invalid_result,
-    cumulative,
-    validate_elements,
-)
-    if KernelAbstractions.@index(Global, Linear) == 1
-        IR._convert_and_fold_weights!(
-            source,
-            nothing,
-            total_result,
-            invalid_result,
-            cumulative,
-            validate_elements,
-        )
-    end
-end
-
 function IR._prepare_weight_scan(rng::_CUDAFamily, weights, agnostic::Bool)
     source =
         agnostic ? IR._transfer_weights(rng.device, IR._collect_weights(weights)) : weights
@@ -306,8 +287,9 @@ function IR._prepare_weight_scan(rng::_CUDAFamily, weights, agnostic::Bool)
     total_result = IR._allocate_array(rng.device, Float64, (1,))
     invalid_result = IR._allocate_array(rng.device, Bool, (1,))
     backend = IR._fill_backend(cumulative)
-    _prepare_cumulative_weights_kernel!(backend)(
+    IR._prepare_weights_kernel!(backend)(
         source,
+        nothing,
         total_result,
         invalid_result,
         cumulative,
