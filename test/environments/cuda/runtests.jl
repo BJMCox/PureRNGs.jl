@@ -310,6 +310,77 @@ function _check_public_packed_fill(
     return allocated_next
 end
 
+function _check_cooperative_kernel_code(
+    backend,
+    rng,
+    packed,
+    ::Type{T},
+    plan,
+    stream_aligned;
+    check_store::Bool,
+) where {T}
+    kernel = IR._fill_cooperative_kernel!(backend)
+    workgroup = IR._fill_group_size(plan[3])
+    block_width = Val(Int(IR._block_bits(rng)))
+    typed = IR.KernelAbstractions.@ka_code_typed kernel(
+        rng,
+        packed,
+        T,
+        Val(IR._draw_bits(T)),
+        block_width,
+        plan[2],
+        plan[3],
+        plan[4],
+        stream_aligned,
+        IR.FAMILY_BITS,
+        Val(:uniform),
+        ndrange = workgroup,
+        workgroupsize = workgroup,
+    )
+    typed_text = sprint(show, typed)
+    llvm = sprint() do io
+        CUDA.@device_code_llvm io = io kernel(
+            rng,
+            packed,
+            T,
+            Val(IR._draw_bits(T)),
+            block_width,
+            plan[2],
+            plan[3],
+            plan[4],
+            stream_aligned,
+            IR.FAMILY_BITS,
+            Val(:uniform);
+            ndrange = workgroup,
+            workgroupsize = workgroup,
+        )
+    end
+    @test !occursin("UInt128", typed_text)
+    @test !occursin("BigInt", typed_text)
+    @test !occursin(r"\bi128\b", llvm)
+    if check_store
+        sass = sprint() do io
+            CUDA.@device_code_sass io = io kernel(
+                rng,
+                packed,
+                T,
+                Val(IR._draw_bits(T)),
+                block_width,
+                plan[2],
+                plan[3],
+                plan[4],
+                stream_aligned,
+                IR.FAMILY_BITS,
+                Val(:uniform);
+                ndrange = workgroup,
+                workgroupsize = workgroup,
+            )
+        end
+        @test occursin("STG.E.128", sass)
+    end
+    return nothing
+end
+
 function _check_public_range(rng, range, count)
     T = eltype(range)
     expected_next, expected = _chain(rng, current -> rand_next(current, range), count, T)
@@ -382,8 +453,9 @@ end
         rng = device(F(0x123456))
         plan = IR._device_uniform_fill_plan(backend, rng, T)
         cooperative = IR._cooperative_uniform_fill(rng, T)
+        packed_float = F !== Philox4x32 && T in (Float32, Float64)
         expected_kind =
-            cooperative !== nothing ? Val(:cooperative) :
+            cooperative !== nothing || packed_float ? Val(:cooperative) :
             T === Bool ? Val(:bool_blocks) :
             F === Philox4x32 && T in (UInt32, UInt64) ? Val(:philox4x32_packed) :
             Val(:grouped)
@@ -391,7 +463,11 @@ end
             which(IR._device_uniform_fill_plan, Tuple{typeof(backend),typeof(rng),Type{T}})
         @test (dispatch.module, plan[1]) === (extension_module, expected_kind)
         if plan[1] === Val(:cooperative)
-            T === Float32 ? @test(plan[4] === Val(4)) : @test(length(plan) == 3)
+            if packed_float
+                @test plan[4] === (T === Float32 ? Val(4) : Val(2))
+            else
+                T === Float32 ? @test(plan[4] === Val(4)) : @test(length(plan) == 3)
+            end
         end
     end
 
@@ -486,7 +562,8 @@ end
     @test !extension_module._stream_aligned_philox4x32_f32_fill(offset, full_group, outputs)
     for (first, layout_eligible) in ((1, true), (2, false))
         view = @view storage[first:(first+2047)]
-        @test extension_module._philox4x32_f32_layout(view) === layout_eligible
+        @test extension_module._packed_float_layout(view, Float32, Val(4)) ===
+              layout_eligible
         filled_next, returned = rand_next!(rng, view)
         @test returned === view
         @test Array(view) == expected
@@ -496,6 +573,97 @@ end
     terminal_rng = _positioned_at_bit(rng, typemax(UInt64) - UInt64(383), UInt16(0))
     terminal = _check_public_packed_fill(terminal_rng, Float32, 2048, rand_next, rand_next!)
     @test terminal.position == _terminal(rng)
+end
+
+@testset "CUDA non-Philox float vector stores preserve the dense stream" begin
+    extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
+    backend = CUDA.CUDABackend()
+    for F in FAMILIES
+        F === Philox4x32 && continue
+        for T in (Float32, Float64)
+            rng = device(F(0x788))
+            plan = IR._device_uniform_fill_plan(backend, rng, T)
+            outputs = IR._fill_group_size(plan[2])
+            outputs_per_store = IR._fill_group_size(plan[4])
+            @test plan[1] === Val(:cooperative)
+            @test outputs_per_store == (T === Float32 ? 4 : 2)
+
+            _check_public_packed_fill(rng, T, outputs, rand_next, rand_next!)
+            block_bits = IR._block_bits(rng)
+            block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
+            boundary_bits = unique(
+                filter(
+                    bit -> bit < block_bits,
+                    UInt16[
+                        1,
+                        31,
+                        63,
+                        64,
+                        127,
+                        128,
+                        block_bits-UInt16(5),
+                        block_bits-UInt16(1),
+                    ],
+                ),
+            )
+            for bit in boundary_bits
+                offset = _positioned_at_bit(rng, block, bit)
+                _check_public_packed_fill(
+                    offset,
+                    T,
+                    8outputs_per_store,
+                    rand_next,
+                    rand_next!,
+                )
+            end
+
+            storage = CUDA.CuArray{T}(undef, outputs + 1)
+            expected_next, expected =
+                _chain(rng, current -> rand_next(current, T), outputs, T)
+            for (first, eligible) in ((1, true), (2, false))
+                view = @view storage[first:(first+outputs-1)]
+                @test extension_module._packed_float_layout(view, T, plan[4]) === eligible
+                filled_next, returned = rand_next!(rng, view)
+                @test returned === view
+                @test Array(view) == expected
+                @test filled_next.position == expected_next.position
+            end
+
+            packed_count = 8outputs_per_store
+            packed_next, packed_expected =
+                _chain(rng, current -> rand_next(current, T), packed_count, T)
+            matrix = CUDA.CuArray{T}(undef, outputs_per_store, 8)
+            @test extension_module._packed_float_layout(matrix, T, plan[4])
+            matrix_next, returned_matrix = rand_next!(rng, matrix)
+            @test returned_matrix === matrix
+            @test vec(Array(matrix)) == packed_expected
+            @test matrix_next.position == packed_next.position
+
+            strided_storage = CUDA.CuArray{T}(undef, 2packed_count)
+            strided = @view strided_storage[1:2:(2packed_count)]
+            @test !extension_module._packed_float_layout(strided, T, plan[4])
+            strided_next, returned_strided = rand_next!(rng, strided)
+            @test returned_strided === strided
+            @test Array(strided) == packed_expected
+            @test strided_next.position == packed_next.position
+
+            last_pack_rng =
+                _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
+            unchanged = CUDA.fill(T(0.25), 2outputs_per_store)
+            @test_throws ArgumentError rand_next!(last_pack_rng, unchanged)
+            @test Array(unchanged) == fill(T(0.25), 2outputs_per_store)
+
+            terminal_rng = _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
+            terminal = _check_public_packed_fill(
+                terminal_rng,
+                T,
+                outputs_per_store,
+                rand_next,
+                rand_next!,
+            )
+            @test terminal.position == _terminal(rng)
+        end
+    end
 end
 
 @testset "CUDA Philox4x32 packed stores preserve the stream" begin
@@ -821,61 +989,38 @@ end
         extension_module._CUDA_F32X4,
         CUDA.CuArray{Float32}(undef, IR._fill_group_size(float_plan[2])),
     )
-    cooperative_kernel = IR._fill_cooperative_kernel!(backend)
-    float_workgroup = IR._fill_group_size(float_plan[3])
     for stream_aligned in (Val(false), Val(true))
-        float_typed = IR.KernelAbstractions.@ka_code_typed cooperative_kernel(
+        _check_cooperative_kernel_code(
+            backend,
             packed_rng,
             float_packed,
             Float32,
-            Val(IR._draw_bits(Float32)),
-            float_plan[2],
-            float_plan[3],
-            float_plan[4],
+            float_plan,
             stream_aligned,
-            IR.FAMILY_BITS,
-            Val(:uniform),
-            ndrange = float_workgroup,
-            workgroupsize = float_workgroup,
+            check_store = stream_aligned === Val(true),
         )
-        float_llvm = sprint() do io
-            CUDA.@device_code_llvm io = io cooperative_kernel(
-                packed_rng,
-                float_packed,
-                Float32,
-                Val(IR._draw_bits(Float32)),
-                float_plan[2],
-                float_plan[3],
-                float_plan[4],
-                stream_aligned,
-                IR.FAMILY_BITS,
-                Val(:uniform);
-                ndrange = float_workgroup,
-                workgroupsize = float_workgroup,
+    end
+
+    for F in FAMILIES
+        F === Philox4x32 && continue
+        for T in (Float32, Float64)
+            rng = device(F(0x788))
+            plan = IR._device_uniform_fill_plan(backend, rng, T)
+            packed = reinterpret(
+                extension_module._packed_float_type(T),
+                CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2])),
+            )
+            _check_cooperative_kernel_code(
+                backend,
+                rng,
+                packed,
+                T,
+                plan,
+                Val(false),
+                check_store = true,
             )
         end
-        float_typed_text = sprint(show, float_typed)
-        @test !occursin("UInt128", float_typed_text)
-        @test !occursin("BigInt", float_typed_text)
-        @test !occursin(r"\bi128\b", float_llvm)
     end
-    float_sass = sprint() do io
-        CUDA.@device_code_sass io = io cooperative_kernel(
-            packed_rng,
-            float_packed,
-            Float32,
-            Val(IR._draw_bits(Float32)),
-            float_plan[2],
-            float_plan[3],
-            float_plan[4],
-            Val(true),
-            IR.FAMILY_BITS,
-            Val(:uniform);
-            ndrange = float_workgroup,
-            workgroupsize = float_workgroup,
-        )
-    end
-    @test occursin("STG.E.128", float_sass)
 
     for F in FAMILIES
         rng = device(F(0x123456))

@@ -657,21 +657,33 @@ end
 @inline _fill_kernel(::Val{:uniform}) = _uniform_fill_kernel!
 @inline _fill_grouped_kernel(::Val{:uniform}) = _uniform_fill_grouped_kernel!
 
+@inline _stream_block_offset(block::UInt64, offset::UInt64) = block + offset
+@inline function _stream_block_offset(block::NTuple{2,UInt64}, offset::UInt64)
+    lo = block[1] + offset
+    return lo, block[2] + UInt64(lo < block[1])
+end
+
+@inline _cooperative_shared_limbs(::Val{B}, ::Val{O}, ::Val{W}) where {B,O,W} =
+    (B ÷ 64) * cld((B - 1) + O * W, B)
+
 KernelAbstractions.@kernel function _fill_cooperative_kernel!(
-    rng::Philox4x32,
+    rng,
     destination,
     ::Type{T},
     ::Val{W},
+    block_width::Val{B},
     ::Val{O},
     ::Val{L},
     ::Val{P},
     ::Val{S},
     family::UInt32,
     codec,
-) where {T,W,O,L,P,S}
+) where {T,W,B,O,L,P,S}
     group = @index(Group, Linear)
     lane = @index(Local, Linear)
-    shared = @localmem UInt64 (2 * cld((S ? 0 : 127) + O * W, 128),)
+    shared = @localmem UInt64 (
+        S ? 2 * cld(O * W, 128) : _cooperative_shared_limbs(block_width, Val(O), Val(W)),
+    )
     if S
         blocks = cld(O * W, 128)
         first_block = rng.position.block + UInt64((group - 1) * blocks)
@@ -689,14 +701,16 @@ KernelAbstractions.@kernel function _fill_cooperative_kernel!(
         outputs = min(O, P * length(destination) - first + 1)
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), UInt16(W))
         position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-        blocks = cld(Int(position.bit) + outputs * W, 128)
+        block_bits = B
+        blocks = cld(Int(position.bit) + outputs * W, block_bits)
 
         block_offset = lane - 1
         while block_offset < blocks
-            limbs = _stream_limbs(rng, family, position.block + UInt64(block_offset))
-            @inbounds begin
-                shared[2block_offset+1] = limbs[1]
-                shared[2block_offset+2] = limbs[2]
+            block = _stream_block_offset(_position_block(position), UInt64(block_offset))
+            limbs = _stream_limbs(rng, family, block)
+            shared_first = block_offset * length(limbs)
+            @inbounds for limb in eachindex(limbs)
+                shared[shared_first+limb] = limbs[limb]
             end
             block_offset += L
         end
@@ -856,8 +870,8 @@ end
 
 @inline _outputs_per_store(::Tuple{Val{:cooperative},Val{O},Val{L}}) where {O,L} = Val(1)
 @inline _outputs_per_store(
-    plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{4}},
-) where {O,L} = plan[4]
+    plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{P}},
+) where {O,L,P} = plan[4]
 
 @inline function _launch_cooperative_fill!(
     backend,
@@ -878,6 +892,7 @@ end
         destination,
         T,
         Val(_fill_width(codec, T)),
+        Val(Int(_block_bits(rng))),
         outputs,
         workgroup,
         outputs_per_store,
