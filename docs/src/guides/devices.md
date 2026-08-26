@@ -22,8 +22,8 @@ rng, values = rand_next(rng, Float32, 1_000_000)
 This optional GPU example is not run when the documentation builds.
 
 For AMDGPU and Metal, use that backend's active-device selection API before an
-allocation or launch. Applying a named `MLDataDevices` device does not select
-or retain its physical device.
+allocation or launch. A named device discards any physical device handle. It
+does not select or retain that device.
 
 The RNG and every device-bound input must use the same backend. Generated
 arrays stay on that backend. PureRNGs does not silently copy results to the

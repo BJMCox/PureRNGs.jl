@@ -26,4 +26,8 @@ Derive generators for independent roles with [`subrng`](@ref), or derive an
 ordered group with [`splitrng`](@ref). Use [`StatefulRNG`](@ref) only when an API
 requires `Random.AbstractRNG`.
 
+Start with [Immutable workflows](tutorials/immutable-workflows.md), then read
+[Splitting and devices](tutorials/splitting-and-devices.md) and
+[Sampling](tutorials/sampling.md).
+
 See the [API reference](@ref) for the complete public interface.

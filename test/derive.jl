@@ -299,7 +299,12 @@ end
     @test occursin("purpose", lowercase(sub_doc))
     @test occursin("few thousand", lowercase(philox2x32_doc))
 
-    splitting_doc = lowercase(read(joinpath(pkgdir(PureRNGs), "SPLITTING.md"), String))
+    splitting_doc = lowercase(
+        read(
+            joinpath(pkgdir(PureRNGs), "docs", "src", "guides", "splitting.md"),
+            String,
+        ),
+    )
     @test occursin("n^2 / 2^(k+1)", splitting_doc)
     @test occursin("subrng(root, chunk_id)", splitting_doc)
     @test occursin("subtrees identical", splitting_doc)
