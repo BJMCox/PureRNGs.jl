@@ -4,10 +4,11 @@
 Wrap an immutable generator for host-only consumers of `Random.AbstractRNG`.
 Construction preserves the key and position and rebinds the generator to the CPU.
 
-Package-owned `Array` and `BitArray` fills preflight their full counter span. A foreign
-`Random` fill may leave its destination partially written on counter exhaustion because
-each scalar bridge draw preflights only its own span. The held generator remains valid at
-the position after the last successful draw.
+Package-owned `Array` and `BitArray` fills preflight their full counter span. A
+foreign `Random` fill has no chained-scalar consumption-order guarantee. It may
+leave its destination partially written on counter exhaustion because each
+scalar bridge draw preflights only its own span. The held generator remains
+valid at the position after the last successful draw.
 """
 mutable struct StatefulRNG{R<:AbstractPureRNG} <: Random.AbstractRNG
     rng::R

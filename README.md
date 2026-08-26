@@ -1,9 +1,9 @@
 # PureRNGs.jl
 
 PureRNGs provides counter-based random number generators for reproducible
-CPU and accelerator code. Each draw returns the advanced generator with its
-result. Array allocation, device placement, and fast fill paths follow the
-generator, with fast defaults and no required tuning.
+CPU and accelerator code. Each continuing draw returns the advanced generator
+with its result. Array allocation, device placement, and fast fill paths follow
+the generator, with fast defaults and no required tuning.
 
 ## Quick start
 
