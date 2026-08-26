@@ -418,6 +418,16 @@ device = MLD.CUDADevice(primary)
         @test which(device, Tuple{typeof(cpu_rng)}).module === IR
         @test MLD.CUDADevice()(cpu_rng).device === gpu_rng.device
 
+        range = UInt32(1):UInt32(3)
+        @test which(rand, (typeof(gpu_rng), Type{UInt32}, Int)).module === IR
+        @test which(rand_next, (typeof(gpu_rng), Type{UInt32}, Int)).module === IR
+        @test which(randn, (typeof(gpu_rng), Type{Float32}, Int)).module === IR
+        @test which(randn_next, (typeof(gpu_rng), Type{Float32}, Int)).module === IR
+        @test which(rand, (typeof(gpu_rng), typeof(range), Int)).module === IR
+        @test which(rand_next, (typeof(gpu_rng), typeof(range), Int)).module === IR
+        @test which(rand_next, (typeof(gpu_rng), Int)).module === IR
+        @test which(randn_next, (typeof(gpu_rng), Int)).module === IR
+
         advanced, _ = rand_next(gpu_rng, UInt64)
         child = subrng(advanced, UInt64(0x71))
         children = splitrng(advanced, Val(2))

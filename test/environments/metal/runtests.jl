@@ -42,31 +42,28 @@ end
         @test rng.device === IR._METAL_BACKEND
         @test isbits(rng.device)
         @test sizeof(rng.device) == 0
-        @test which(IR.rand_next, (typeof(rng), Int)).module === extension_module
-        @test which(IR.randn_next, (typeof(rng), Int)).module === extension_module
+        @test which(IR.rand_next, (typeof(rng), Int)).module === IR
+        @test which(IR.randn_next, (typeof(rng), Int)).module === IR
 
         for T in (Bool, UInt32, UInt64, Float32, Float64)
             @test rand(rng, T) === rand(cpu_rng, T)
             @test first(IR.rand_next(rng, T)).device === IR._METAL_BACKEND
             @test last(IR.rand_next(rng, T)) === last(IR.rand_next(cpu_rng, T))
-            @test which(rand, (typeof(rng), Type{T}, Int)).module === extension_module
-            @test which(IR.rand_next, (typeof(rng), Type{T}, Int)).module ===
-                  extension_module
+            @test which(rand, (typeof(rng), Type{T}, Int)).module === IR
+            @test which(IR.rand_next, (typeof(rng), Type{T}, Int)).module === IR
         end
         for T in (Float32, Float64)
             @test randn(rng, T) === randn(cpu_rng, T)
             @test last(IR.randn_next(rng, T)) === last(IR.randn_next(cpu_rng, T))
-            @test which(randn, (typeof(rng), Type{T}, Int)).module === extension_module
-            @test which(IR.randn_next, (typeof(rng), Type{T}, Int)).module ===
-                  extension_module
+            @test which(randn, (typeof(rng), Type{T}, Int)).module === IR
+            @test which(IR.randn_next, (typeof(rng), Type{T}, Int)).module === IR
         end
         for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
             range = T(1):T(3)
             @test rand(rng, range) === rand(cpu_rng, range)
             @test last(IR.rand_next(rng, range)) === last(IR.rand_next(cpu_rng, range))
-            @test which(rand, (typeof(rng), typeof(range), Int)).module === extension_module
-            @test which(IR.rand_next, (typeof(rng), typeof(range), Int)).module ===
-                  extension_module
+            @test which(rand, (typeof(rng), typeof(range), Int)).module === IR
+            @test which(IR.rand_next, (typeof(rng), typeof(range), Int)).module === IR
         end
     end
 
@@ -84,6 +81,8 @@ end
         end
         _check_metal_error(() -> IR.rand_next(rng, 0))
         _check_metal_error(() -> IR.randn_next(rng, 0))
+        _check_metal_error(() -> rand(rng, Float64, -1))
+        _check_metal_error(() -> IR.rand_next(rng, Float64, -1))
     end
 
     for F in METAL_64_FAMILIES
@@ -109,6 +108,8 @@ end
     end
 
     rng = MetalDevice()(Philox4x32(0x81a))
+    _check_metal_error(() -> rand(rng, UInt32(2):UInt32(1), 1))
+    _check_metal_error(() -> IR.rand_next(rng, UInt32(2):UInt32(1), 1))
     _check_metal_error(() -> rand(rng, UInt32(1):UInt32(3), -1))
     _check_metal_error(() -> IR.rand_next(rng, UInt32(1):UInt32(3), -1))
     @test_throws ArgumentError rand!(rng, UInt32[])

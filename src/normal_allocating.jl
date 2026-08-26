@@ -8,14 +8,14 @@
     return _randn_next_fill!(rng, destination, true)
 end
 
-@inline function randn_next(rng::_CPUFamily, dim1::Integer, dims::Integer...)
+@inline function randn_next(rng::_ScalarUniformFamily, dim1::Integer, dims::Integer...)
     return _randn_next_array(rng, Float64, (dim1, dims...))
 end
 
 for T in (Float32, Float64)
     @eval begin
         @inline function Random.randn(
-            rng::_CPUFamily,
+            rng::_ScalarUniformFamily,
             ::Type{$T},
             dim1::Integer,
             dims::Integer...,
@@ -25,7 +25,7 @@ for T in (Float32, Float64)
         end
 
         @inline function randn_next(
-            rng::_CPUFamily,
+            rng::_ScalarUniformFamily,
             ::Type{$T},
             dim1::Integer,
             dims::Integer...,

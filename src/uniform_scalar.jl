@@ -106,4 +106,6 @@ end
 end
 
 @inline _check_serviceability(rng, ::Type) = nothing
+@inline _check_serviceability(rng, range::AbstractRange) =
+    _check_serviceability(rng, eltype(range))
 @inline _with_device(f, ::_BackendToken) = f()
