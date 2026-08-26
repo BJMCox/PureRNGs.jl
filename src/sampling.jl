@@ -2,17 +2,10 @@
     throw(ArgumentError("$noun device differs from the generator device"))
 end
 
-@inline _sampling_device_type(::MLDataDevices.CPUDevice) = MLDataDevices.CPUDevice
-@inline _sampling_device_type(::MLDataDevices.CUDADevice) = MLDataDevices.CUDADevice
-@inline _sampling_device_type(::MLDataDevices.AMDGPUDevice) = MLDataDevices.AMDGPUDevice
-@inline _sampling_device_type(::MLDataDevices.MetalDevice) = MLDataDevices.MetalDevice
-@inline _sampling_device_type(device) = nothing
-
 @inline function _check_sampling_device(rng, object, noun)
     device = MLDataDevices.get_device(object)
     device === nothing && return true
-    MLDataDevices.get_device_type(rng.device) === _sampling_device_type(device) ||
-        _sampling_device_mismatch(noun)
+    device isa MLDataDevices.get_device_type(rng.device) || _sampling_device_mismatch(noun)
     return false
 end
 
