@@ -31,6 +31,7 @@ function _packed_cooperative_values(
         destination,
         T,
         Val(width),
+        Val(Int(PackedDeviceIR._block_bits(rng))),
         outputs,
         workgroup,
         Val(1),
@@ -89,6 +90,7 @@ end
         destination,
         Bool,
         Val(1),
+        Val(Int(PackedDeviceIR._block_bits(terminal))),
         outputs,
         workgroup,
         Val(1),
@@ -100,6 +102,48 @@ end
     )
     PackedDeviceKA.synchronize(PackedDeviceKA.CPU())
     @test only(destination) == PackedDeviceIR._draw_unchecked(terminal, Bool)
+end
+
+@testset "packed cooperative float stores preserve non-Philox streams" begin
+    @test PackedDeviceIR._cooperative_shared_limbs(Val(256), Val(16), Val(24)) == 12
+    @test PackedDeviceIR._cooperative_shared_limbs(Val(256), Val(16), Val(53)) == 20
+    @test PackedDeviceIR._cooperative_shared_limbs(Val(128), Val(2048), Val(24)) == 770
+
+    kernel = PackedDeviceIR._fill_cooperative_kernel!(PackedDeviceKA.CPU())
+    for F in FAMILY_TYPES
+        F === Philox4x32 && continue
+        rng = _packed_device_rng(F)
+        for (T, outputs_per_store) in ((Float32, Val(4)), (Float64, Val(2)))
+            outputs = Val(16)
+            workgroup = Val(4)
+            count =
+                PackedDeviceIR._fill_group_size(outputs) +
+                PackedDeviceIR._fill_group_size(outputs_per_store)
+            values = Vector{T}(undef, count)
+            packed = reinterpret(
+                NTuple{PackedDeviceIR._fill_group_size(outputs_per_store),VecElement{T}},
+                values,
+            )
+            groups = cld(count, PackedDeviceIR._fill_group_size(outputs))
+            kernel(
+                rng,
+                packed,
+                T,
+                Val(PackedDeviceIR._draw_bits(T)),
+                Val(Int(PackedDeviceIR._block_bits(rng))),
+                outputs,
+                workgroup,
+                outputs_per_store,
+                Val(false),
+                PackedDeviceIR.FAMILY_BITS,
+                Val(:uniform);
+                ndrange = groups * PackedDeviceIR._fill_group_size(workgroup),
+                workgroupsize = PackedDeviceIR._fill_group_size(workgroup),
+            )
+            PackedDeviceKA.synchronize(PackedDeviceKA.CPU())
+            @test values == _reference_chain(rng, T, count)[2]
+        end
+    end
 end
 
 @testset "natural-block Bool stores preserve every family stream" begin
