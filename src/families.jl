@@ -33,6 +33,17 @@ end
 struct _ConstructionToken end
 const _CONSTRUCTION_TOKEN = _ConstructionToken()
 
+"""
+    Philox2x32(seed)
+    Philox2x32(key::NTuple{1,UInt32})
+
+Construct a Philox generator with a 32-bit key and two 32-bit output words per
+counter block. The generator starts at the beginning of its stream on the CPU.
+
+The integer `seed` must be non-negative and fit in 32 bits. The tuple form sets
+the key exactly. This family's small key space makes derived-key collisions
+likely beyond a few thousand program-wide derivations.
+"""
 struct Philox2x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{1,UInt32}
     position::_Position64
@@ -42,6 +53,16 @@ struct Philox2x32{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
+"""
+    Philox4x32(seed)
+    Philox4x32(key::NTuple{2,UInt32})
+
+Construct a Philox generator with a 64-bit key and four 32-bit output words per
+counter block. The generator starts at the beginning of its stream on the CPU.
+
+The integer `seed` must be non-negative and fit in 64 bits. The tuple form sets
+the key words exactly, from least to most significant.
+"""
 struct Philox4x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt32}
     position::_Position64
@@ -51,6 +72,16 @@ struct Philox4x32{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
+"""
+    Philox2x64(seed)
+    Philox2x64(key::NTuple{1,UInt64})
+
+Construct a Philox generator with a 64-bit key and two 64-bit output words per
+counter block. The generator starts at the beginning of its stream on the CPU.
+
+The integer `seed` must be non-negative and fit in 64 bits. The tuple form sets
+the key exactly.
+"""
 struct Philox2x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{1,UInt64}
     position::_Position64
@@ -60,6 +91,16 @@ struct Philox2x64{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
+"""
+    Philox4x64(seed)
+    Philox4x64(key::NTuple{2,UInt64})
+
+Construct a Philox generator with a 128-bit key and four 64-bit output words per
+counter block. The generator starts at the beginning of its stream on the CPU.
+
+The integer `seed` must be non-negative and fit in 128 bits. The tuple form sets
+the key words exactly, from least to most significant.
+"""
 struct Philox4x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt64}
     position::_Position128
@@ -69,6 +110,16 @@ struct Philox4x64{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
+"""
+    Threefry2x32(seed)
+    Threefry2x32(key::NTuple{2,UInt32})
+
+Construct a Threefry generator with a 64-bit key and two 32-bit output words per
+counter block. The generator starts at the beginning of its stream on the CPU.
+
+The integer `seed` must be non-negative and fit in 64 bits. The tuple form sets
+the key words exactly, from least to most significant.
+"""
 struct Threefry2x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt32}
     position::_Position64
@@ -78,6 +129,17 @@ struct Threefry2x32{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
+"""
+    Threefry4x32(seed)
+    Threefry4x32(key::NTuple{4,UInt32})
+
+Construct a Threefry generator with a 128-bit key and four 32-bit output words
+per counter block. The generator starts at the beginning of its stream on the
+CPU.
+
+The integer `seed` must be non-negative and fit in 128 bits. The tuple form sets
+the key words exactly, from least to most significant.
+"""
 struct Threefry4x32{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{4,UInt32}
     position::_Position64
@@ -87,6 +149,16 @@ struct Threefry4x32{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
+"""
+    Threefry2x64(seed)
+    Threefry2x64(key::NTuple{2,UInt64})
+
+Construct a Threefry generator with a 128-bit key and two 64-bit output words per
+counter block. The generator starts at the beginning of its stream on the CPU.
+
+The integer `seed` must be non-negative and fit in 128 bits. The tuple form sets
+the key words exactly, from least to most significant.
+"""
 struct Threefry2x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt64}
     position::_Position64
@@ -96,6 +168,16 @@ struct Threefry2x64{D<:_BackendToken} <: AbstractPureRNG
         new{D}(key, position, device)
 end
 
+"""
+    Threefry4x64(seed)
+    Threefry4x64(key::NTuple{4,UInt64})
+
+Construct a Threefry generator with a 256-bit key and four 64-bit output words per
+counter block. The generator starts at the beginning of its stream on the CPU.
+
+The integer `seed` must be non-negative and fit in 256 bits. The tuple form sets
+the key words exactly, from least to most significant.
+"""
 struct Threefry4x64{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{4,UInt64}
     position::_Position128

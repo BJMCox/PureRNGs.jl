@@ -358,6 +358,18 @@ function _randsample_next_unweighted(rng, population, requested_count)
     return next_rng, destination
 end
 
+"""
+    randsample(rng, population[, count])
+    randsample(rng, population, weights[, count])
+
+Sample with replacement from `population`. Without `count`, return as many
+draws as the population has elements. With `weights`, use non-negative finite
+weights proportional to the desired probabilities.
+
+The result is a vector on the generator's device. This convenience form does
+not return the advanced generator; use [`randsample_next`](@ref) when subsequent
+draws must continue after the sample.
+"""
 @inline function randsample(rng::AbstractPureRNG, population)
     return last(_randsample_next_unweighted(rng, population, nothing))
 end
@@ -366,6 +378,18 @@ end
     return last(_randsample_next_unweighted(rng, population, count))
 end
 
+"""
+    randsample_next(rng, population[, count]) -> (next_rng, values)
+    randsample_next(rng, population, weights[, count]) -> (next_rng, values)
+
+Sample with replacement from `population` and return the advanced immutable
+generator with the result. Without `count`, return as many draws as the
+population has elements. With `weights`, use non-negative finite weights
+proportional to the desired probabilities.
+
+The result is a vector on the generator's device. The input generator never
+changes.
+"""
 @inline function randsample_next(rng::AbstractPureRNG, population)
     return _randsample_next_unweighted(rng, population, nothing)
 end

@@ -164,6 +164,28 @@ for T in (Float32, Float64)
     end
 end
 
+@doc """
+    randn_next(rng[, T]) -> (next_rng, value)
+    randn_next(rng[, T], dims...) -> (next_rng, values)
+
+Draw standard normal values from `rng` and return the advanced immutable
+generator with the result. Omitting `T` selects `Float64`; `T` may be
+`Float32` or `Float64`.
+
+The allocating form creates an array on the generator's device. The input
+generator never changes.
+""" randn_next
+
+@doc """
+    randnat(rng, T, i)
+
+Return the `i`th standard normal draw at or after the current position of `rng`,
+where `i` is one-based and `T` is `Float32` or `Float64`.
+
+Addressed draws do not advance or change `rng`. They throw when `i` is not
+positive or the addressed draw exceeds the family's counter capacity.
+""" randnat
+
 @inline function _fill_normal_unchecked!(
     rng::_ScalarUniformFamily,
     position,
@@ -353,3 +375,14 @@ for T in (Float32, Float64)
         end
     end
 end
+
+@doc """
+    randn_next!(rng, destination; threaded=true) -> (next_rng, destination)
+
+Fill a `Float32` or `Float64` destination with standard normal values and return
+the advanced immutable generator with the same destination. The destination's
+device must match the generator.
+
+Set `threaded=false` to request the serial CPU fill path. The keyword does not
+change the generated stream. The input generator never changes.
+""" randn_next!

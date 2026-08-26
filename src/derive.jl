@@ -171,12 +171,3 @@ collision makes both child subtrees identical. Use a family with at least 128
 key bits for per-particle or per-proposal derivation at scale.
 """
 @inline subrng(rng::AbstractPureRNG, purpose::Integer) = _subrng(rng, purpose % UInt64)
-
-@doc """
-    Philox2x32(seed)
-    Philox2x32(key)
-
-Construct the 32-bit-key Philox family. Its small key space makes derivation
-collisions likely beyond a few thousand program-wide derivations. Prefer a
-family with at least 128 key bits for derivation at scale.
-""" Philox2x32
