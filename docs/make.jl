@@ -1,3 +1,5 @@
+pushfirst!(LOAD_PATH, normpath(joinpath(@__DIR__, "..")))
+
 using Documenter
 using PureRNGs
 
