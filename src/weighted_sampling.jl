@@ -90,9 +90,7 @@ end
 
 function _transfer_weights(device, weights::Vector{Float64})
     transferred = _allocate_array(device, Float64, (length(weights),))
-    _with_device(device) do
-        copyto!(transferred, weights)
-    end
+    copyto!(transferred, weights)
     return transferred
 end
 
@@ -101,24 +99,22 @@ function _prepare_weights(rng, weights, agnostic::Bool)
     converted = agnostic ? source : _allocate_array(rng.device, Float64, (length(source),))
     total_result = _allocate_array(rng.device, Float64, (1,))
     invalid_result = _allocate_array(rng.device, Bool, (1,))
-    _with_device(rng.device) do
-        backend = _fill_backend(converted)
-        if agnostic
-            _total_weights_kernel!(backend)(
-                converted,
-                total_result,
-                invalid_result;
-                ndrange = 1,
-            )
-        else
-            _prepare_weights_kernel!(backend)(
-                source,
-                converted,
-                total_result,
-                invalid_result;
-                ndrange = 1,
-            )
-        end
+    backend = _fill_backend(converted)
+    if agnostic
+        _total_weights_kernel!(backend)(
+            converted,
+            total_result,
+            invalid_result;
+            ndrange = 1,
+        )
+    else
+        _prepare_weights_kernel!(backend)(
+            source,
+            converted,
+            total_result,
+            invalid_result;
+            ndrange = 1,
+        )
     end
     invalid = only(Array(invalid_result))
     invalid && _invalid_weights()
@@ -283,21 +279,19 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     isempty(destination) && return next_rng, destination
 
     thresholds = _allocate_array(rng.device, Float64, (count,))
-    _with_device(rng.device) do
-        backend = _fill_backend(thresholds)
-        _fill_weighted_thresholds!(backend, rng, total, thresholds)
-        order = _weighted_sortperm(rng.device, thresholds)
-        _launch_weighted_scan!(
-            rng.device,
-            backend,
-            indexed,
-            converted,
-            thresholds,
-            order,
-            cumulative,
-            destination,
-        )
-    end
+    backend = _fill_backend(thresholds)
+    _fill_weighted_thresholds!(backend, rng, total, thresholds)
+    order = _weighted_sortperm(rng.device, thresholds)
+    _launch_weighted_scan!(
+        rng.device,
+        backend,
+        indexed,
+        converted,
+        thresholds,
+        order,
+        cumulative,
+        destination,
+    )
     return next_rng, destination
 end
 

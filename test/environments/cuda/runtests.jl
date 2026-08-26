@@ -1192,13 +1192,6 @@ end
 @testset "context, empty validation, and active-device placement" begin
     before = CUDA.device()
     rng = device(Philox4x32(0x123456))
-    IR._with_device(rng.device) do
-        @test CUDA.device() == before
-    end
-    @test CUDA.device() == before
-    @test_throws ErrorException IR._with_device(rng.device) do
-        error("context probe")
-    end
     @test CUDA.device() == before
     rand(rng, UInt32, 4)
     @test CUDA.device() == before
@@ -1483,22 +1476,20 @@ end
     @test length(total) == 1
     thresholds = CUDA.CuArray{Float64}(undef, 9)
     destination = CUDA.CuArray{UInt16}(undef, 9)
-    IR._with_device(range_rng.device) do
-        backend = IR._fill_backend(thresholds)
-        IR._fill_weighted_thresholds!(backend, range_rng, total, thresholds)
-        frozen_thresholds = Array(thresholds)
-        order = IR._weighted_sortperm(range_rng.device, thresholds)
-        @test order isa CUDA.CuArray{Int,1}
-        @test Array(thresholds) == frozen_thresholds
-        IR._launch_weighted_scan!(
-            backend,
-            audit_population,
-            converted,
-            thresholds,
-            order,
-            destination,
-        )
-    end
+    backend = IR._fill_backend(thresholds)
+    IR._fill_weighted_thresholds!(backend, range_rng, total, thresholds)
+    frozen_thresholds = Array(thresholds)
+    order = IR._weighted_sortperm(range_rng.device, thresholds)
+    @test order isa CUDA.CuArray{Int,1}
+    @test Array(thresholds) == frozen_thresholds
+    IR._launch_weighted_scan!(
+        backend,
+        audit_population,
+        converted,
+        thresholds,
+        order,
+        destination,
+    )
     @test destination isa CUDA.CuArray{UInt16,1}
 
     fold_weights = CUDA.CuArray(
@@ -1525,19 +1516,17 @@ end
         0x4340000000000000,
         0x4340000000000001,
     ]
-    IR._with_device(range_rng.device) do
-        backend = IR._fill_backend(scan_destination)
-        IR._launch_weighted_scan!(
-            range_rng.device,
-            backend,
-            CUDA.CuArray(Int32[10, 20, 30, 40]),
-            scan_weights,
-            CUDA.CuArray(Float64[0x1p53]),
-            CUDA.CuArray([1]),
-            scan_cumulative,
-            scan_destination,
-        )
-    end
+    backend = IR._fill_backend(scan_destination)
+    IR._launch_weighted_scan!(
+        range_rng.device,
+        backend,
+        CUDA.CuArray(Int32[10, 20, 30, 40]),
+        scan_weights,
+        CUDA.CuArray(Float64[0x1p53]),
+        CUDA.CuArray([1]),
+        scan_cumulative,
+        scan_destination,
+    )
     @test Array(scan_destination) == Int32[40]
     equal_thresholds = CUDA.CuArray([0.5, 0.1, 0.5, 0.1])
     equal_order = IR._weighted_sortperm(range_rng.device, equal_thresholds)

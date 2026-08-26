@@ -351,10 +351,8 @@ function _randsample_next_unweighted(rng, population, requested_count)
     next_rng = _sampling_reservation(rng, count, width)
     destination = _allocate_sampling_result(rng, indexed, count)
     isempty(destination) && return next_rng, destination
-    _with_device(rng.device) do
-        backend = _fill_backend(destination)
-        _launch_unweighted_sample!(backend, rng, indexed, cardinality, destination, width)
-    end
+    backend = _fill_backend(destination)
+    _launch_unweighted_sample!(backend, rng, indexed, cardinality, destination, width)
     return next_rng, destination
 end
 

@@ -31,7 +31,7 @@ end
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
-    device = _check_fill_device(rng, destination)
+    _check_fill_device(rng, destination)
     _check_serviceability(rng, T)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _draw_bits(T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
@@ -40,10 +40,8 @@ end
         _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
         return next_rng, destination
     end
-    _with_device(device) do
-        backend = _fill_backend(destination)
-        _launch_uniform!(backend, rng, destination, T)
-    end
+    backend = _fill_backend(destination)
+    _launch_uniform!(backend, rng, destination, T)
     return next_rng, destination
 end
 

@@ -305,17 +305,15 @@ function IR._prepare_weight_scan(rng::_CUDAFamily, weights, agnostic::Bool)
     cumulative = IR._allocate_array(rng.device, Float64, (length(source),))
     total_result = IR._allocate_array(rng.device, Float64, (1,))
     invalid_result = IR._allocate_array(rng.device, Bool, (1,))
-    IR._with_device(rng.device) do
-        backend = IR._fill_backend(cumulative)
-        _prepare_cumulative_weights_kernel!(backend)(
-            source,
-            total_result,
-            invalid_result,
-            cumulative,
-            Val(!agnostic);
-            ndrange = 1,
-        )
-    end
+    backend = IR._fill_backend(cumulative)
+    _prepare_cumulative_weights_kernel!(backend)(
+        source,
+        total_result,
+        invalid_result,
+        cumulative,
+        Val(!agnostic);
+        ndrange = 1,
+    )
     only(Array(invalid_result)) && IR._invalid_weights()
     return nothing, total_result, cumulative
 end

@@ -102,10 +102,9 @@ end
 
 @inline function _check_fill_device(rng::_ScalarUniformFamily, destination)
     _same_fill_device(rng.device, destination) || _fill_device_mismatch()
-    return rng.device
+    return nothing
 end
 
 @inline _check_serviceability(rng, ::Type) = nothing
 @inline _check_serviceability(rng, range::AbstractRange) =
     _check_serviceability(rng, eltype(range))
-@inline _with_device(f, ::_BackendToken) = f()

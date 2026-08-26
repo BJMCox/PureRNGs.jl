@@ -142,14 +142,12 @@ end
     _check_serviceability(rng, range)
     span = _range_span(range)
     destination = _allocate_array(rng.device, T, dims)
-    device = _check_fill_device(rng, destination)
+    _check_fill_device(rng, destination)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _range_bits(span))
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
-    _with_device(device) do
-        backend = _fill_backend(destination)
-        _launch_range!(backend, rng, destination, range, span)
-    end
+    backend = _fill_backend(destination)
+    _launch_range!(backend, rng, destination, range, span)
     return next_rng, destination
 end
 
