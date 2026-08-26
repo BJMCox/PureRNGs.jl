@@ -30,4 +30,4 @@ Start with [Immutable workflows](tutorials/immutable-workflows.md), then read
 [Splitting and devices](tutorials/splitting-and-devices.md) and
 [Sampling](tutorials/sampling.md).
 
-See the [API reference](@ref) for the complete public interface.
+See the [API reference](@ref) for the exported interface.

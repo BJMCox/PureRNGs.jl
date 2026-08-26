@@ -75,9 +75,9 @@ end
     splitrng(rng, n)
     splitrng(rng, Val(N))
 
-Derive independent child keys from `rng`. The ordinary `n` form returns a
-vector. The `Val` form returns an allocation-free tuple for static or GPU code.
-The default derives two children.
+Derive child keys from distinct counter addresses. The ordinary `n` form
+returns a vector. The `Val` form returns an allocation-free tuple for static or
+GPU code. The default derives two children.
 
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts each child at position zero. It never changes the parent.
