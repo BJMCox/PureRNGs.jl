@@ -540,7 +540,6 @@ end
         (UInt64, 8, 9, 4),
         (Float32, 63, 1, 0),
         (Float32, 64, 65, 12),
-        (Float64, 10, 1, 0),
     )
         destination = Vector{T}(undef, count)
         index, block = IR._fill_aligned_blocks4!(rng, destination, 1, count, UInt64(0))

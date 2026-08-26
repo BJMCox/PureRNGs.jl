@@ -456,9 +456,6 @@ end
     return index, block
 end
 
-@inline _fill_aligned_blocks4!(rng, destination::Array{Float64}, index, last, block) =
-    (index, block)
-
 @inline function _fill_uniform_blocks4_cpu!(
     rng::Philox4x32,
     position::_Position64,
@@ -480,7 +477,7 @@ end
     return nothing
 end
 
-for T in (Bool, UInt32, UInt64, Float32, Float64)
+for T in (Bool, UInt32, UInt64, Float32)
     @eval @inline _fill_uniform_dense_cpu!(
         rng::Philox4x32,
         position::_Position64,
