@@ -1,10 +1,26 @@
-# The zero-size codec selects family, width, transform, and fill plan at compile time.
-const _TransformedFillCodec = Union{Val{:normal},_BackendToken}
+# A codec selects the family, width, mapping, and fill plan through dispatch.
+abstract type _MappedFillCodec end
+const _TransformedFillCodec = Union{Val{:normal},_BackendToken,_MappedFillCodec}
 
 @inline _transformed_draw_unchecked(::Val{:normal}, rng, position, T) =
     _draw_normal_unchecked(rng, position, T)
 @inline _transformed_draw_unchecked(::_BackendToken, rng, position, T) =
     _draw_exponential_unchecked(rng, position, T)
+@inline function _transformed_draw_unchecked(
+    codec::_MappedFillCodec,
+    rng,
+    position,
+    ::Type{T},
+) where {T}
+    raw = _extract_bits_unchecked(
+        rng,
+        _fill_family(codec),
+        _position_block(position),
+        position.bit,
+        Val(_fill_width(codec, T)),
+    )
+    return _cooperative_value(codec, T, raw)
+end
 
 @inline function _fill_transformed_dense_cpu!(
     rng,
@@ -189,14 +205,29 @@ function _launch_transformed!(
     return destination
 end
 
-@inline function _rand_transformed_next_fill!(
+function _launch_transformed!(
+    backend::KernelAbstractions.CPU,
+    rng,
+    destination::BitArray,
+    ::Type{Bool},
+    codec::_MappedFillCodec,
+)
+    _transformed_fill_dense_serial_kernel!(backend)(
+        rng,
+        destination,
+        Bool,
+        codec;
+        ndrange = 1,
+    )
+    return destination
+end
+
+@inline function _fill_transformed_prevalidated!(
     rng::_ScalarUniformFamily,
     destination::AbstractArray{T},
     threaded::Bool,
     codec::_TransformedFillCodec,
 ) where {T}
-    _check_fill_device(rng, destination)
-    _check_serviceability(rng, T)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _fill_width(codec, T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
@@ -214,6 +245,17 @@ end
     backend = _fill_backend(destination)
     _launch_transformed!(backend, rng, destination, T, codec)
     return next_rng, destination
+end
+
+@inline function _rand_transformed_next_fill!(
+    rng::_ScalarUniformFamily,
+    destination::AbstractArray{T},
+    threaded::Bool,
+    codec::_TransformedFillCodec,
+) where {T}
+    _check_fill_device(rng, destination)
+    _check_serviceability(rng, T)
+    return _fill_transformed_prevalidated!(rng, destination, threaded, codec)
 end
 
 @inline function _rand_transformed_next_array(

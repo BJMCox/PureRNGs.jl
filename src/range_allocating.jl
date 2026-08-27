@@ -1,7 +1,7 @@
 @inline function _fill_range_cpu_unchecked!(
     rng::_CPUFamily,
     position,
-    destination::Array{T},
+    destination::AbstractArray{T},
     range::AbstractRange{T},
     span::UInt64,
     indices,
