@@ -37,11 +37,13 @@ end
         randn,
         randn!,
         randexp,
+        randexp!,
         rand_next,
         rand_next!,
         randn_next,
         randn_next!,
         randexp_next,
+        randexp_next!,
         randat,
         randnat,
         randexpat,
@@ -51,7 +53,7 @@ end
         randsample_next,
     )
     @test foreign_functions ==
-          Set((rand, rand!, randn, randn!, randexp, Random.seed!, copy, parent))
+          Set((rand, rand!, randn, randn!, randexp, randexp!, Random.seed!, copy, parent))
 
     required = Dict(function_ => Set{Method}() for function_ in owned_functions)
     require = function (function_, signature)
@@ -71,6 +73,7 @@ end
     require(randn_next, Tuple{R})
     require(randn_next, Tuple{R,Int})
     require(randexp_next, Tuple{R})
+    require(randexp_next, Tuple{R,Int})
     for T in PURE_UNIFORM_TYPES
         require(rand, Tuple{R,Type{T}})
         require(rand, Tuple{R,Type{T},Int})
@@ -91,7 +94,11 @@ end
     end
     for T in EXPONENTIAL_TYPES
         require(randexp, Tuple{R,Type{T}})
+        require(randexp, Tuple{R,Type{T},Int})
+        require(randexp!, Tuple{R,Vector{T}})
         require(randexp_next, Tuple{R,Type{T}})
+        require(randexp_next, Tuple{R,Type{T},Int})
+        require(randexp_next!, Tuple{R,Vector{T}})
         require(randexpat, Tuple{R,Type{T},Int})
     end
     for T in RANGE_INTS
@@ -116,19 +123,20 @@ end
 
     for function_ in owned_functions
         methods_ =
-            function_ in (rand, rand!, randn, randn!, randexp) ?
+            function_ in (rand, rand!, randn, randn!, randexp, randexp!) ?
             _immutable_audit_methods(function_) : _audit_methods(function_)
         @test Set(methods_) == required[function_]
     end
     @test all(
         Base.unwrap_unionall(method.sig).parameters[2] <: AuditIR.AbstractPureRNG for
-        function_ in (rand, rand!, randn, randn!, randexp) for
+        function_ in (rand, rand!, randn, randn!, randexp, randexp!) for
         method in _immutable_audit_methods(function_)
     )
     @test all(
         Base.kwarg_decl(method) == [:threaded] for
-        function_ in (rand!, rand_next!, randn!, randn_next!) for method in (
-            function_ in (rand!, randn!) ? _immutable_audit_methods(function_) :
+        function_ in (rand!, rand_next!, randn!, randn_next!, randexp!, randexp_next!) for
+        method in (
+            function_ in (rand!, randn!, randexp!) ? _immutable_audit_methods(function_) :
             _audit_methods(function_)
         )
     )
@@ -179,6 +187,7 @@ end
         AuditIR._rebuild(rng, AuditIR._terminal64(AuditIR._max_block(rng)), rng.device)
     wrong_uniform_destination = WrongDeviceArray(Vector{UInt32}(undef, 1))
     wrong_normal_destination = WrongDeviceArray(Vector{Float32}(undef, 1))
+    wrong_exponential_destination = WrongDeviceArray(Vector{Float32}(undef, 1))
     argument_errors = (
         (:negative_seed, () -> Philox2x32(-1)),
         (:oversized_seed, () -> Philox2x32(big(1) << 32)),
@@ -189,6 +198,8 @@ end
         (:randat_capacity, () -> randat(exhausted, UInt32, 1)),
         (:randnat_index, () -> randnat(rng, Float32, 0)),
         (:randnat_capacity, () -> randnat(exhausted, Float32, 1)),
+        (:randexpat_index, () -> randexpat(rng, Float32, 0)),
+        (:randexpat_capacity, () -> randexpat(exhausted, Float32, 1)),
         (:pure_capacity, () -> rand(exhausted, UInt32)),
         (:continuation_capacity, () -> rand_next(exhausted, UInt32)),
         (:fill_capacity, () -> rand!(exhausted, Vector{UInt32}(undef, 1))),
@@ -207,6 +218,18 @@ end
         ),
         (:normal_allocating_capacity, () -> randn(exhausted, Float32, 1)),
         (:normal_continuation_allocating_capacity, () -> randn_next(exhausted, Float32, 1)),
+        (:exponential_pure_capacity, () -> randexp(exhausted, Float32)),
+        (:exponential_continuation_capacity, () -> randexp_next(exhausted, Float32)),
+        (:exponential_fill_capacity, () -> randexp!(exhausted, Vector{Float32}(undef, 1))),
+        (
+            :exponential_continuation_fill_capacity,
+            () -> randexp_next!(exhausted, Vector{Float32}(undef, 1)),
+        ),
+        (:exponential_allocating_capacity, () -> randexp(exhausted, Float32, 1)),
+        (
+            :exponential_continuation_allocating_capacity,
+            () -> randexp_next(exhausted, Float32, 1),
+        ),
         (:range_pure_capacity, () -> rand(exhausted, UInt8(1):UInt8(2))),
         (:range_continuation_capacity, () -> rand_next(exhausted, UInt8(1):UInt8(2))),
         (:range_allocating_capacity, () -> rand(exhausted, UInt8(1):UInt8(2), 1)),
@@ -220,6 +243,11 @@ end
         (:negative_uniform_continuation_dimension, () -> rand_next(rng, UInt32, -1)),
         (:negative_normal_dimension, () -> randn(rng, Float32, -1)),
         (:negative_normal_continuation_dimension, () -> randn_next(rng, Float32, -1)),
+        (:negative_exponential_dimension, () -> randexp(rng, Float32, -1)),
+        (
+            :negative_exponential_continuation_dimension,
+            () -> randexp_next(rng, Float32, -1),
+        ),
         (:untyped_uniform, () -> rand(rng)),
         (:untyped_normal, () -> randn(rng)),
         (:untyped_exponential, () -> randexp(rng)),
@@ -233,6 +261,11 @@ end
             :normal_continuation_device_mismatch,
             () -> randn_next!(rng, wrong_normal_destination),
         ),
+        (:exponential_device_mismatch, () -> randexp!(rng, wrong_exponential_destination)),
+        (
+            :exponential_continuation_device_mismatch,
+            () -> randexp_next!(rng, wrong_exponential_destination),
+        ),
     )
     type_errors = (
         (:uniform_threaded_type, () -> rand!(rng, Vector{UInt32}(undef, 1); threaded = 1)),
@@ -245,6 +278,14 @@ end
             :normal_continuation_threaded_type,
             () -> randn_next!(rng, Vector{Float32}(undef, 1); threaded = 1),
         ),
+        (
+            :exponential_threaded_type,
+            () -> randexp!(rng, Vector{Float32}(undef, 1); threaded = 1),
+        ),
+        (
+            :exponential_continuation_threaded_type,
+            () -> randexp_next!(rng, Vector{Float32}(undef, 1); threaded = 1),
+        ),
     )
     method_errors = (
         (:uniform_result_type, () -> rand(rng, Float16)),
@@ -253,6 +294,9 @@ end
         (:normal_result_type, () -> randn(rng, Float16)),
         (:normal_continuation_result_type, () -> randn_next(rng, Float16)),
         (:normal_destination_type, () -> randn!(rng, Vector{Float16}(undef, 1))),
+        (:exponential_result_type, () -> randexp(rng, Float16)),
+        (:exponential_continuation_result_type, () -> randexp_next(rng, Float16)),
+        (:exponential_destination_type, () -> randexp!(rng, Vector{Float16}(undef, 1))),
     )
 
     for (expected, cases) in (

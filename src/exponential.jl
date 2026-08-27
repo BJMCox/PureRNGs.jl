@@ -161,3 +161,220 @@ Return the `i`th standard exponential draw at or after the current position of
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the family's counter capacity.
 """ randexpat
+
+@inline _device_exponential_fill_group(::Type{Float32}) = Val(8)
+@inline _device_exponential_fill_group(::Type{Float64}) = Val(4)
+
+@inline _cooperative_exponential_fill(::Philox4x32, ::Type{Float32}) = (Val(512), Val(32))
+@inline _cooperative_exponential_fill(::Philox4x32, ::Type{Float64}) = (Val(512), Val(32))
+@inline _cooperative_exponential_fill(rng, T) = nothing
+@inline _device_exponential_fill_plan(backend, rng, T) = nothing
+
+@inline function _fill_exponential_unchecked!(
+    rng::_ScalarUniformFamily,
+    position,
+    destination,
+    ::Type{T},
+    indices,
+) where {T}
+    width = UInt64(_exponential_bits(T))
+    shift = _block_shift(rng)
+    remaining = length(indices)
+    @inbounds for index in indices
+        destination[index] = _draw_exponential_unchecked(rng, position, T)
+        remaining -= 1
+        iszero(remaining) ||
+            (position = _advance_position_unchecked(position, width, UInt64(0), shift))
+    end
+    return nothing
+end
+
+@inline function _fill_exponential_grouped_unchecked!(
+    rng,
+    position,
+    destination,
+    ::Type{T},
+    first::Int,
+    group::Val{N},
+) where {T,N}
+    return _fill_grouped_cursor!(
+        rng,
+        position,
+        destination,
+        T,
+        first,
+        group,
+        Val(_exponential_bits(T)),
+        FAMILY_EXP,
+        rng.device,
+    )
+end
+
+@inline function _fill_exponential_dense_cpu!(
+    rng,
+    position,
+    destination::Array{T},
+    ::Type{T},
+    indices,
+) where {T<:Union{Float32,Float64}}
+    isempty(indices) && return nothing
+    cursor = _dense_cursor(rng, FAMILY_EXP, _position_block(position), position.bit)
+    width = Val(_exponential_bits(T))
+    @inbounds for index in indices
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_EXP, cursor, width)
+        destination[index] = _exponential_from_bits(rng.device, T, raw)
+    end
+    return nothing
+end
+
+@inline function _fill_exponential_dense_cpu!(
+    rng,
+    position,
+    destination,
+    ::Type{T},
+    indices,
+) where {T}
+    return _fill_exponential_unchecked!(rng, position, destination, T, indices)
+end
+
+KernelAbstractions.@kernel function _exponential_fill_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+) where {T}
+    ordinal = @index(Global, Linear)
+    indices = eachindex(destination)
+    index = @inbounds indices[firstindex(indices)+ordinal-1]
+    bits_lo, bits_hi = _bit_span(UInt64(ordinal - 1), _exponential_bits(T))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    @inbounds destination[index] = _draw_exponential_unchecked(rng, position, T)
+end
+
+KernelAbstractions.@kernel function _exponential_fill_grouped_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+    group::Val{N},
+) where {T,N}
+    workitem = @index(Global, Linear)
+    first = (workitem - 1) * N + 1
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _exponential_bits(T))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_exponential_grouped_unchecked!(rng, position, destination, T, first, group)
+end
+
+@inline _cooperative_value(device::_BackendToken, ::Type{T}, raw) where {T} =
+    _exponential_from_bits(device, T, raw)
+@inline _fill_width(::_BackendToken, ::Type{T}) where {T} = _exponential_bits(T)
+@inline _fill_family(::_BackendToken) = FAMILY_EXP
+@inline _fill_kernel(::_BackendToken) = _exponential_fill_kernel!
+@inline _fill_grouped_kernel(::_BackendToken) = _exponential_fill_grouped_kernel!
+
+@inline _exponential_fill_chunk_elements(::Type{T}) where {T} =
+    Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_exponential_bits(T)))
+
+KernelAbstractions.@kernel function _exponential_fill_dense_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+    chunk_elements,
+) where {T}
+    workitem = @index(Global, Linear)
+    first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
+    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _exponential_bits(T))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_exponential_dense_cpu!(rng, position, destination, T, first:last)
+end
+
+KernelAbstractions.@kernel function _exponential_fill_dense_serial_kernel!(
+    rng,
+    destination,
+    ::Type{T},
+) where {T}
+    _fill_exponential_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
+end
+
+@inline function _launch_exponential!(backend, rng, destination, ::Type{T}) where {T}
+    plan = _device_exponential_fill_plan(backend, rng, T)
+    return _launch_device_fill!(backend, rng, destination, T, rng.device, plan)
+end
+
+function _launch_exponential!(
+    backend::KernelAbstractions.CPU,
+    rng,
+    destination::Array{T},
+    ::Type{T},
+) where {T}
+    chunk_elements = _exponential_fill_chunk_elements(T)
+    workitems = cld(length(destination), chunk_elements)
+    if workitems < _CPU_FILL_MIN_WORKITEMS
+        _exponential_fill_dense_serial_kernel!(backend)(rng, destination, T; ndrange = 1)
+        return destination
+    end
+    _exponential_fill_dense_kernel!(backend)(
+        rng,
+        destination,
+        T,
+        chunk_elements;
+        ndrange = workitems,
+        workgroupsize = 1,
+    )
+    return destination
+end
+
+@inline function _randexp_next_fill!(
+    rng::_ScalarUniformFamily,
+    destination::AbstractArray{T},
+    threaded::Bool,
+) where {T}
+    _check_fill_device(rng, destination)
+    _check_serviceability(rng, T)
+    bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _exponential_bits(T))
+    next_rng = _reserve(rng, bits_lo, bits_hi)
+    isempty(destination) && return next_rng, destination
+    if !threaded && rng.device isa _CPUBackend
+        _fill_exponential_dense_cpu!(
+            rng,
+            rng.position,
+            destination,
+            T,
+            eachindex(destination),
+        )
+        return next_rng, destination
+    end
+    backend = _fill_backend(destination)
+    _launch_exponential!(backend, rng, destination, T)
+    return next_rng, destination
+end
+
+for T in (Float32, Float64)
+    @eval begin
+        @inline function Random.randexp!(
+            rng::_ScalarUniformFamily,
+            destination::AbstractArray{$T};
+            threaded::Bool = true,
+        )
+            _, result = _randexp_next_fill!(rng, destination, threaded)
+            return result
+        end
+
+        @inline function randexp_next!(
+            rng::_ScalarUniformFamily,
+            destination::AbstractArray{$T};
+            threaded::Bool = true,
+        )
+            return _randexp_next_fill!(rng, destination, threaded)
+        end
+    end
+end
+
+@doc """
+    randexp_next!(rng, destination; threaded=true) -> (next_rng, destination)
+
+Fill a `Float32` or `Float64` destination with standard exponential values and
+return the advanced immutable generator with the same destination. The
+destination's device must match the generator.
+
+Set `threaded=false` to request the serial CPU fill path. The keyword does not
+change the generated stream. The input generator never changes.
+""" randexp_next!
