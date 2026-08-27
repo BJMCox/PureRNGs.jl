@@ -45,7 +45,7 @@ end
     return next_rng, destination
 end
 
-for T in (Bool, UInt32, UInt64, Float32, Float64)
+for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
         @inline function Random.rand!(
             rng::_ScalarUniformFamily,
@@ -71,7 +71,8 @@ end
 
 Fill `destination` from `rng` and return the advanced immutable generator with
 the same destination. The destination element type must be `Bool`, `UInt32`,
-`UInt64`, `Float32`, or `Float64`, and its device must match the generator.
+`Int32`, `UInt64`, `Int64`, `Float32`, or `Float64`, and its device must match
+the generator.
 
 Set `threaded=false` to request the serial CPU fill path. The keyword does not
 change the generated stream. The input generator never changes.
@@ -140,7 +141,7 @@ end
     return _rebuild(rng, _Position128(lo, hi, UInt16(bit)), rng.device)
 end
 
-for T in (Bool, UInt32, UInt64, Float32, Float64)
+for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
         @inline randat(rng::_ScalarUniformFamily, ::Type{$T}, i::Integer) =
             _draw_unchecked(_addressed_rng(rng, _draw_bits($T), i), $T)
@@ -151,8 +152,8 @@ end
     randat(rng, T, i)
 
 Return the `i`th uniform draw at or after the current position of `rng`, where
-`i` is one-based. Supported result types are `Bool`, `UInt32`, `UInt64`,
-`Float32`, and `Float64`.
+`i` is one-based. Supported result types are `Bool`, `UInt32`, `Int32`,
+`UInt64`, `Int64`, `Float32`, and `Float64`.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the family's counter capacity.

@@ -15,7 +15,7 @@ const _MetalFamily = IR._BackendFamily{IR._MetalBackend}
     )
 end
 
-for T in (Bool, UInt32, UInt64, Float32)
+for T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
     @eval @inline IR._check_serviceability(::_Metal32Family, ::Type{$T}) = nothing
 end
 @inline IR._check_serviceability(::_MetalFamily, ::Type) = _metal_device_error()

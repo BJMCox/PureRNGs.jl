@@ -1,5 +1,5 @@
 @testset "R23-R26 CPU allocating uniform draws" begin
-    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in PURE_UNIFORM_TYPES
         rng = F(0x62a)
         original_position = rng.position
 
@@ -66,7 +66,7 @@ end
 
 @testset "R23, R47, and R49 CPU allocating method surface" begin
     rng = Philox4x32(0x62c)
-    for T in SCALAR_UNIFORM_TYPES
+    for T in PURE_UNIFORM_TYPES
         @test which(rand, (typeof(rng), Type{T}, Int)).module === PureRNGs
         @test which(rand_next, (typeof(rng), Type{T}, Int)).module === PureRNGs
         @test Base.kwarg_decl(which(rand, (typeof(rng), Type{T}, Int))) == Symbol[]
@@ -82,7 +82,7 @@ end
     @test which(rand_next, (typeof(rng), Int)).module === PureRNGs
     @test which(rand, (typeof(rng), Int)).module !== PureRNGs
     @test_throws MethodError rand(rng, 3)
-    for unsupported in (Int32, Int64, Float16, ComplexF64)
+    for unsupported in (Float16, ComplexF64)
         @test !applicable(rand, rng, unsupported, 3)
         @test !applicable(rand_next, rng, unsupported, 3)
     end

@@ -45,7 +45,7 @@ end
         @test which(IR.rand_next, (typeof(rng), Int)).module === IR
         @test which(IR.randn_next, (typeof(rng), Int)).module === IR
 
-        for T in (Bool, UInt32, UInt64, Float32, Float64)
+        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
             @test rand(rng, T) === rand(cpu_rng, T)
             @test first(IR.rand_next(rng, T)).device === IR._METAL_BACKEND
             @test last(IR.rand_next(rng, T)) === last(IR.rand_next(cpu_rng, T))
@@ -87,7 +87,7 @@ end
 
     for F in METAL_64_FAMILIES
         rng = MetalDevice()(F(0x818))
-        for T in (Bool, UInt32, UInt64, Float32, Float64), count in (0, 1)
+        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64), count in (0, 1)
             _check_metal_error(() -> rand(rng, T, count))
             _check_metal_error(() -> IR.rand_next(rng, T, count))
         end
@@ -171,7 +171,7 @@ end
 
 if Metal.functional()
     @testset "R41 Metal served primitive smoke" begin
-        for F in METAL_32_FAMILIES, T in (Bool, UInt32, UInt64, Float32)
+        for F in METAL_32_FAMILIES, T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
             cpu_rng = F(0x81b)
             rng = MetalDevice()(cpu_rng)
             next_rng, values = IR.rand_next(rng, T, 17)

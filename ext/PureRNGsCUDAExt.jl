@@ -37,13 +37,13 @@ end
     ::CUDA.CUDABackend,
     ::_CUDAPhilox4x32,
     ::Type{T},
-) where {T<:Union{UInt32,UInt64}} = (Val(:natural128_packed),)
+) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)
 
 @inline IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAThreefry4x32,
-    ::Type{UInt32},
-) = (Val(:natural128_packed),)
+    ::Type{T},
+) where {T<:IR._UniformInteger32} = (Val(:natural128_packed),)
 
 @inline IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
@@ -141,6 +141,9 @@ end
     VecElement((limbs[2] >> 32) % UInt32),
 )
 
+@inline _natural128_packed(limbs, ::Type{Int32}) = _natural128_packed(limbs, UInt32)
+@inline _natural128_packed(limbs, ::Type{Int64}) = _natural128_packed(limbs, UInt64)
+
 @inline _natural128_packed(limbs, ::Type{_CUDANatural128Pack{T}}) where {T} =
     _CUDANatural128Pack{T}(_natural128_packed(limbs, T))
 
@@ -223,7 +226,7 @@ end
     ::Type{T},
     codec::Val{:uniform},
     ::Tuple{Val{:natural128_packed}},
-) where {T<:Union{UInt32,UInt64}}
+) where {T<:IR._UniformInteger}
     if !_aligned_natural128_fill(rng, destination, T)
         return IR._launch_device_fill!(
             backend,

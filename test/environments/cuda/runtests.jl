@@ -16,7 +16,7 @@ const FAMILIES = (
     Threefry2x64,
     Threefry4x64,
 )
-const UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
+const UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 const NORMAL_TYPES = (Float32, Float64)
 const RANGE_TYPES = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
 
@@ -228,12 +228,20 @@ function _positioned_at_bit(rng, block::UInt64, bit::UInt16)
 end
 
 const COOPERATIVE_UNIFORM_TYPES = (Bool, Float32, Float64)
-const NATURAL_128_TYPES =
-    ((Philox4x32, UInt32), (Philox4x32, UInt64), (Threefry4x32, UInt32))
+const NATURAL_128_TYPES = (
+    (Philox4x32, UInt32),
+    (Philox4x32, Int32),
+    (Philox4x32, UInt64),
+    (Philox4x32, Int64),
+    (Threefry4x32, UInt32),
+    (Threefry4x32, Int32),
+)
 const PACKED_DRAW_SPECS = (
     (Bool, rand_next, rand_next!, UInt16(1), false),
     (UInt32, rand_next, rand_next!, UInt16(32), false),
+    (Int32, rand_next, rand_next!, UInt16(32), false),
     (UInt64, rand_next, rand_next!, UInt16(64), false),
+    (Int64, rand_next, rand_next!, UInt16(64), false),
     (Float32, rand_next, rand_next!, UInt16(24), false),
     (Float64, rand_next, rand_next!, UInt16(53), false),
     (Float32, randn_next, randn_next!, UInt16(23), true),
@@ -729,7 +737,7 @@ end
         terminal_rng = _positioned_at_bit(rng, typemax(UInt64), UInt16(0))
         terminal_expected, terminal_values =
             _chain(terminal_rng, current -> rand_next(current, T), outputs_per_pack, T)
-        terminal_destination = CUDA.fill(T(0xdeadbeef), outputs_per_pack)
+        terminal_destination = CUDA.fill(zero(T), outputs_per_pack)
         terminal_next, _ = rand_next!(terminal_rng, terminal_destination)
         @test Array(terminal_destination) == terminal_values
         @test terminal_next.position == terminal_expected.position == _terminal(rng)

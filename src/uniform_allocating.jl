@@ -12,7 +12,7 @@ end
     return _rand_next_uniform_array(rng, Float64, (dim1, dims...))
 end
 
-for T in (Bool, UInt32, UInt64, Float32, Float64)
+for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
         @inline function Random.rand(
             rng::_ScalarUniformFamily,

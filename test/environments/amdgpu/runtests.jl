@@ -31,7 +31,7 @@ const AMDGPU_FAMILIES = (
         @test applicable(IR.randsample, rng, UInt32(1):UInt32(3), 2)
         @test applicable(IR.randsample_next, rng, UInt32(1):UInt32(3), 2)
 
-        for T in (Bool, UInt32, UInt64, Float32, Float64)
+        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
             @test rand(rng, T) === rand(cpu_rng, T)
             @test which(rand, (typeof(rng), Type{T}, Int)).module === IR
             @test which(IR.rand_next, (typeof(rng), Type{T}, Int)).module === IR
@@ -54,7 +54,9 @@ end
 
 if AMDGPU.functional()
     @testset "R39 AMDGPU allocation smoke" begin
-        for F in AMDGPU_FAMILIES, T in (Bool, UInt32, UInt64, Float32, Float64)
+        for F in AMDGPU_FAMILIES,
+            T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
+
             cpu_rng = F(0x815)
             rng = AMDGPUDevice()(cpu_rng)
             next_rng, values = IR.rand_next(rng, T, 17)

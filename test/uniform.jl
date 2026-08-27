@@ -6,6 +6,7 @@ const KA = PureRNGs.KernelAbstractions
 const MLD = PureRNGs.MLDataDevices
 
 const SCALAR_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
+const PURE_UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 
 const PACKED_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
 const PACKED_GOLDEN_BIT = UInt16(61)
@@ -43,8 +44,10 @@ end
 _uniform_width(::Type{Bool}) = 1
 _uniform_width(::Type{Float32}) = 24
 _uniform_width(::Type{UInt32}) = 32
+_uniform_width(::Type{Int32}) = 32
 _uniform_width(::Type{Float64}) = 53
 _uniform_width(::Type{UInt64}) = 64
+_uniform_width(::Type{Int64}) = 64
 
 mutable struct BackendProbe{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
     data::A
@@ -98,7 +101,9 @@ _reference_position_block(position::IR._Position128) = (position.lo, position.hi
 
 _reference_convert(::Type{Bool}, value::UInt64) = isone(value)
 _reference_convert(::Type{UInt32}, value::UInt64) = value % UInt32
+_reference_convert(::Type{Int32}, value::UInt64) = reinterpret(Int32, value % UInt32)
 _reference_convert(::Type{UInt64}, value::UInt64) = value
+_reference_convert(::Type{Int64}, value::UInt64) = reinterpret(Int64, value)
 _reference_convert(::Type{Float32}, value::UInt64) =
     Float32(value % UInt32) * Float32(0x1p-24)
 _reference_convert(::Type{Float64}, value::UInt64) = Float64(value) * 0x1p-53
@@ -217,18 +222,20 @@ end
         rng = _packed_golden_rng(F, key)
         @test rand(rng, Bool) === bit
         @test rand(rng, UInt32) === word32
+        @test rand(rng, Int32) === reinterpret(Int32, word32)
         @test rand(rng, UInt64) === word64
+        @test rand(rng, Int64) === reinterpret(Int64, word64)
         @test reinterpret(UInt32, rand(rng, Float32)) === float32_bits
         @test reinterpret(UInt64, rand(rng, Float64)) === float64_bits
     end
 end
 
 @testset "R25 and R53 packed primitive widths" begin
-    for (T, width) in zip(SCALAR_UNIFORM_TYPES, (1, 32, 64, 24, 53))
+    for (T, width) in zip(PURE_UNIFORM_TYPES, (1, 32, 32, 64, 64, 24, 53))
         @test IR._draw_bits(T) === UInt16(width)
     end
 
-    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x521, UInt64(9), UInt16(61))
         position = rng.position
         expected = _reference_uniform(rng, T)
@@ -238,6 +245,27 @@ end
         next_rng, value = rand_next(rng, T)
         @test value === expected
         @test next_rng.position == _reference_position(rng, _uniform_width(T))
+    end
+end
+
+@testset "R25 signed primitive bitcasts" begin
+    for F in FAMILY_TYPES, (S, U) in ((Int32, UInt32), (Int64, UInt64))
+        rng = _positioned(F, 0x5211, UInt64(9), UInt16(61))
+        @test reinterpret(U, rand(rng, S)) === rand(rng, U)
+
+        signed_next, signed_value = rand_next(rng, S)
+        unsigned_next, unsigned_value = rand_next(rng, U)
+        @test reinterpret(U, signed_value) === unsigned_value
+        @test signed_next.position == unsigned_next.position
+
+        @test reinterpret(U, randat(rng, S, 7)) === randat(rng, U, 7)
+
+        signed_fill = Vector{S}(undef, 129)
+        unsigned_fill = Vector{U}(undef, 129)
+        signed_fill_next, _ = rand_next!(rng, signed_fill; threaded = false)
+        unsigned_fill_next, _ = rand_next!(rng, unsigned_fill; threaded = false)
+        @test reinterpret(U, signed_fill) == unsigned_fill
+        @test signed_fill_next.position == unsigned_fill_next.position
     end
 end
 
@@ -257,7 +285,7 @@ end
 end
 
 @testset "R29 packed addressed draws" begin
-    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x523, UInt64(5), UInt16(47))
         cursor = rng
         for i = 1:9
@@ -319,7 +347,7 @@ end
 end
 
 @testset "R26 packed CPU fills, shapes, views, and BitArray" begin
-    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x524, UInt64(7), UInt16(61))
         expected_rng, expected = _reference_chain(rng, T, 12)
 
@@ -388,7 +416,7 @@ end
 end
 
 @testset "R26 dense codec phases, tails, and cached blocks" begin
-    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in PURE_UNIFORM_TYPES
         group = IR._dense_fill_group(T)
         counts = unique((0, max(0, group - 1), group, group + 1, 2group + 3))
         block_bits = IR._block_bits(F(0x5250))
@@ -411,7 +439,7 @@ end
         end
     end
 
-    for F in (Philox4x64, Threefry4x64), T in SCALAR_UNIFORM_TYPES
+    for F in (Philox4x64, Threefry4x64), T in PURE_UNIFORM_TYPES
         base = F(0x5250)
         rng = IR._rebuild(
             base,
@@ -468,7 +496,7 @@ end
 end
 
 @testset "R26 parallel packed fills cross CPU chunks" begin
-    for F in (Philox2x32, Philox4x32, Philox4x64), T in SCALAR_UNIFORM_TYPES
+    for F in (Philox2x32, Philox4x32, Philox4x64), T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x5251, UInt64(4), UInt16(61))
         chunk_elements = IR._dense_fill_chunk_elements(T)
         count = 4chunk_elements + 3
@@ -502,7 +530,7 @@ end
 end
 
 @testset "R26 dense CPU chunk seams" begin
-    for T in SCALAR_UNIFORM_TYPES, delta in (-1, 0, 1)
+    for T in PURE_UNIFORM_TYPES, delta in (-1, 0, 1)
         rng = _positioned(Philox4x32, 0x5252, UInt64(4), UInt16(61))
         chunk_elements = IR._dense_fill_chunk_elements(T)
         count = 4chunk_elements + delta
@@ -556,12 +584,14 @@ end
     lowered = sprint(show, only(code_lowered(IR._fill_uniform_dense_cpu!, signature)))
     @test occursin("_fill_uniform_blocks4_cpu!", lowered)
 
-    for T in SCALAR_UNIFORM_TYPES,
+    for T in PURE_UNIFORM_TYPES,
         bit in (UInt16(0), UInt16(1), UInt16(31), UInt16(63), UInt16(127)),
         delta in (-1, 0, 1)
 
         x4_group =
-            T === Bool ? 512 : T === UInt32 ? 16 : T === UInt64 ? 8 : T === Float32 ? 64 : 1
+            T === Bool ? 512 :
+            T <: Union{Int32,UInt32} ? 16 :
+            T <: Union{Int64,UInt64} ? 8 : T === Float32 ? 64 : 1
         group = max(
             IR._dense_fill_group(T),
             cld(4 * 128 - Int(bit), _uniform_width(T)),
@@ -578,7 +608,7 @@ end
         @test next_rng.position == expected_rng.position
     end
 
-    for T in SCALAR_UNIFORM_TYPES, bit in (UInt16(0), UInt16(61)), delta in (-1, 0, 1)
+    for T in PURE_UNIFORM_TYPES, bit in (UInt16(0), UInt16(61)), delta in (-1, 0, 1)
         rng = _positioned(Philox4x32, 0x5255, UInt64(5), bit)
         chunk = IR._dense_fill_chunk_elements(T)
         count = 4chunk + delta
@@ -615,7 +645,7 @@ end
     end
 
     base = Philox4x32(0x5256)
-    for T in SCALAR_UNIFORM_TYPES
+    for T in PURE_UNIFORM_TYPES
         width = IR._draw_bits(T)
         position = IR._Position64(IR._max_block(base), IR._block_bits(base) - width)
         rng = IR._rebuild(base, position, base.device)
@@ -626,7 +656,7 @@ end
     end
 
     rng = Philox4x32(0x5257)
-    for T in (Bool, UInt32, UInt64, Float32)
+    for T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
         destination = Vector{T}(undef, 1024)
         @test @inferred(rand_next!(rng, destination; threaded = false)) isa
               Tuple{typeof(rng),typeof(destination)}
@@ -684,7 +714,7 @@ end
     @test empty_result === empty
     @test empty_next === exhausted
 
-    for F in FAMILY_TYPES, T in SCALAR_UNIFORM_TYPES
+    for F in FAMILY_TYPES, T in PURE_UNIFORM_TYPES
         base = F(0x528)
         width = IR._draw_bits(T)
         position =
@@ -730,7 +760,7 @@ end
         @test default_next === typed_next
         @test default_value === typed_value
 
-        for T in SCALAR_UNIFORM_TYPES
+        for T in PURE_UNIFORM_TYPES
             destination = Vector{T}(undef, 7)
             @test which(rand, (typeof(rng), Type{T})).module === IR
             @test which(rand_next, (typeof(rng), Type{T})).module === IR
@@ -787,7 +817,7 @@ end
         @test !occursin(r"\bi128\b", llvm_ir)
     end
 
-    for unsupported in (Union{UInt32,Float32}, Int32, Int64, Float16)
+    for unsupported in (Union{UInt32,Float32}, Float16)
         @test !applicable(rand, rng, unsupported)
         @test !applicable(rand_next, rng, unsupported)
         @test !applicable(randat, rng, unsupported, 1)

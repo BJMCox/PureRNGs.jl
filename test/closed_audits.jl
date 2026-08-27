@@ -65,7 +65,7 @@ end
     require(rand_next, Tuple{R,Int})
     require(randn_next, Tuple{R})
     require(randn_next, Tuple{R,Int})
-    for T in SCALAR_UNIFORM_TYPES
+    for T in PURE_UNIFORM_TYPES
         require(rand, Tuple{R,Type{T}})
         require(rand, Tuple{R,Type{T},Int})
         require(rand!, Tuple{R,Vector{T}})
@@ -231,9 +231,9 @@ end
         ),
     )
     method_errors = (
-        (:uniform_result_type, () -> rand(rng, Int32)),
-        (:uniform_continuation_result_type, () -> rand_next(rng, Int32)),
-        (:uniform_destination_type, () -> rand!(rng, Vector{Int32}(undef, 1))),
+        (:uniform_result_type, () -> rand(rng, Float16)),
+        (:uniform_continuation_result_type, () -> rand_next(rng, Float16)),
+        (:uniform_destination_type, () -> rand!(rng, Vector{Float16}(undef, 1))),
         (:normal_result_type, () -> randn(rng, Float16)),
         (:normal_continuation_result_type, () -> randn_next(rng, Float16)),
         (:normal_destination_type, () -> randn!(rng, Vector{Float16}(undef, 1))),

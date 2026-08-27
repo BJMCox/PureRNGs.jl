@@ -166,7 +166,7 @@ end
 end
 
 @testset "grouped device uniform codec preserves packed stream" begin
-    for F in FAMILY_TYPES, T in (Bool, UInt32, UInt64, Float32, Float64)
+    for F in FAMILY_TYPES, T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
         rng = _packed_device_rng(F)
         group = PackedDeviceIR._device_uniform_fill_group(rng, T)
         count = PackedDeviceIR._fill_group_size(group) + 3
