@@ -14,6 +14,7 @@ CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
 Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
+Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
 
 [extensions]
 PureRNGsAMDGPUExt = "AMDGPU"
@@ -21,6 +22,8 @@ PureRNGsCUDAExt = "CUDA"
 PureRNGsDistributionsExt = "Distributions"
 PureRNGsEnzymeCoreExt = "EnzymeCore"
 PureRNGsMetalExt = "Metal"
+PureRNGsReactantDistributionsExt = ["Distributions", "Reactant"]
+PureRNGsReactantExt = "Reactant"
 
 [compat]
 AMDGPU = "2"
@@ -30,6 +33,7 @@ EnzymeCore = "0.8"
 KernelAbstractions = "0.9"
 MLDataDevices = "1.17"
 Metal = "1.7"
+Reactant = "=0.2.280"
 Random = "1"
 Test = "1"
 julia = "1.10"

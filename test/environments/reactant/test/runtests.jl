@@ -66,6 +66,11 @@ function _snapshot(rng)
     return pure, continuation, derivation
 end
 
+function _primitive_step(rng)
+    next_rng, value = rand_next(rng, UInt32)
+    return next_rng, value, rand(rng, UInt64), randat(rng, UInt32, 3)
+end
+
 Reactant.set_default_backend("cpu")
 
 @testset "R42 Reactant compiled values equal eager values" begin
@@ -77,5 +82,34 @@ Reactant.set_default_backend("cpu")
             compiled = Reactant.@compile sync = true _snapshot(rng)
             @test isequal(compiled(rng), eager)
         end
+    end
+end
+
+@testset "R42 dynamic carrier reuse" begin
+    first = Philox4x32(0x0123456789abcdef)
+    second = Philox4x32(0xfedcba9876543210)
+    advanced, _ = rand_next(first, UInt64)
+    first_carrier = Reactant.to_rarray(first)
+    second_carrier = Reactant.to_rarray(second)
+    advanced_carrier = Reactant.to_rarray(advanced)
+    @test !(first_carrier isa AbstractPureRNG)
+
+    compiled = Reactant.@compile sync = true _primitive_step(first_carrier)
+    for (carrier, eager) in (
+        (first_carrier, first),
+        (second_carrier, second),
+        (advanced_carrier, advanced),
+    )
+        next_carrier, value, pure, addressed = compiled(carrier)
+        eager_next, eager_value, eager_pure, eager_addressed = _primitive_step(eager)
+        @test value == eager_value
+        @test pure == eager_pure
+        @test addressed == eager_addressed
+
+        reused_next, reused_value, _, _ = compiled(next_carrier)
+        eager_reused_next, eager_reused_value, _, _ = _primitive_step(eager_next)
+        @test reused_value == eager_reused_value
+        @test typeof(reused_next) === typeof(next_carrier)
+        @test typeof(eager_reused_next) === typeof(eager_next)
     end
 end
