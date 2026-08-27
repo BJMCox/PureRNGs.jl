@@ -27,40 +27,53 @@ end
     return p3 + (p1 >> 32) + (p2 >> 32) + (middle >> 32), p0 + (p1 << 32) + (p2 << 32)
 end
 
-@inline function _philox2x32_round(ctr::NTuple{2,UInt32}, key::NTuple{1,UInt32})
-    hi, lo = _mulhilo32(_PHILOX_M2X32_0, ctr[1])
-    return hi ⊻ ctr[2] ⊻ key[1], lo
+@inline function _philox2x32_round(ctr, key)
+    hi, lo = _mulhilo32(_core_constant(ctr[1], _PHILOX_M2X32_0), ctr[1])
+    return _core_xor(_core_xor(hi, ctr[2]), key[1]), lo
 end
 
-@inline function _philox4x32_round(ctr::NTuple{4,UInt32}, key::NTuple{2,UInt32})
-    hi0, lo0 = _mulhilo32(_PHILOX_M4X32_0, ctr[1])
-    hi1, lo1 = _mulhilo32(_PHILOX_M4X32_1, ctr[3])
-    return hi1 ⊻ ctr[2] ⊻ key[1], lo1, hi0 ⊻ ctr[4] ⊻ key[2], lo0
+@inline function _philox4x32_round(ctr, key)
+    hi0, lo0 = _mulhilo32(_core_constant(ctr[1], _PHILOX_M4X32_0), ctr[1])
+    hi1, lo1 = _mulhilo32(_core_constant(ctr[3], _PHILOX_M4X32_1), ctr[3])
+    return (
+        _core_xor(_core_xor(hi1, ctr[2]), key[1]),
+        lo1,
+        _core_xor(_core_xor(hi0, ctr[4]), key[2]),
+        lo0,
+    )
 end
 
-@inline function _philox2x64_round(ctr::NTuple{2,UInt64}, key::NTuple{1,UInt64})
-    hi, lo = _mulhilo64(_PHILOX_M2X64_0, ctr[1])
-    return hi ⊻ ctr[2] ⊻ key[1], lo
+@inline function _philox2x64_round(ctr, key)
+    hi, lo = _mulhilo64(_core_constant(ctr[1], _PHILOX_M2X64_0), ctr[1])
+    return _core_xor(_core_xor(hi, ctr[2]), key[1]), lo
 end
 
-@inline function _philox4x64_round(ctr::NTuple{4,UInt64}, key::NTuple{2,UInt64})
-    hi0, lo0 = _mulhilo64(_PHILOX_M4X64_0, ctr[1])
-    hi1, lo1 = _mulhilo64(_PHILOX_M4X64_1, ctr[3])
-    return hi1 ⊻ ctr[2] ⊻ key[1], lo1, hi0 ⊻ ctr[4] ⊻ key[2], lo0
+@inline function _philox4x64_round(ctr, key)
+    hi0, lo0 = _mulhilo64(_core_constant(ctr[1], _PHILOX_M4X64_0), ctr[1])
+    hi1, lo1 = _mulhilo64(_core_constant(ctr[3], _PHILOX_M4X64_1), ctr[3])
+    return (
+        _core_xor(_core_xor(hi1, ctr[2]), key[1]),
+        lo1,
+        _core_xor(_core_xor(hi0, ctr[4]), key[2]),
+        lo0,
+    )
 end
 
-@inline function _philox2x32(ctr::NTuple{2,UInt32}, key::NTuple{1,UInt32})
+@inline function _philox2x32(ctr, key)
     for round = 1:10
         ctr = _philox2x32_round(ctr, key)
-        round == 10 || (key = (key[1] + _PHILOX_W32_0,))
+        round == 10 ||
+            (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),))
     end
     return ctr
 end
 
-@inline _philox4x32_bump(key::NTuple{2,UInt32}) =
-    (key[1] + _PHILOX_W32_0, key[2] + _PHILOX_W32_1)
+@inline _philox4x32_bump(key) = (
+    _core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),
+    _core_add(key[2], _core_constant(key[2], _PHILOX_W32_1)),
+)
 
-@inline function _philox4x32(ctr::NTuple{4,UInt32}, key::NTuple{2,UInt32})
+@inline function _philox4x32(ctr, key)
     for round = 1:10
         ctr = _philox4x32_round(ctr, key)
         round == 10 || (key = _philox4x32_bump(key))
@@ -85,18 +98,23 @@ end
     return a, b, c, d
 end
 
-@inline function _philox2x64(ctr::NTuple{2,UInt64}, key::NTuple{1,UInt64})
+@inline function _philox2x64(ctr, key)
     for round = 1:10
         ctr = _philox2x64_round(ctr, key)
-        round == 10 || (key = (key[1] + _PHILOX_W64_0,))
+        round == 10 ||
+            (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),))
     end
     return ctr
 end
 
-@inline function _philox4x64(ctr::NTuple{4,UInt64}, key::NTuple{2,UInt64})
+@inline function _philox4x64(ctr, key)
     for round = 1:10
         ctr = _philox4x64_round(ctr, key)
-        round == 10 || (key = (key[1] + _PHILOX_W64_0, key[2] + _PHILOX_W64_1))
+        round == 10 ||
+            (key = (
+                _core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),
+                _core_add(key[2], _core_constant(key[2], _PHILOX_W64_1)),
+            ))
     end
     return ctr
 end
