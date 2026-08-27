@@ -40,6 +40,10 @@ end
     _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, UInt32))
 @inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{UInt64}) =
     _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, UInt64))
+@inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{Int32}) =
+    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, Int32))
+@inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{Int64}) =
+    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, Int64))
 @inline Random.rand(
     mutable_rng::StatefulRNG,
     ::Random.SamplerTrivial{Random.CloseOpen01{Float32}},
@@ -55,6 +59,13 @@ end
     _commit_bridge!(mutable_rng, randn_next(mutable_rng.rng, Float32))
 @inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float64}) =
     _commit_bridge!(mutable_rng, randn_next(mutable_rng.rng, Float64))
+
+@inline Random.randexp(mutable_rng::StatefulRNG) =
+    _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, Float64))
+@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float32}) =
+    _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, Float32))
+@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float64}) =
+    _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, Float64))
 
 struct _StatefulRangeSampler{T,R<:AbstractRange{T}} <: Random.Sampler{T}
     range::R
@@ -75,7 +86,7 @@ end
 @inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulRangeSampler) =
     _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, sampler.range))
 
-const _StatefulUniform = Union{Bool,UInt32,UInt64,Float32,Float64}
+const _StatefulUniform = Union{Bool,UInt32,Int32,UInt64,Int64,Float32,Float64}
 
 @inline Random.rand!(
     mutable_rng::StatefulRNG,
@@ -92,6 +103,14 @@ const _StatefulUniform = Union{Bool,UInt32,UInt64,Float32,Float64}
 ) where {T<:Union{Float32,Float64}} = _commit_bridge!(
     mutable_rng,
     randn_next!(mutable_rng.rng, destination; threaded = false),
+)
+
+@inline Random.randexp!(
+    mutable_rng::StatefulRNG,
+    destination::Array{T},
+) where {T<:Union{Float32,Float64}} = _commit_bridge!(
+    mutable_rng,
+    randexp_next!(mutable_rng.rng, destination; threaded = false),
 )
 
 for F in _FAMILY_SYMBOLS
