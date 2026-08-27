@@ -114,6 +114,46 @@ function _normal_address_kernel!(destination, rng)
     return
 end
 
+@inline function _exponential_raw(rng, ::Type{Float32})
+    return IR._extract_bits_unchecked(
+        rng,
+        IR.FAMILY_EXP,
+        IR._position_block(rng.position),
+        rng.position.bit,
+        Val(24),
+    )
+end
+
+@inline function _exponential_raw(rng, ::Type{Float64})
+    return IR._extract_bits_unchecked(
+        rng,
+        IR.FAMILY_EXP,
+        IR._position_block(rng.position),
+        rng.position.bit,
+        Val(53),
+    )
+end
+
+function _exponential_api_kernel!(values, raw, lattice, rng)
+    if CUDA.threadIdx().x == 1
+        T = eltype(values)
+        next_rng, continued = randexp_next(rng, T)
+        k = _exponential_raw(rng, T)
+        u, v = IR._exponential_lattice(T, k)
+        @inbounds begin
+            values[1] = randexp(rng, T)
+            values[2] = continued
+            values[3] = randexpat(rng, T, 1)
+            values[4] = randexp(next_rng, T)
+            values[5] = randexpat(rng, T, 2)
+            raw[1] = k
+            lattice[1] = u
+            lattice[2] = v
+        end
+    end
+    return
+end
+
 function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, signed64, rng)
     if CUDA.threadIdx().x == 1
         next_uniform, continued_uniform = rand_next(rng, UInt32)
@@ -1126,6 +1166,76 @@ end
         @test Array(k64_values) == [k64_value, rand(k64_next, K64_RANGE)]
     end
 
+end
+
+@testset "exponential CUDA scalar, array, fill, and IR smoke" begin
+    for F in FAMILIES, T in (Float32, Float64)
+        cpu_rng = F(0x123456)
+        rng = device(cpu_rng)
+        values = CUDA.CuArray{T}(undef, 5)
+        raw = CUDA.CuArray{UInt64}(undef, 1)
+        lattice = CUDA.CuArray{T}(undef, 2)
+        args = (values, raw, lattice, rng)
+
+        CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _exponential_api_kernel!(args...)
+        signature = Tuple{map(typeof, args)...}
+        typed_text = sprint(show, CUDA.code_typed(_exponential_api_kernel!, signature))
+        llvm_text = sprint(io -> CUDA.code_llvm(io, _exponential_api_kernel!, signature))
+        for forbidden in ("StatefulRNG", "Task", "RefValue", "BigInt", "UInt128")
+            @test !occursin(forbidden, typed_text)
+        end
+        @test !occursin(r"\bi128\b", llvm_text)
+
+        allocated = _check_array_draw(
+            cpu_rng,
+            rng,
+            T,
+            T,
+            randexp,
+            randexp_next,
+            fills = ((randexp!, randexp_next!),),
+            cpu_parity = false,
+        )
+        host_allocated = Array(allocated)
+        @test Array(values) == [
+            host_allocated[1],
+            host_allocated[1],
+            host_allocated[1],
+            host_allocated[2],
+            host_allocated[2],
+        ]
+
+        expected_raw = _exponential_raw(cpu_rng, T)
+        @test only(Array(raw)) === expected_raw
+        @test Tuple(Array(lattice)) === IR._exponential_lattice(T, expected_raw)
+
+        last_rng = _last_draw_rng(rng, IR._exponential_bits(T))
+        terminal, _ = randexp_next(last_rng, T)
+        @test terminal.position == _terminal(rng)
+        terminal_array_next, terminal_array = randexp_next(last_rng, T, 1)
+        @test terminal_array_next.position == terminal.position
+        terminal_destination = similar(terminal_array)
+        terminal_fill_next, _ = randexp_next!(last_rng, terminal_destination)
+        @test terminal_fill_next.position == terminal.position
+        @test Array(terminal_destination) == Array(terminal_array)
+        @test_throws ArgumentError randexp(terminal, T)
+
+        for operation in (randexp!, randexp_next!), source in (last_rng, terminal)
+            failed = CUDA.fill(T(-1), 2)
+            before = Array(failed)
+            @test_throws ArgumentError operation(source, failed)
+            @test Array(failed) == before
+        end
+
+        empty = CUDA.CuArray{T}(undef, 0)
+        for operation in (randexp!, randexp_next!)
+            empty_profile = CUDA.@profile raw = true operation(terminal, empty)
+            @test count(value -> !ismissing(value), empty_profile.device.grid) == 0
+        end
+        empty_next, returned_empty = randexp_next!(terminal, empty)
+        @test returned_empty === empty
+        @test empty_next.position == terminal.position
+    end
 end
 
 @testset "mixed widths, capacity, terminal, and failed preflight" begin
