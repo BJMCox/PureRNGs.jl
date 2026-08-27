@@ -36,18 +36,22 @@ end
         rand!,
         randn,
         randn!,
+        randexp,
         rand_next,
         rand_next!,
         randn_next,
         randn_next!,
+        randexp_next,
         randat,
         randnat,
+        randexpat,
         splitrng,
         subrng,
         randsample,
         randsample_next,
     )
-    @test foreign_functions == Set((rand, rand!, randn, randn!, Random.seed!, copy, parent))
+    @test foreign_functions ==
+          Set((rand, rand!, randn, randn!, randexp, Random.seed!, copy, parent))
 
     required = Dict(function_ => Set{Method}() for function_ in owned_functions)
     require = function (function_, signature)
@@ -61,10 +65,12 @@ end
     R = typeof(rng)
     require(rand, Tuple{R})
     require(randn, Tuple{R})
+    require(randexp, Tuple{R})
     require(rand_next, Tuple{R})
     require(rand_next, Tuple{R,Int})
     require(randn_next, Tuple{R})
     require(randn_next, Tuple{R,Int})
+    require(randexp_next, Tuple{R})
     for T in PURE_UNIFORM_TYPES
         require(rand, Tuple{R,Type{T}})
         require(rand, Tuple{R,Type{T},Int})
@@ -82,6 +88,11 @@ end
         require(randn_next, Tuple{R,Type{T},Int})
         require(randn_next!, Tuple{R,Vector{T}})
         require(randnat, Tuple{R,Type{T},Int})
+    end
+    for T in EXPONENTIAL_TYPES
+        require(randexp, Tuple{R,Type{T}})
+        require(randexp_next, Tuple{R,Type{T}})
+        require(randexpat, Tuple{R,Type{T},Int})
     end
     for T in RANGE_INTS
         Range = typeof(T(1):T(2))
@@ -105,13 +116,13 @@ end
 
     for function_ in owned_functions
         methods_ =
-            function_ in (rand, rand!, randn, randn!) ?
+            function_ in (rand, rand!, randn, randn!, randexp) ?
             _immutable_audit_methods(function_) : _audit_methods(function_)
         @test Set(methods_) == required[function_]
     end
     @test all(
         Base.unwrap_unionall(method.sig).parameters[2] <: AuditIR.AbstractPureRNG for
-        function_ in (rand, rand!, randn, randn!) for
+        function_ in (rand, rand!, randn, randn!, randexp) for
         method in _immutable_audit_methods(function_)
     )
     @test all(
@@ -125,16 +136,19 @@ end
         isempty(Base.kwarg_decl(method)) for function_ in (
             rand,
             randn,
+            randexp,
             rand_next,
             randn_next,
+            randexp_next,
             randat,
             randnat,
+            randexpat,
             splitrng,
             subrng,
             randsample,
             randsample_next,
         ) for method in (
-            function_ in (rand, randn) ? _immutable_audit_methods(function_) :
+            function_ in (rand, randn, randexp) ? _immutable_audit_methods(function_) :
             _audit_methods(function_)
         )
     )
@@ -150,6 +164,7 @@ end
 @testset "R9 and R10 assigned constants" begin
     @test AuditIR.FAMILY_BITS === UInt32(0)
     @test AuditIR.FAMILY_NORMAL === UInt32(1)
+    @test AuditIR.FAMILY_EXP === UInt32(2)
     @test AuditIR.FAMILY_RANGE === UInt32(3)
     @test AuditIR._DERIVE_TAG === UInt32(0xc0ffee00)
     @test AuditIR._SPLIT_SUBTAG === UInt32(0)
@@ -207,6 +222,7 @@ end
         (:negative_normal_continuation_dimension, () -> randn_next(rng, Float32, -1)),
         (:untyped_uniform, () -> rand(rng)),
         (:untyped_normal, () -> randn(rng)),
+        (:untyped_exponential, () -> randexp(rng)),
         (:uniform_device_mismatch, () -> rand!(rng, wrong_uniform_destination)),
         (
             :uniform_continuation_device_mismatch,
@@ -237,7 +253,6 @@ end
         (:normal_result_type, () -> randn(rng, Float16)),
         (:normal_continuation_result_type, () -> randn_next(rng, Float16)),
         (:normal_destination_type, () -> randn!(rng, Vector{Float16}(undef, 1))),
-        (:abstract_rng_consumer, () -> Random.randexp(rng)),
     )
 
     for (expected, cases) in (
@@ -256,4 +271,6 @@ end
           "ArgumentError: untyped immutable draws are forbidden; use rand(rng, T)"
     @test sprint(showerror, _audit_error(() -> randn(rng))) ==
           "ArgumentError: untyped immutable draws are forbidden; use randn(rng, T)"
+    @test sprint(showerror, _audit_error(() -> randexp(rng))) ==
+          "ArgumentError: untyped immutable draws are forbidden; use randexp(rng, T)"
 end

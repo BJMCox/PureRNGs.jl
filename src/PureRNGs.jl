@@ -20,8 +20,11 @@ export Philox2x32,
     rand_next!,
     randn_next,
     randn_next!,
+    randexp_next,
+    randexp_next!,
     randat,
     randnat,
+    randexpat,
     randsample,
     randsample_next,
     StatefulRNG
@@ -39,6 +42,7 @@ include("uniform.jl")
 include("uniform_allocating.jl")
 include("normal.jl")
 include("normal_allocating.jl")
+include("exponential.jl")
 include("integers.jl")
 include("range_allocating.jl")
 include("sampling.jl")
