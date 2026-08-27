@@ -59,7 +59,7 @@ end
     )
 end
 
-@inline function _philox2x32(ctr, key)
+@inline function _philox2x32_impl(ctr, key)
     for round = 1:10
         ctr = _philox2x32_round(ctr, key)
         round == 10 ||
@@ -73,7 +73,7 @@ end
     _core_add(key[2], _core_constant(key[2], _PHILOX_W32_1)),
 )
 
-@inline function _philox4x32(ctr, key)
+@inline function _philox4x32_impl(ctr, key)
     for round = 1:10
         ctr = _philox4x32_round(ctr, key)
         round == 10 || (key = _philox4x32_bump(key))
@@ -98,7 +98,7 @@ end
     return a, b, c, d
 end
 
-@inline function _philox2x64(ctr, key)
+@inline function _philox2x64_impl(ctr, key)
     for round = 1:10
         ctr = _philox2x64_round(ctr, key)
         round == 10 ||
@@ -107,7 +107,7 @@ end
     return ctr
 end
 
-@inline function _philox4x64(ctr, key)
+@inline function _philox4x64_impl(ctr, key)
     for round = 1:10
         ctr = _philox4x64_round(ctr, key)
         round == 10 ||
@@ -118,3 +118,20 @@ end
     end
     return ctr
 end
+
+@inline _philox2x32(ctr::NTuple{2,UInt32}, key::NTuple{1,UInt32}) =
+    _philox2x32_impl(ctr, key)
+@inline _philox2x32(ctr::NTuple{2,T}, key::NTuple{1,T}) where {T<:_CoreWord{32}} =
+    _philox2x32_impl(ctr, key)
+@inline _philox4x32(ctr::NTuple{4,UInt32}, key::NTuple{2,UInt32}) =
+    _philox4x32_impl(ctr, key)
+@inline _philox4x32(ctr::NTuple{4,T}, key::NTuple{2,T}) where {T<:_CoreWord{32}} =
+    _philox4x32_impl(ctr, key)
+@inline _philox2x64(ctr::NTuple{2,UInt64}, key::NTuple{1,UInt64}) =
+    _philox2x64_impl(ctr, key)
+@inline _philox2x64(ctr::NTuple{2,T}, key::NTuple{1,T}) where {T<:_CoreWord{64}} =
+    _philox2x64_impl(ctr, key)
+@inline _philox4x64(ctr::NTuple{4,UInt64}, key::NTuple{2,UInt64}) =
+    _philox4x64_impl(ctr, key)
+@inline _philox4x64(ctr::NTuple{4,T}, key::NTuple{2,T}) where {T<:_CoreWord{64}} =
+    _philox4x64_impl(ctr, key)

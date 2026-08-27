@@ -13,8 +13,8 @@ function _word_mulhilo end
     _CoreWord{W,O,typeof(value)}(value)
 
 @inline _core_constant(word::Unsigned, value::Integer) = typeof(word)(value)
-@inline _core_constant(::_CoreWord{W,O}, value::Integer) where {W,O} =
-    _core_word(Val(W), O(), _word_constant(O(), Val(W), value))
+@inline _core_constant(word::_CoreWord{W,O}, value::Integer) where {W,O} =
+    _core_word(Val(W), O(), _word_constant(O(), Val(W), word.value, value))
 @inline _core_add(a::Unsigned, b::Unsigned) = a + b
 @inline _core_xor(a::Unsigned, b::Unsigned) = a ⊻ b
 @inline _core_rotate(value::Unsigned, count::Int) = bitrotate(value, count)

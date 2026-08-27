@@ -80,7 +80,11 @@ end
     return (x0, x1, x2, x3)
 end
 
-@inline _threefry2x32(counter::NTuple{2,T}, key::NTuple{2,T}) where {T} =
+@inline _threefry2x32(counter::NTuple{2,UInt32}, key::NTuple{2,UInt32}) =
+    _threefry2x32_impl(counter, key)
+@inline _threefry2x32(counter::NTuple{2,T}, key::NTuple{2,T}) where {T<:_CoreWord{32}} =
+    _threefry2x32_impl(counter, key)
+@inline _threefry2x32_impl(counter, key) =
     _threefry2x(
         counter,
         key,
@@ -88,7 +92,11 @@ end
         _core_constant(counter[1], 0x1BD11BDA),
     )
 
-@inline _threefry4x32(counter::NTuple{4,T}, key::NTuple{4,T}) where {T} =
+@inline _threefry4x32(counter::NTuple{4,UInt32}, key::NTuple{4,UInt32}) =
+    _threefry4x32_impl(counter, key)
+@inline _threefry4x32(counter::NTuple{4,T}, key::NTuple{4,T}) where {T<:_CoreWord{32}} =
+    _threefry4x32_impl(counter, key)
+@inline _threefry4x32_impl(counter, key) =
     _threefry4x(
         counter,
         key,
@@ -96,7 +104,11 @@ end
         _core_constant(counter[1], 0x1BD11BDA),
     )
 
-@inline _threefry2x64(counter::NTuple{2,T}, key::NTuple{2,T}) where {T} =
+@inline _threefry2x64(counter::NTuple{2,UInt64}, key::NTuple{2,UInt64}) =
+    _threefry2x64_impl(counter, key)
+@inline _threefry2x64(counter::NTuple{2,T}, key::NTuple{2,T}) where {T<:_CoreWord{64}} =
+    _threefry2x64_impl(counter, key)
+@inline _threefry2x64_impl(counter, key) =
     _threefry2x(
         counter,
         key,
@@ -104,7 +116,11 @@ end
         _core_constant(counter[1], 0x1BD11BDAA9FC1A22),
     )
 
-@inline _threefry4x64(counter::NTuple{4,T}, key::NTuple{4,T}) where {T} =
+@inline _threefry4x64(counter::NTuple{4,UInt64}, key::NTuple{4,UInt64}) =
+    _threefry4x64_impl(counter, key)
+@inline _threefry4x64(counter::NTuple{4,T}, key::NTuple{4,T}) where {T<:_CoreWord{64}} =
+    _threefry4x64_impl(counter, key)
+@inline _threefry4x64_impl(counter, key) =
     _threefry4x(
         counter,
         key,

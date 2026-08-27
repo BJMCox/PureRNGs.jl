@@ -113,3 +113,18 @@ end
         @test @allocated(PureRNGs._philox4x64(ctr, key)) == 0
     end
 end
+
+@testset "Philox core width applicability" begin
+    @test !applicable(PureRNGs._philox2x32, (UInt64(0), UInt64(0)), (UInt64(0),))
+    @test !applicable(
+        PureRNGs._philox4x32,
+        ntuple(_ -> UInt64(0), Val(4)),
+        (UInt64(0), UInt64(0)),
+    )
+    @test !applicable(PureRNGs._philox2x64, (UInt32(0), UInt32(0)), (UInt32(0),))
+    @test !applicable(
+        PureRNGs._philox4x64,
+        ntuple(_ -> UInt32(0), Val(4)),
+        (UInt32(0), UInt32(0)),
+    )
+end

@@ -78,3 +78,26 @@ end
         @test @allocated(core(counter, key)) == 0
     end
 end
+
+@testset "Threefry core width applicability" begin
+    @test !applicable(
+        PureRNGs._threefry2x32,
+        (UInt64(0), UInt64(0)),
+        (UInt64(0), UInt64(0)),
+    )
+    @test !applicable(
+        PureRNGs._threefry4x32,
+        ntuple(_ -> UInt64(0), Val(4)),
+        ntuple(_ -> UInt64(0), Val(4)),
+    )
+    @test !applicable(
+        PureRNGs._threefry2x64,
+        (UInt32(0), UInt32(0)),
+        (UInt32(0), UInt32(0)),
+    )
+    @test !applicable(
+        PureRNGs._threefry4x64,
+        ntuple(_ -> UInt32(0), Val(4)),
+        ntuple(_ -> UInt32(0), Val(4)),
+    )
+end
