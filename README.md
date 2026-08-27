@@ -92,4 +92,5 @@ The bridge advances its held immutable generator after each draw.
 - [Splitting and devices](docs/src/tutorials/splitting-and-devices.md)
 - [Sampling](docs/src/tutorials/sampling.md)
 - [Stateful interoperability](docs/src/tutorials/stateful-interop.md)
+- [Fixed distributions](docs/src/guides/fixed-distributions.md)
 - [API reference](docs/src/api.md)

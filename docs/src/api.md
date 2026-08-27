@@ -80,6 +80,17 @@ randsample
 randsample_next
 ```
 
+## Fixed distributions
+
+Loading Distributions.jl adds pure, continuation, addressed, allocating, and
+destination methods for exactly `Normal{Float32}`, `Normal{Float64}`,
+`Uniform{Float32}`, `Uniform{Float64}`, `Exponential{Float32}`,
+`Exponential{Float64}`, `Bernoulli{Float32}`, `Bernoulli{Float64}`, and the
+concrete `DiscreteUniform` type. There is no generic distribution fallback.
+
+See [Fixed distributions](guides/fixed-distributions.md) for the seven method
+forms, result types, parameter rules, fixed work, and device behavior.
+
 ## Mutable bridge
 
 ```@docs
