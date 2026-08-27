@@ -1,0 +1,22 @@
+name = "PureRNGsTuringConformance"
+uuid = "5c764c86-d62b-4e26-868a-dae4a7e588cb"
+version = "0.1.0"
+
+[deps]
+AbstractMCMC = "80f14c24-f653-4e6a-9b94-39d6b0f70001"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+PureRNGs = "2ccaadc3-3d9a-45d4-a2ec-95a2424790b7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
+
+[sources]
+PureRNGs = {path = "../../.."}
+
+[compat]
+AbstractMCMC = "=5.16.0"
+Distributions = "=0.25.131"
+Random = "1"
+Test = "1"
+Turing = "=0.46.1"
+julia = "1.10"
