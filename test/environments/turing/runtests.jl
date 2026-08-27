@@ -109,11 +109,12 @@ end
             Turing;
             recursive = true,
         )
-        bridge_ambiguities = filter(ambiguities) do pair
+        package_ambiguities = filter(ambiguities) do pair
             any(pair) do method
-                occursin("StatefulRNG", sprint(show, method.sig))
+                method.module === PureRNGs ||
+                    parentmodule(method.module) === PureRNGs
             end
         end
-        @test isempty(bridge_ambiguities)
+        @test isempty(package_ambiguities)
     end
 end
