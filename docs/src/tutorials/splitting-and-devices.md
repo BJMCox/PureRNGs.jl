@@ -46,7 +46,7 @@ using MLDataDevices
 CUDA.device!(0)
 root = MLDataDevices.CUDADevice()(Philox4x32(91))
 worker = subrng(root, 1)
-worker, values = rand_next(worker, Float32, 1_000_000)
+worker, values = randexp_next(worker, Float32, 1_000_000)
 
 @assert values isa CUDA.CuArray{Float32}
 ```
@@ -57,3 +57,7 @@ working CUDA installation and device.
 The device token names a backend, not a physical GPU. Read
 [Device binding](../guides/devices.md) before using multiple devices in one
 process.
+
+Binding preserves the key and position. Signed integers, uniform values, and
+raw exponential lattice inputs remain equal. The final exponential value may
+change because the backend token selects its transform.

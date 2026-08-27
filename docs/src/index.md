@@ -18,9 +18,9 @@ julia> rng == next_rng
 false
 ```
 
-Use `rand_next` and `randn_next` when later draws must continue from the returned
-state. Use `rand` and `randn` when only the value matters. Both forms leave the
-input generator unchanged.
+Use `rand_next`, `randn_next`, and `randexp_next` when later draws must continue
+from the returned state. Use `rand`, `randn`, and `randexp` when only the value
+matters. Both forms leave the input generator unchanged.
 
 Derive generators for independent roles with [`subrng`](@ref), or derive an
 ordered group with [`splitrng`](@ref). Use [`StatefulRNG`](@ref) only when an API

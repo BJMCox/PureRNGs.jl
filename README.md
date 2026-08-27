@@ -11,6 +11,7 @@ the generator, with fast defaults and no required tuning.
 
 ```julia
 using PureRNGs
+using Random
 
 rng = Philox4x32(1234)
 rng, values = rand_next(rng, Float32, 1_000_000)
@@ -23,7 +24,8 @@ draw:
 rng = Philox4x32(1234)
 rng, uniform = rand_next(rng, Float64)
 rng, normal = randn_next(rng, Float64)
-rng, integers = rand_next(rng, UInt32, 16)
+rng, signed = rand_next(rng, Int64)
+rng, exponential = randexp_next(rng, Float64)
 ```
 
 Keeping an older generator is useful when you want to repeat a draw. Reusing it
@@ -34,7 +36,7 @@ default:
 
 ```julia
 destination = Vector{Float32}(undef, 1_000_000)
-rng, destination = rand_next!(rng, destination)
+rng, destination = randexp_next!(rng, destination)
 ```
 
 `threaded=false` is available as optional advanced CPU control. It is not needed
@@ -51,11 +53,12 @@ using MLDataDevices
 
 device = MLDataDevices.CUDADevice()
 rng = Philox4x32(1234) |> device
-rng, values = rand_next(rng, Float32, 1_000_000)
+rng, values = randexp_next(rng, Float32, 1_000_000)
 ```
 
 The same workflow applies to supported AMDGPU and Metal devices. Backend-specific
-fast paths are selected automatically.
+fast paths are selected automatically. Device-bound allocation and generation
+stay on the device.
 
 ## Weighted sampling
 

@@ -37,6 +37,9 @@ rand_next!
 randat
 ```
 
+The typed `Random.rand` and `Random.rand!` methods accept `Bool`, `UInt32`,
+`Int32`, `UInt64`, `Int64`, `Float32`, and `Float64` results.
+
 ## Normal draws
 
 ```@docs
@@ -44,6 +47,31 @@ randn_next
 randn_next!
 randnat
 ```
+
+## Exponential draws
+
+```@docs
+randexp_next
+randexp_next!
+randexpat
+```
+
+Use `Random.randexp(rng, T)` for a pure scalar draw,
+`Random.randexp(rng, T, dims...)` for an allocating draw, and
+`Random.randexp!(rng, destination)` for a destination fill. `T` and the
+destination element type must be `Float32` or `Float64`.
+
+All continuation methods return the next generator first. Addressed methods use
+one-based indices and do not advance the generator. A pure draw never changes
+its input generator.
+
+The immutable API reports contract errors consistently:
+
+- An untyped pure `rand`, `randn`, or `randexp` call throws `ArgumentError`.
+- An unsupported result type has no method and throws `MethodError`.
+- An invalid address or insufficient counter capacity throws `ArgumentError`.
+- A fill on another backend throws `ArgumentError` before mutation.
+- A fill with a non-`Bool` `threaded` value throws `TypeError` before mutation.
 
 ## Sampling
 
