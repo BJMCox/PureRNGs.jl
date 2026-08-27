@@ -1,6 +1,7 @@
 using AbstractMCMC
 using Distributions
 using PureRNGs
+using Pkg
 using Random
 using Test
 using Turing
@@ -9,6 +10,25 @@ const ROOT = Philox4x32(12345)
 const CHAINS = 4
 const SAMPLERS =
     (Prior = (() -> Prior(), 32), MH = (() -> MH(), 32), NUTS = (() -> NUTS(16, 0.65), 16))
+const TEST_RECORD = (
+    julia = VERSION,
+    machine = Sys.MACHINE,
+    threads = Threads.nthreads(),
+    executor = haskey(ENV, "KAIMON_GATE_VERSION") ?
+               "KaimonGate $(ENV["KAIMON_GATE_VERSION"])" : "Julia",
+    turing = (
+        version = Base.pkgversion(Turing),
+        tree = string(Pkg.dependencies()[Base.PkgId(Turing).uuid].tree_hash),
+    ),
+    abstractmcmc = (
+        version = Base.pkgversion(AbstractMCMC),
+        tree = string(Pkg.dependencies()[Base.PkgId(AbstractMCMC).uuid].tree_hash),
+    ),
+    distributions = (
+        version = Base.pkgversion(Distributions),
+        tree = string(Pkg.dependencies()[Base.PkgId(Distributions).uuid].tree_hash),
+    ),
+)
 
 @model function gaussian_model(y)
     μ ~ Normal(0.0, 1.0)
@@ -66,10 +86,14 @@ function check_replay(ensemble, sampler_factory, count)
 end
 
 @testset "R66 Turing environment" begin
-    @test Base.pkgversion(Turing) == v"0.46.1"
-    @test Base.pkgversion(AbstractMCMC) == v"5.16.0"
-    @test Base.pkgversion(Distributions) == v"0.25.131"
-    @test Threads.nthreads() >= 4
+    @info "R66 Turing conformance" record = TEST_RECORD
+    @test TEST_RECORD.turing ==
+          (version = v"0.46.1", tree = "653ea28a8ffc069c46f2867fdf57b831ac25fe64")
+    @test TEST_RECORD.abstractmcmc ==
+          (version = v"5.16.0", tree = "328c7d50f307c66308a915abb20d9889e5aab48b")
+    @test TEST_RECORD.distributions ==
+          (version = v"0.25.131", tree = "a958ab3a40c755563f5e1405c0846cb0446bf19d")
+    @test TEST_RECORD.threads >= 4
 
     @testset "bridge lifecycle" begin
         bridge = StatefulRNG(ROOT)

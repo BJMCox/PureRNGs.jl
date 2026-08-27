@@ -1,10 +1,22 @@
 using PureRNGs
 using MeasureBase
+using Pkg
 using Random
 using Test
 
 const ROOT = Philox4x32(12345)
 const STANDARD_MEASURES = (StdUniform(), StdNormal(), StdLogistic(), StdExponential())
+const TEST_RECORD = (
+    julia = VERSION,
+    machine = Sys.MACHINE,
+    threads = Threads.nthreads(),
+    executor = haskey(ENV, "KAIMON_GATE_VERSION") ?
+               "KaimonGate $(ENV["KAIMON_GATE_VERSION"])" : "Julia",
+    measurebase = (
+        version = Base.pkgversion(MeasureBase),
+        tree = string(Pkg.dependencies()[Base.PkgId(MeasureBase).uuid].tree_hash),
+    ),
+)
 
 function primitive_draw(rng, ::Type{T}, ::StdUniform) where {T}
     return rand(rng, T)
@@ -39,7 +51,9 @@ function check_replay(::Type{T}, measure) where {T}
 end
 
 @testset "R66 MeasureBase environment" begin
-    @test Base.pkgversion(MeasureBase) == v"0.14.13"
+    @info "R66 MeasureBase conformance" record = TEST_RECORD
+    @test TEST_RECORD.measurebase.version == v"0.14.13"
+    @test TEST_RECORD.measurebase.tree == "ebf949d13b40e1c16d42ffecea951b2fb07cb592"
 
     @testset "standard measures" begin
         for T in (Float32, Float64), measure in STANDARD_MEASURES
