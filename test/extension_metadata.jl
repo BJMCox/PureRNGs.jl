@@ -12,22 +12,26 @@ using TOML
         "AMDGPU" => "21141c5a-9bdb-4563-92ae-f87d6854732e",
         "CUDA" => "052768ef-5323-5732-b1bb-66c8b64840ba",
         "Distributions" => "31c24e10-a181-5473-b8eb-7969acd0382f",
+        "EnzymeCore" => "f151be2c-9106-41f4-ab19-57ee4f262869",
         "Metal" => "dde4c033-4e86-420c-a63e-0dd931031962",
     )
     @test project["extensions"] == Dict(
         "PureRNGsAMDGPUExt" => "AMDGPU",
         "PureRNGsCUDAExt" => "CUDA",
         "PureRNGsDistributionsExt" => "Distributions",
+        "PureRNGsEnzymeCoreExt" => "EnzymeCore",
         "PureRNGsMetalExt" => "Metal",
     )
     @test project["compat"]["AMDGPU"] == "2"
     @test project["compat"]["CUDA"] == "5.8, 6"
     @test project["compat"]["Distributions"] == "0.25"
+    @test project["compat"]["EnzymeCore"] == "0.8"
     @test project["compat"]["Metal"] == "1.7"
 
     @test Base.get_extension(PureRNGs, :PureRNGsAMDGPUExt) === nothing
     @test Base.get_extension(PureRNGs, :PureRNGsCUDAExt) === nothing
     @test Base.get_extension(PureRNGs, :PureRNGsDistributionsExt) === nothing
+    @test Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt) === nothing
     @test Base.get_extension(PureRNGs, :PureRNGsMetalExt) === nothing
 
     @test names(PureRNGs) == [

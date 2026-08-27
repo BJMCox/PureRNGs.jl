@@ -1,0 +1,18 @@
+name = "PureRNGsEnzymeConformance"
+uuid = "bf14f22a-431f-4ffb-a726-18504e42c13d"
+version = "0.1.0"
+
+[deps]
+Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+PureRNGs = "2ccaadc3-3d9a-45d4-a2ec-95a2424790b7"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+PureRNGs = {path = "../../.."}
+
+[compat]
+Enzyme = "0.13"
+Random = "1"
+Test = "1"
+julia = "1.10"
