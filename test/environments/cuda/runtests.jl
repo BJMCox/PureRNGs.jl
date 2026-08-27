@@ -114,9 +114,11 @@ function _normal_address_kernel!(destination, rng)
     return
 end
 
-function _device_api_kernel!(uniform, normal32, normal64, ranges, rng)
+function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, signed64, rng)
     if CUDA.threadIdx().x == 1
         next_uniform, continued_uniform = rand_next(rng, UInt32)
+        next_signed32, continued_signed32 = rand_next(rng, Int32)
+        next_signed64, continued_signed64 = rand_next(rng, Int64)
         next_normal32, continued_normal32 = randn_next(rng, Float32)
         next_normal64, continued_normal64 = randn_next(rng, Float64)
         range = UInt64(0):UInt64(1):(UInt64(1)<<40)
@@ -130,6 +132,12 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, rng)
             uniform[4] = rand(next_uniform, UInt32)
             uniform[5] = rand(child, UInt32)
             uniform[6] = rand(children[2], UInt32)
+            signed32[1] = rand(rng, Int32)
+            signed32[2] = continued_signed32
+            signed32[3] = rand(next_signed32, Int32)
+            signed64[1] = rand(rng, Int64)
+            signed64[2] = continued_signed64
+            signed64[3] = rand(next_signed64, Int64)
             normal32[1] = randn(rng, Float32)
             normal32[2] = randnat(rng, Float32, 1)
             normal32[3] = continued_normal32
@@ -1055,11 +1063,15 @@ end
 
     for F in FAMILIES
         rng = device(F(0x123456))
+        signed32 = CUDA.zeros(Int32, 3)
+        signed64 = CUDA.zeros(Int64, 3)
         args = (
             CUDA.CuArray{UInt32}(undef, 6),
             CUDA.CuArray{Float32}(undef, 5),
             CUDA.CuArray{Float64}(undef, 5),
             CUDA.CuArray{UInt64}(undef, 2),
+            signed32,
+            signed64,
             rng,
         )
         CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _device_api_kernel!(args...)
@@ -1085,6 +1097,18 @@ end
         @test normal32[4] === normal32[5]
         @test normal64[1] === normal64[2] === normal64[3]
         @test normal64[4] === normal64[5]
+        next_unsigned32, continued_unsigned32 = rand_next(rng, UInt32)
+        @test Array(signed32) == Int32[
+            reinterpret(Int32, rand(rng, UInt32)),
+            reinterpret(Int32, continued_unsigned32),
+            reinterpret(Int32, rand(next_unsigned32, UInt32)),
+        ]
+        next_unsigned64, continued_unsigned64 = rand_next(rng, UInt64)
+        @test Array(signed64) == Int64[
+            reinterpret(Int64, rand(rng, UInt64)),
+            reinterpret(Int64, continued_unsigned64),
+            reinterpret(Int64, rand(next_unsigned64, UInt64)),
+        ]
         range = UInt64(0):UInt64(1):(UInt64(1)<<40)
         next_range, continued_range = rand_next(rng, range)
         @test Array(args[4]) == [continued_range, rand(next_range, range)]
