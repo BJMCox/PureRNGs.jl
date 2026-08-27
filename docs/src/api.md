@@ -1,5 +1,14 @@
 # API reference
 
+## Generator interface
+
+```@docs
+AbstractPureRNG
+```
+
+`AbstractPureRNG` supports dispatch and inspection only. The eight package
+families below are its complete supported direct subtype set.
+
 ## Generator families
 
 ```@docs
@@ -48,3 +57,6 @@ randsample_next
 ```@docs
 StatefulRNG
 ```
+
+Use `parent(bridge)` to inspect the exact CPU-bound immutable generator
+currently held by a `StatefulRNG` bridge without changing either value.

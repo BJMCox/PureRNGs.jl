@@ -3,6 +3,8 @@
 
 Wrap an immutable generator for host-only consumers of `Random.AbstractRNG`.
 Construction preserves the key and position and rebinds the generator to the CPU.
+`parent(bridge)` returns the exact immutable generator currently held by the
+bridge without allocating, mutating, or advancing it.
 
 Package-owned `Array` and `BitArray` fills preflight their full counter span. A
 foreign `Random` fill has no chained-scalar consumption-order guarantee. It may
@@ -21,6 +23,8 @@ end
 
 @inline StatefulRNG(rng::AbstractPureRNG) =
     _stateful_rng(MLDataDevices.CPUDevice()(rng))
+
+@inline Base.parent(mutable_rng::StatefulRNG) = mutable_rng.rng
 
 @inline function _commit_bridge!(
     mutable_rng::StatefulRNG{R},

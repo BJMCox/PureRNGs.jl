@@ -47,7 +47,7 @@ end
         randsample,
         randsample_next,
     )
-    @test foreign_functions == Set((rand, rand!, randn, randn!, Random.seed!, copy))
+    @test foreign_functions == Set((rand, rand!, randn, randn!, Random.seed!, copy, parent))
 
     required = Dict(function_ => Set{Method}() for function_ in owned_functions)
     require = function (function_, signature)

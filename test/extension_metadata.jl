@@ -27,6 +27,7 @@ using TOML
     @test Base.get_extension(PureRNGs, :PureRNGsMetalExt) === nothing
 
     @test names(PureRNGs) == [
+        :AbstractPureRNG,
         :Philox2x32,
         :Philox2x64,
         :Philox4x32,
@@ -48,4 +49,6 @@ using TOML
         :splitrng,
         :subrng,
     ]
+
+    @test all(F(0) isa AbstractPureRNG for F in FAMILY_TYPES)
 end

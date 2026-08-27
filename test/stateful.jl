@@ -47,6 +47,11 @@ function _bridge_allocations()
     )
 end
 
+function _parent_allocation(mutable_rng)
+    parent(mutable_rng)
+    return @allocated parent(mutable_rng)
+end
+
 @testset "R32-R35 StatefulRNG scalar bridge" begin
     source = StatefulIR._reserve(Philox4x32(0x801), UInt64(17), UInt64(0))
     device_source = MLDataDevices.CUDADevice(:discarded)(source)
@@ -59,6 +64,9 @@ end
     @test mutable_rng.rng.key == source.key
     @test mutable_rng.rng.position == source.position
     @test mutable_rng.rng.device === StatefulIR._CPU_BACKEND
+
+    @test @inferred(parent(mutable_rng)) === mutable_rng.rng
+    @test _parent_allocation(mutable_rng) == 0
 
     for F in FAMILY_TYPES
         cursor = F(0x802)
@@ -90,6 +98,40 @@ end
     @test randn(mutable_rng) === normal_expected
     @test mutable_rng.rng === normal_next
     @test _bridge_allocations() == (0, 0, 0, 0)
+end
+
+@testset "R35 StatefulRNG parent" begin
+    root = Philox4x32(0x812)
+    rebound = StatefulRNG(MLDataDevices.CUDADevice(:discarded)(root))
+    @test parent(rebound) === root
+
+    first_bridge = StatefulRNG(root)
+    second_bridge = StatefulRNG(root)
+    @test rand(first_bridge, UInt64) === rand(second_bridge, UInt64)
+    @test parent(first_bridge) === parent(second_bridge)
+
+    snapshot = parent(first_bridge)
+    replay = copy(first_bridge)
+    @test parent(replay) === snapshot
+    rand(replay, UInt32)
+    @test parent(first_bridge) === snapshot
+    @test parent(replay) !== snapshot
+
+    @test Random.seed!(first_bridge, 0x813) === first_bridge
+    @test parent(first_bridge) === Philox4x32(0x813)
+
+    before_failure = parent(first_bridge)
+    @test_throws ArgumentError Random.seed!(first_bridge, -1)
+    @test parent(first_bridge) === before_failure
+
+    exhausted = StatefulIR._reserve(
+        _bridge_last(Philox2x32(0x814), UInt16(1)),
+        UInt64(1),
+        UInt64(0),
+    )
+    exhausted_bridge = StatefulRNG(exhausted)
+    @test_throws ArgumentError rand(exhausted_bridge, Bool)
+    @test parent(exhausted_bridge) === exhausted
 end
 
 @testset "R34 range sampler dispatch" begin
@@ -221,8 +263,15 @@ end
     mutable_rng = StatefulRNG(Philox4x32(0x811))
     M = typeof(mutable_rng)
     required = Dict(
-        function_ => Set{Method}() for function_ in
-        (Random.rand, Random.rand!, Random.randn, Random.randn!, Random.seed!, copy)
+        function_ => Set{Method}() for function_ in (
+            Random.rand,
+            Random.rand!,
+            Random.randn,
+            Random.randn!,
+            Random.seed!,
+            copy,
+            parent,
+        )
     )
     require = function (function_, signature)
         method = which(function_, signature)
@@ -256,6 +305,7 @@ end
     end
     require(Random.seed!, Tuple{M,Int})
     require(copy, Tuple{M})
+    require(parent, Tuple{M})
 
     for (function_, methods_) in required
         @test _bridge_methods(function_) == methods_
@@ -278,6 +328,7 @@ end
     @test isempty(ambiguities)
 
     docs = string(Base.Docs.meta(StatefulIR)[Base.Docs.Binding(StatefulIR, :StatefulRNG)])
+    @test occursin("parent(bridge)", docs)
     @test occursin("partially written", docs)
     @test occursin("counter exhaustion", docs)
 end

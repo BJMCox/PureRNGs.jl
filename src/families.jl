@@ -1,3 +1,10 @@
+"""
+    AbstractPureRNG
+
+The sole abstract supertype of PureRNGs' immutable generators. It supports
+dispatch and inspection only; the eight package families are the complete
+supported direct subtype set.
+"""
 abstract type AbstractPureRNG end
 
 struct _CPUBackend end
