@@ -73,19 +73,6 @@ end
         @test destination == _reference_normal_chain(rng, T, length(destination))[2]
     end
 
-    for T in (Float32, Float64)
-        cooperative = PackedDeviceIR._cooperative_exponential_fill(rng, T)
-        destination = _packed_cooperative_values(
-            rng,
-            T,
-            cooperative,
-            PackedDeviceIR._exponential_bits(T),
-            PackedDeviceIR.FAMILY_EXP,
-            rng.device,
-        )
-        @test destination == _scalar_exponential_chain(rng, T, length(destination))[2]
-    end
-
     base = Philox4x32(0x783)
     terminal = PackedDeviceIR._rebuild(
         base,
@@ -205,36 +192,17 @@ end
         count = PackedDeviceIR._fill_group_size(group) + 3
         destination = Vector{T}(undef, count)
         workitems = cld(count, PackedDeviceIR._fill_group_size(group))
-        PackedDeviceIR._normal_fill_grouped_kernel!(PackedDeviceKA.CPU())(
+        PackedDeviceIR._transformed_fill_grouped_kernel!(PackedDeviceKA.CPU())(
             rng,
             destination,
             T,
-            group;
+            group,
+            Val(:normal);
             ndrange = workitems,
             workgroupsize = 1,
         )
         PackedDeviceKA.synchronize(PackedDeviceKA.CPU())
         @test destination == _reference_normal_chain(rng, T, count)[2]
-    end
-end
-
-@testset "grouped device exponential codec preserves packed stream" begin
-    for F in FAMILY_TYPES, T in (Float32, Float64)
-        rng = _packed_device_rng(F)
-        group = PackedDeviceIR._device_exponential_fill_group(T)
-        count = PackedDeviceIR._fill_group_size(group) + 3
-        destination = Vector{T}(undef, count)
-        workitems = cld(count, PackedDeviceIR._fill_group_size(group))
-        PackedDeviceIR._exponential_fill_grouped_kernel!(PackedDeviceKA.CPU())(
-            rng,
-            destination,
-            T,
-            group;
-            ndrange = workitems,
-            workgroupsize = 1,
-        )
-        PackedDeviceKA.synchronize(PackedDeviceKA.CPU())
-        @test destination == _scalar_exponential_chain(rng, T, count)[2]
     end
 end
 

@@ -3,9 +3,7 @@
     ::Type{T},
     dims::Tuple,
 ) where {T}
-    _check_serviceability(rng, T)
-    destination = _allocate_array(rng.device, T, dims)
-    return _randexp_next_fill!(rng, destination, true)
+    return _rand_transformed_next_array(rng, T, dims, rng.device)
 end
 
 @inline function randexp_next(rng::_ScalarUniformFamily, dim1::Integer, dims::Integer...)

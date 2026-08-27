@@ -265,6 +265,15 @@ end
     @test size(default_values) == (2, 3)
     @test_throws ArgumentError randexp(rng, Float32, -1)
     @test_throws ArgumentError randexp_next(rng, -1)
+
+    caller = current_task()
+    probe = TaskWriteProbe(Vector{Float64}(undef, 37))
+    next_rng, returned = randexp_next!(rng, probe; threaded = false)
+    expected_rng, expected = _scalar_exponential_chain(rng, Float64, 37)
+    @test returned === probe
+    @test all(task -> task === caller, probe.writers)
+    @test probe.data == expected
+    @test next_rng.position == expected_rng.position
 end
 
 @testset "R30, R39, R40, and R54 exponential fill validation" begin
@@ -345,10 +354,11 @@ end
         typeof(destination),
         Type{Float64},
         Base.OneTo{Int},
+        typeof(rng.device),
     }
     for (function_, call_signature) in (
         (randexp_next!, Tuple{typeof(rng),typeof(destination)}),
-        (IR._fill_exponential_dense_cpu!, signature),
+        (IR._fill_transformed_dense_cpu!, signature),
     )
         typed_ir = sprint(show, code_typed(function_, call_signature; optimize = true))
         llvm_ir = sprint() do io

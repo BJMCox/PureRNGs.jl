@@ -493,7 +493,7 @@ end
 @testset "R26 normal fill parallel seams and caller task" begin
     for T in NORMAL_TYPES
         rng = _positioned(Philox4x32, 0x74a, UInt64(4), UInt16(61))
-        chunk_elements = IR._normal_fill_chunk_elements(T)
+        chunk_elements = IR._transformed_fill_chunk_elements(Val(:normal), T)
         for delta in (-1, 0, 1)
             count = 4chunk_elements + delta
             serial = Vector{T}(undef, count)
@@ -607,10 +607,11 @@ end
         typeof(destination),
         Type{Float64},
         Base.OneTo{Int},
+        Val{:normal},
     }
     for (function_, call_signature) in (
         (randn_next!, Tuple{typeof(rng),typeof(destination)}),
-        (IR._fill_normal_dense_cpu!, signature),
+        (IR._fill_transformed_dense_cpu!, signature),
     )
         typed_ir = sprint(show, code_typed(function_, call_signature; optimize = true))
         llvm_ir = sprint() do io
