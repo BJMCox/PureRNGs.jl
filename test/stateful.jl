@@ -35,15 +35,22 @@ end
 function _bridge_allocations()
     mutable_rng = StatefulRNG(Philox4x32(0x800))
     destination = Vector{UInt64}(undef, 32)
+    exponential_destination = Vector{Float64}(undef, 32)
+    rand(mutable_rng, Int64)
     rand(mutable_rng, UInt64)
     randn(mutable_rng, Float64)
+    randexp(mutable_rng, Float64)
     rand(mutable_rng, UInt16(1):UInt16(17))
     rand!(mutable_rng, destination)
+    randexp!(mutable_rng, exponential_destination)
     return (
+        @allocated(rand(mutable_rng, Int64)),
         @allocated(rand(mutable_rng, UInt64)),
         @allocated(randn(mutable_rng, Float64)),
+        @allocated(randexp(mutable_rng, Float64)),
         @allocated(rand(mutable_rng, UInt16(1):UInt16(17))),
         @allocated(rand!(mutable_rng, destination)),
+        @allocated(randexp!(mutable_rng, exponential_destination)),
     )
 end
 
@@ -71,7 +78,7 @@ end
     for F in FAMILY_TYPES
         cursor = F(0x802)
         mutable_rng = StatefulRNG(cursor)
-        for T in SCALAR_UNIFORM_TYPES
+        for T in PURE_UNIFORM_TYPES
             cursor, expected = rand_next(cursor, T)
             @test rand(mutable_rng, T) === expected
             @test mutable_rng.rng === cursor
@@ -79,6 +86,11 @@ end
         for T in NORMAL_TYPES
             cursor, expected = randn_next(cursor, T)
             @test randn(mutable_rng, T) === expected
+            @test mutable_rng.rng === cursor
+        end
+        for T in EXPONENTIAL_TYPES
+            cursor, expected = randexp_next(cursor, T)
+            @test randexp(mutable_rng, T) === expected
             @test mutable_rng.rng === cursor
         end
         for T in RANGE_INTS
@@ -97,7 +109,10 @@ end
     normal_next, normal_expected = randn_next(next_rng, Float64)
     @test randn(mutable_rng) === normal_expected
     @test mutable_rng.rng === normal_next
-    @test _bridge_allocations() == (0, 0, 0, 0)
+    exponential_next, exponential_expected = randexp_next(normal_next, Float64)
+    @test randexp(mutable_rng) === exponential_expected
+    @test mutable_rng.rng === exponential_next
+    @test _bridge_allocations() == (0, 0, 0, 0, 0, 0, 0)
 end
 
 @testset "R35 StatefulRNG parent" begin
@@ -134,6 +149,24 @@ end
     @test parent(exhausted_bridge) === exhausted
 end
 
+@testset "R33 bridge failure stability" begin
+    for (T, width, draw) in (
+        (Int32, UInt16(32), rand),
+        (Int64, UInt16(64), rand),
+        (Float32, UInt16(24), randexp),
+        (Float64, UInt16(53), randexp),
+    )
+        last = _bridge_last(Philox2x32(0x818), width)
+        expected_rng, expected = draw === rand ? rand_next(last, T) : randexp_next(last, T)
+        mutable_rng = StatefulRNG(last)
+
+        @test draw(mutable_rng, T) === expected
+        @test parent(mutable_rng) === expected_rng
+        @test_throws ArgumentError draw(mutable_rng, T)
+        @test parent(mutable_rng) === expected_rng
+    end
+end
+
 @testset "R34 range sampler dispatch" begin
     mutable_rng = StatefulRNG(Philox4x32(0x804))
     unit = UInt16(2):UInt16(17)
@@ -159,7 +192,7 @@ end
 end
 
 @testset "R34 and R54 owned bridge fills" begin
-    for T in SCALAR_UNIFORM_TYPES
+    for T in PURE_UNIFORM_TYPES
         root = Philox4x32(0x806)
         expected_rng, expected = rand_next(root, T, 19)
         destination = Vector{T}(undef, 19)
@@ -167,6 +200,20 @@ end
         @test rand!(mutable_rng, destination) === destination
         @test destination == expected
         @test mutable_rng.rng === expected_rng
+    end
+
+    for T in EXPONENTIAL_TYPES
+        root = Philox4x32(0x815)
+        expected_rng, expected = randexp_next(root, T, 19)
+        destination = Vector{T}(undef, 19)
+        mutable_rng = StatefulRNG(root)
+        @test randexp!(mutable_rng, destination) === destination
+        @test destination == expected
+        @test mutable_rng.rng === expected_rng
+
+        allocating_rng = StatefulRNG(root)
+        @test randexp(allocating_rng, T, 19) == expected
+        @test allocating_rng.rng === expected_rng
     end
 
     for T in NORMAL_TYPES
@@ -208,11 +255,19 @@ end
     @test normal_destination == fill(1.0, 2)
     @test normal_mutable.rng === normal_last
 
+    exponential_last = _bridge_last(Philox2x32(0x816), UInt16(53))
+    exponential_destination = fill(1.0, 2)
+    exponential_mutable = StatefulRNG(exponential_last)
+    @test_throws ArgumentError randexp!(exponential_mutable, exponential_destination)
+    @test exponential_destination == fill(1.0, 2)
+    @test exponential_mutable.rng === exponential_last
+
     exhausted = StatefulIR._reserve(bool_last, UInt64(1), UInt64(0))
     exhausted_mutable = StatefulRNG(exhausted)
     @test rand!(exhausted_mutable, UInt32[]) == UInt32[]
     @test rand!(exhausted_mutable, BitArray(undef, 0)) == BitArray(undef, 0)
     @test randn!(exhausted_mutable, Float32[]) == Float32[]
+    @test randexp!(exhausted_mutable, Float32[]) == Float32[]
     @test exhausted_mutable.rng === exhausted
     @test_throws ArgumentError rand(exhausted_mutable, Bool)
     @test exhausted_mutable.rng === exhausted
@@ -234,6 +289,14 @@ end
     @test_throws ArgumentError randn!(normal_mutable, normal_destination)
     @test normal_destination.data == [first_normal, 1.0]
     @test normal_mutable.rng === expected_normal
+
+    exponential_root = _bridge_last(Philox2x32(0x817), UInt16(53))
+    expected_exponential, first_exponential = randexp_next(exponential_root, Float64)
+    exponential_destination = BridgeVector(fill(1.0, 2))
+    exponential_mutable = StatefulRNG(exponential_root)
+    @test_throws ArgumentError randexp!(exponential_mutable, exponential_destination)
+    @test exponential_destination.data == [first_exponential, 1.0]
+    @test exponential_mutable.rng === expected_exponential
 end
 
 @testset "R34 seed and R35 copy" begin
@@ -268,6 +331,8 @@ end
             Random.rand!,
             Random.randn,
             Random.randn!,
+            Random.randexp,
+            Random.randexp!,
             Random.seed!,
             copy,
             parent,
@@ -284,6 +349,8 @@ end
         Random.SamplerType{Bool},
         Random.SamplerType{UInt32},
         Random.SamplerType{UInt64},
+        Random.SamplerType{Int32},
+        Random.SamplerType{Int64},
         Random.SamplerTrivial{Random.CloseOpen01{Float32}},
         Random.SamplerTrivial{Random.CloseOpen01{Float64}},
     )
@@ -296,12 +363,18 @@ end
     require(Random.randn, Tuple{M})
     require(Random.randn, Tuple{M,Type{Float32}})
     require(Random.randn, Tuple{M,Type{Float64}})
-    for T in SCALAR_UNIFORM_TYPES
+    require(Random.randexp, Tuple{M})
+    require(Random.randexp, Tuple{M,Type{Float32}})
+    require(Random.randexp, Tuple{M,Type{Float64}})
+    for T in PURE_UNIFORM_TYPES
         require(Random.rand!, Tuple{M,Vector{T}})
     end
     require(Random.rand!, Tuple{M,BitArray})
     for T in NORMAL_TYPES
         require(Random.randn!, Tuple{M,Vector{T}})
+    end
+    for T in EXPONENTIAL_TYPES
+        require(Random.randexp!, Tuple{M,Vector{T}})
     end
     require(Random.seed!, Tuple{M,Int})
     require(copy, Tuple{M})
@@ -326,6 +399,10 @@ end
             any(method -> method.module === StatefulIR, pair)
         end
     @test isempty(ambiguities)
+
+    @test which(Random.randexp, Tuple{M}).module === StatefulIR
+    @test which(Random.randexp, Tuple{M,Type{Float32}}).module === StatefulIR
+    @test which(Random.randexp, Tuple{M,Type{Float64}}).module === StatefulIR
 
     docs = string(Base.Docs.meta(StatefulIR)[Base.Docs.Binding(StatefulIR, :StatefulRNG)])
     @test occursin("parent(bridge)", docs)
