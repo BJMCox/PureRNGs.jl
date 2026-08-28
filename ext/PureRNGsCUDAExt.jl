@@ -26,6 +26,7 @@ const _CUDA_F32X4 = NTuple{4,VecElement{Float32}}
 const _CUDA_F64X2 = NTuple{2,VecElement{Float64}}
 const _CUDA_B8X16 = NTuple{16,VecElement{Bool}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
+const _CUDAPackedFloatCodec = Union{Val{:uniform},IR._CUDABackend}
 
 @inline _bool_packs_per_block(rng) = Val(Int(IR._block_bits(rng)) ÷ 16)
 
@@ -83,7 +84,7 @@ end
     rng::_CUDANonPhilox4x32,
     destination,
     ::Type{T},
-    codec::Val{:uniform},
+    codec::_CUDAPackedFloatCodec,
     plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{P}},
 ) where {T<:Union{Float32,Float64},O,L,P}
     if !_packed_float_layout(destination, T, plan[4])
@@ -107,7 +108,7 @@ end
     rng::_CUDAPhilox4x32,
     destination,
     ::Type{Float32},
-    codec::Val{:uniform},
+    codec::_CUDAPackedFloatCodec,
     plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{4}},
 ) where {O,L}
     if !_packed_float_layout(destination, Float32, plan[4])
@@ -257,6 +258,15 @@ end
     cooperative = IR._cooperative_normal_fill(rng, T)
     return cooperative === nothing ? (Val(:grouped), IR._device_normal_fill_group(T)) :
            (Val(:cooperative), cooperative...)
+end
+
+@inline function IR._transformed_fill_plan(
+    ::IR._CUDABackend,
+    backend::CUDA.CUDABackend,
+    rng::_CUDAFamily,
+    ::Type{T},
+) where {T<:Union{Float32,Float64}}
+    return IR._device_uniform_fill_plan(backend, rng, T)
 end
 
 @inline function IR._device_range_fill_plan(

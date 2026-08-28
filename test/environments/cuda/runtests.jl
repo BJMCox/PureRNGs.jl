@@ -548,6 +548,18 @@ end
         plan[1] === Val(:cooperative) && @test(length(plan) == 3)
     end
 
+    for F in FAMILIES, T in (Float32, Float64)
+        rng = device(F(0x123456))
+        plan = IR._transformed_fill_plan(rng.device, backend, rng, T)
+        uniform_plan = IR._device_uniform_fill_plan(backend, rng, T)
+        dispatch = which(
+            IR._transformed_fill_plan,
+            Tuple{typeof(rng.device),typeof(backend),typeof(rng),Type{T}},
+        )
+        @test dispatch.module === extension_module
+        @test plan == uniform_plan
+    end
+
     for F in FAMILIES,
         (range, expected_kind) in ((K64_RANGE, Val(:grouped)), (K128_RANGE, nothing))
 
