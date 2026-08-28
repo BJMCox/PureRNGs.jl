@@ -8,7 +8,7 @@ using Printf
 #
 # import CUDA
 # target_device = MLDataDevices.CUDADevice()
-# fill_function = randexp_next!
+# next_fill_function = randexp_next!
 # result_type = Float32
 # elements = 2^27
 # include("benchmark/throughput.jl")
@@ -20,21 +20,21 @@ using Printf
 @isdefined(elements) || (elements = 2^22)
 @isdefined(seconds) || (seconds = 10.0)
 @isdefined(threaded) || (threaded = true)
-@isdefined(fill_function) || (fill_function = rand_next!)
+@isdefined(next_fill_function) || (next_fill_function = rand_next!)
 
 elements isa Integer || error("elements must be an integer")
 elements > 0 || error("elements must be positive")
 seconds isa Real && isfinite(seconds) && seconds > 0 ||
     error("seconds must be finite and positive")
 
-function measure_fill(fill_function, rng, values, seconds, threaded)
+function measure_fill(next_fill_function, rng, values, seconds, threaded)
     expected_device = MLDataDevices.get_device_type(rng.device)
     actual_device = MLDataDevices.get_device_type(values)
     actual_device === expected_device ||
         error("expected $expected_device output, received $actual_device")
     backend = KernelAbstractions.get_backend(values)
 
-    rng, _ = fill_function(rng, values; threaded)
+    rng, _ = next_fill_function(rng, values; threaded)
     KernelAbstractions.synchronize(backend)
     GC.gc()
 
@@ -42,7 +42,7 @@ function measure_fill(fill_function, rng, values, seconds, threaded)
     started = time_ns()
     elapsed = 0
     while elapsed < seconds * 1.0e9
-        rng, _ = fill_function(rng, values; threaded)
+        rng, _ = next_fill_function(rng, values; threaded)
         KernelAbstractions.synchronize(backend)
         runs += 1
         elapsed = time_ns() - started
@@ -63,11 +63,11 @@ end
 
 rng = family(12345) |> target_device
 values = rand(rng, result_type, elements)
-result = measure_fill(fill_function, rng, values, seconds, threaded)
+result = measure_fill(next_fill_function, rng, values, seconds, threaded)
 
 @printf(
     "%s %s %s on %s: %.3f Gvalue/s, %.3f GiB/s output, %.3f ms/fill (%d runs)\n",
-    fill_function,
+    next_fill_function,
     nameof(family),
     result_type,
     nameof(typeof(target_device)),
