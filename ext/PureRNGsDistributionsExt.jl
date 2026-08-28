@@ -196,7 +196,7 @@ end
     result_type = _result_type(d)
     _check_serviceability(rng, result_type)
     _validate_distribution(d)
-    destination = IR._allocate_array(rng.device, result_type, dims)
+    destination = IR._allocate_draw_array(rng.device, result_type, dims)
     return _fill_distribution_prevalidated!(rng, d, destination, true)
 end
 

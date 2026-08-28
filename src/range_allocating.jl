@@ -141,7 +141,7 @@ end
 ) where {T<:_RangeInteger}
     _check_serviceability(rng, range)
     span = _range_span(range)
-    destination = _allocate_array(rng.device, T, dims)
+    destination = _allocate_draw_array(rng.device, T, dims)
     _check_fill_device(rng, destination)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _range_bits(span))
     next_rng = _reserve(rng, bits_lo, bits_hi)

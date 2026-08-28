@@ -4,7 +4,7 @@
     dims::Tuple,
 ) where {T}
     _check_serviceability(rng, T)
-    destination = _allocate_array(rng.device, T, dims)
+    destination = _allocate_draw_array(rng.device, T, dims)
     return _rand_next_fill!(rng, destination, true)
 end
 

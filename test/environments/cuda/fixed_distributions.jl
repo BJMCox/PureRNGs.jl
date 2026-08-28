@@ -321,14 +321,21 @@ end
         @test sprint(showerror, size_error) == expected_error
     end
 
-    valid_size_error = try
-        rand(rng, Normal(), -1)
-        nothing
-    catch caught
-        caught
+    allocating_forms = (
+        () -> rand(rng, Float32, -1),
+        () -> rand_next(rng, Float32, -1),
+        () -> randn(rng, Float32, -1),
+        () -> randn_next(rng, Float32, -1),
+        () -> randexp(rng, Float32, -1),
+        () -> randexp_next(rng, Float32, -1),
+        () -> rand(rng, UInt32(3):UInt32(7), -1),
+        () -> rand_next(rng, UInt32(3):UInt32(7), -1),
+        () -> rand(rng, Normal(), -1),
+        () -> rand_next(rng, Normal(), -1),
+    )
+    for draw in allocating_forms
+        @test_throws ArgumentError draw()
     end
-    @test valid_size_error isa ArgumentError
-    @test !occursin("invalid Normal parameters", sprint(showerror, valid_size_error))
 end
 
 @testset "CUDA fixed-distribution fills do not stage through the host" begin
