@@ -155,15 +155,23 @@ end
 @testset "R13 and R59 CPU weighted threshold traversal" begin
     backend = WeightedIR.KernelAbstractions.CPU()
     total = 9.75
-    for F in FAMILY_TYPES, offset in (0, 1, 52, 53, 64, 127, 128, 255, 256)
-        rng = WeightedIR._reserve(F(0x9762), UInt64(offset), UInt64(0))
-        for count in (0, 1, 2, 64, 65, 129, 10_003)
-            expected = _scalar_weighted_thresholds(rng, total, count)
-            destination = similar(expected)
-            @test @inferred(
-                WeightedIR._fill_weighted_thresholds!(backend, rng, total, destination)
-            ) === destination
-            @test destination == expected
+    # A unit total maps every raw 53-bit integer to a distinct exact Float64.
+    for comparison_total in (1.0, total)
+        for F in FAMILY_TYPES, offset in (0, 1, 52, 53, 64, 127, 128, 255, 256)
+            rng = WeightedIR._reserve(F(0x9762), UInt64(offset), UInt64(0))
+            for count in (0, 1, 2, 64, 65, 129, 10_003)
+                expected = _scalar_weighted_thresholds(rng, comparison_total, count)
+                destination = similar(expected)
+                @test @inferred(
+                    WeightedIR._fill_weighted_thresholds!(
+                        backend,
+                        rng,
+                        comparison_total,
+                        destination,
+                    )
+                ) === destination
+                @test destination == expected
+            end
         end
     end
 
