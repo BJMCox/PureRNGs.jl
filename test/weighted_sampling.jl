@@ -105,6 +105,31 @@ function _last_weighted_rng(F)
     return WeightedIR._rebuild(rng, position, rng.device)
 end
 
+function _scalar_weighted_thresholds(rng, total, count)
+    thresholds = Vector{Float64}(undef, count)
+    position = rng.position
+    @inbounds for index in eachindex(thresholds)
+        thresholds[index] = WeightedIR._weighted_threshold(rng, position, total)
+        position = WeightedIR._advance_position_unchecked(
+            position,
+            UInt64(53),
+            UInt64(0),
+            WeightedIR._block_shift(rng),
+        )
+    end
+    return thresholds
+end
+
+function _weighted_threshold_fill_allocations(backend, rng, total, destination)
+    WeightedIR._fill_weighted_thresholds!(backend, rng, total, destination)
+    return @allocated WeightedIR._fill_weighted_thresholds!(
+        backend,
+        rng,
+        total,
+        destination,
+    )
+end
+
 @testset "R13 and R59 weighted packed-stream golden vectors" begin
     population = Int32[10, 20, 30, 40]
     weights = Float64[1, 2, 3, 4]
@@ -125,6 +150,26 @@ end
         @test values == expected
         @test randsample(rng, population, weights, 12) == expected
     end
+end
+
+@testset "R13 and R59 CPU weighted threshold traversal" begin
+    backend = WeightedIR.KernelAbstractions.CPU()
+    total = 9.75
+    for F in FAMILY_TYPES, offset in (0, 1, 52, 53, 64, 127, 128, 255, 256)
+        rng = WeightedIR._reserve(F(0x9762), UInt64(offset), UInt64(0))
+        for count in (0, 1, 2, 64, 65, 129, 10_003)
+            expected = _scalar_weighted_thresholds(rng, total, count)
+            destination = similar(expected)
+            @test @inferred(
+                WeightedIR._fill_weighted_thresholds!(backend, rng, total, destination)
+            ) === destination
+            @test destination == expected
+        end
+    end
+
+    rng = Philox4x32(0x9762)
+    destination = Vector{Float64}(undef, 10_003)
+    @test _weighted_threshold_fill_allocations(backend, rng, total, destination) == 0
 end
 
 @testset "R59 strict Float64 fold golden boundaries" begin

@@ -130,6 +130,11 @@ end
     return converted, total, nothing
 end
 
+@inline function _weighted_threshold_from_bits(raw::UInt64, total::Float64)
+    uniform = Float64(raw) * 0x1p-53
+    return min(uniform * total, prevfloat(total))
+end
+
 @inline function _weighted_threshold(rng, position, total::Float64)
     raw = _extract_bits_unchecked(
         rng,
@@ -138,8 +143,7 @@ end
         position.bit,
         Val(53),
     )
-    uniform = Float64(raw) * 0x1p-53
-    return min(uniform * total, prevfloat(total))
+    return _weighted_threshold_from_bits(raw, total)
 end
 
 KernelAbstractions.@kernel function _weighted_threshold_kernel!(
@@ -160,15 +164,12 @@ end
     total::Float64,
     thresholds,
 )
-    position = rng.position
+    isempty(thresholds) && return thresholds
+    cursor =
+        _dense_cursor(rng, FAMILY_RANGE, _position_block(rng.position), rng.position.bit)
     @inbounds for index in eachindex(thresholds)
-        thresholds[index] = _weighted_threshold(rng, position, total)
-        position = _advance_position_unchecked(
-            position,
-            UInt64(_WEIGHT_BITS),
-            UInt64(0),
-            _block_shift(rng),
-        )
+        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(53))
+        thresholds[index] = _weighted_threshold_from_bits(raw, total)
     end
     return thresholds
 end
