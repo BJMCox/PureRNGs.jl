@@ -40,7 +40,7 @@ end
 @inline function _primitive_at(rng, distribution::DiscreteUniform, index)
     span = (distribution.b % UInt64 - distribution.a % UInt64) + UInt64(1)
     addressed = IR._addressed_rng(rng, IR._range_bits(span), index)
-    return IR._range_value(addressed, distribution.a:distribution.b)
+    return rand(addressed, distribution.a:distribution.b)
 end
 
 @inline _primitive_array(rng, ::Normal{T}, count) where {T} = randn(rng, T, count)
