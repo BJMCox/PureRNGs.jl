@@ -1,4 +1,6 @@
 using CUDA
+using Distributions
+using Enzyme
 using PureRNGs
 using MLDataDevices
 using Random
@@ -30,6 +32,7 @@ function Base.getindex(weights::DeviceAgnosticWeights, index::Int)
     weights.reads[] += 1
     return weights.values[index]
 end
+
 MLD.get_device(::DeviceAgnosticWeights) = nothing
 
 CUDA.functional() || error("CUDA is not functional")
@@ -1719,3 +1722,6 @@ end
         )
     end
 end
+
+include("fixed_distributions.jl")
+include("enzyme.jl")
