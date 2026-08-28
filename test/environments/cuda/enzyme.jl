@@ -2,10 +2,17 @@ function _enzyme_fill_result!(fill_function, rng, destination, threaded)
     return fill_function(rng, destination; threaded = threaded)
 end
 
-function _enzyme_fill_objective!(fill_function, rng, destination, scale, threaded)
-    result = fill_function(rng, destination; threaded = threaded)
-    values = result isa Tuple ? last(result) : result
-    return scale * sum(values)
+function _enzyme_fill_objective!(
+    fill_function,
+    rng,
+    destination,
+    scale,
+    reference,
+    threaded,
+)
+    # Exercise caller differentiation without depending on CUDACore's reduction rules.
+    fill_function(rng, destination; threaded = threaded)
+    return scale * reference
 end
 
 const CUDA_ENZYME_FILL_CASES = (
@@ -23,6 +30,7 @@ const CUDA_ENZYME_FILL_CASES = (
         (fill_function, next_draw, continued) in CUDA_ENZYME_FILL_CASES
 
         expected_rng, expected = next_draw(rng, T, 17)
+        reference = sum(Array(expected))
 
         values = CUDA.zeros(T, 17)
         shadow = CUDA.fill(T(7), 17)
@@ -73,12 +81,13 @@ const CUDA_ENZYME_FILL_CASES = (
                 Const(rng),
                 Duplicated(objective_values, objective_shadow),
                 Active(T(1.5)),
+                Const(reference),
                 Const(true),
             ),
         )
         @test isequal(Array(objective_values), Array(expected))
         @test iszero(Array(objective_shadow))
-        @test reverse_derivative[4] ≈ sum(Array(expected))
+        @test reverse_derivative[4] ≈ reference
 
         forward_values = CUDA.zeros(T, 17)
         forward_shadow = CUDA.fill(T(8), 17)
@@ -90,12 +99,13 @@ const CUDA_ENZYME_FILL_CASES = (
                 Const(rng),
                 Duplicated(forward_values, forward_shadow),
                 Duplicated(T(1.5), one(T)),
+                Const(reference),
                 Const(true),
             ),
         )
         @test isequal(Array(forward_values), Array(expected))
         @test iszero(Array(forward_shadow))
-        @test forward_derivative ≈ sum(Array(expected))
+        @test forward_derivative ≈ reference
 
         batch_values = CUDA.zeros(T, 17)
         shadow_one = CUDA.fill(T(3), 17)
@@ -108,14 +118,15 @@ const CUDA_ENZYME_FILL_CASES = (
                 Const(rng),
                 BatchDuplicated(batch_values, (shadow_one, shadow_two)),
                 BatchDuplicated(T(1.5), (one(T), T(2))),
+                Const(reference),
                 Const(true),
             ),
         )
         @test isequal(Array(batch_values), Array(expected))
         @test iszero(Array(shadow_one))
         @test iszero(Array(shadow_two))
-        @test batch_derivative[1] ≈ sum(Array(expected))
-        @test batch_derivative[2] ≈ T(2) * sum(Array(expected))
+        @test batch_derivative[1] ≈ reference
+        @test batch_derivative[2] ≈ T(2) * reference
     end
 end
 
