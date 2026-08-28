@@ -24,7 +24,48 @@ draw order fixed. Use addressed draws when work order may change. See
 
 ## Reactant
 
-Reactant may bake an immutable generator's key and position into a compiled
-executable. A changed key or position may require a new compilation. Compile
-or cache functions outside key- or position-varying loops. Reuse an executable
-only for the key and position used to compile it.
+Convert an immutable generator with `Reactant.to_rarray`. The result stores the
+key and position as runtime state. One executable accepts other converted
+generators with the same family, backend token, Reactant execution backend,
+state type, shape, and sharding while their keys and positions differ.
+
+Compile once, then pass the returned carrier back into the same executable:
+
+```julia
+using PureRNGs
+using Reactant
+
+function step(rng)
+    rng, value = rand_next(rng, Float64)
+    return rng, value
+end
+
+function run_compiled()
+    carrier = Reactant.to_rarray(Philox4x32(1))
+    compiled_step = Reactant.@compile sync = true step(carrier)
+
+    for seed in 1:4
+        carrier = Reactant.to_rarray(Philox4x32(seed))
+        for _ in 1:100
+            carrier, value = compiled_step(carrier)
+        end
+    end
+    return carrier
+end
+
+carrier = run_compiled()
+```
+
+This loop changes the key between seeds and advances the position within each
+seed without another `Reactant.@compile` call.
+
+The compiled carrier performs no capacity or exhaustion checks. The caller
+must prove that every requested draw span fits before invoking the executable.
+
+Compiled integer-range draws accept static `OrdinalRange` values and integer
+`LinRange` values. Other `AbstractRange` types remain available to eager draws
+but are outside the compiled carrier API.
+
+A plain Julia integer passed to `subrng` is static during compilation. The
+parent key remains dynamic, so the child key changes with each supplied
+carrier. Changing the purpose may compile a different executable.
