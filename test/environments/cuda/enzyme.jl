@@ -125,12 +125,16 @@ end
     shadow_one = similar(values)
     shadow_two = similar(values)
 
-    primal_events = _device_kernel_events(() -> randexp_next!(rng, values))
-    zero_events = _device_kernel_events(() -> fill!(shadow_one, 0.0f0))
-    @test primal_events > 0
-    @test zero_events > 0
+    primal_events = _device_events(() -> randexp_next!(rng, values))
+    zero_events = _device_events(() -> fill!(shadow_one, 0.0f0))
+    @test !isempty(primal_events.kernels)
+    @test isempty(primal_events.memsets)
+    @test isempty(primal_events.copies)
+    @test isempty(zero_events.kernels)
+    @test !isempty(zero_events.memsets)
+    @test isempty(zero_events.copies)
 
-    forward_events = _device_kernel_events() do
+    forward_events = _device_events() do
         autodiff(
             Forward,
             _enzyme_fill_result!,
@@ -141,9 +145,11 @@ end
             Const(true),
         )
     end
-    @test forward_events == primal_events + zero_events
+    @test length(forward_events.kernels) == length(primal_events.kernels)
+    @test length(forward_events.memsets) == length(zero_events.memsets)
+    @test isempty(forward_events.copies)
 
-    reverse_events = _device_kernel_events() do
+    reverse_events = _device_events() do
         autodiff(
             Reverse,
             _enzyme_fill_result!,
@@ -154,9 +160,11 @@ end
             Const(true),
         )
     end
-    @test reverse_events == primal_events + 2zero_events
+    @test length(reverse_events.kernels) == length(primal_events.kernels)
+    @test length(reverse_events.memsets) == 2length(zero_events.memsets)
+    @test isempty(reverse_events.copies)
 
-    batch_events = _device_kernel_events() do
+    batch_events = _device_events() do
         autodiff(
             Forward,
             _enzyme_fill_result!,
@@ -167,7 +175,9 @@ end
             Const(true),
         )
     end
-    @test batch_events == primal_events + 2zero_events
+    @test length(batch_events.kernels) == length(primal_events.kernels)
+    @test length(batch_events.memsets) == 2length(zero_events.memsets)
+    @test isempty(batch_events.copies)
 end
 
 @testset "CUDA Enzyme fills do not stage through the host" begin
@@ -197,11 +207,10 @@ end
         )
         CUDA.synchronize()
     end
-    events, h2d, d2h = _cuda_copy_sizes(profile)
+    events = _cuda_profile_events(profile)
     @test !isempty(events.kernels)
-    @test !isempty(events.memory)
-    @test !isempty(h2d)
-    @test all(==(8), h2d)
-    @test isempty(d2h)
+    @test !isempty(events.memsets)
+    @test isempty(events.host_to_device)
+    @test isempty(events.device_to_host)
     @test iszero(Array(shadow))
 end

@@ -449,35 +449,45 @@ function _check_public_range(rng, range, count)
     @test (Array(allocated), allocated_next.position) == (expected, expected_next.position)
 end
 
-function _device_kernel_events(call)
+function _device_events(call)
     call()
     CUDA.synchronize()
     profile = CUDA.@profile raw = true begin
         call()
         CUDA.synchronize()
     end
-    return length(_cuda_profile_events(profile).kernels)
+    return _cuda_profile_events(profile)
 end
 
 function _cuda_profile_events(profile)
-    kernels = findall(value -> !ismissing(value), profile.device.grid)
-    memory = findall(value -> !ismissing(value), profile.device.size)
-    @test sort!(vcat(kernels, memory)) == collect(eachindex(profile.device.name))
-    return (; kernels, memory)
+    first_sync = findfirst(==("cuCtxSynchronize"), profile.host.name)
+    last_sync = findlast(==("cuCtxSynchronize"), profile.host.name)
+    @test first_sync !== nothing
+    @test last_sync !== nothing
+    @test first_sync != last_sync
+    window = findall(
+        index ->
+            profile.device.start[index] >= profile.host.stop[first_sync] &&
+            profile.device.stop[index] <= profile.host.stop[last_sync],
+        eachindex(profile.device.name),
+    )
+    kernels = filter(index -> !ismissing(profile.device.grid[index]), window)
+    memory = filter(index -> !ismissing(profile.device.size[index]), window)
+    copies = filter(index -> startswith(profile.device.name[index], "[copy "), memory)
+    memsets = filter(index -> startswith(profile.device.name[index], "[set "), memory)
+    @test sort!(vcat(kernels, copies, memsets)) == window
+
+    source_is_host(name) = occursin(r"^\[copy (pageable|pinned) to ", name)
+    destination_is_host(name) = occursin(r" to (pageable|pinned) memory\]$", name)
+    host_to_device = filter(index -> source_is_host(profile.device.name[index]), copies)
+    device_to_host =
+        filter(index -> destination_is_host(profile.device.name[index]), copies)
+    return (; kernels, copies, memsets, host_to_device, device_to_host)
 end
 
-function _cuda_copy_sizes(profile)
-    events = _cuda_profile_events(profile)
-    h2d = [
-        profile.device.size[index] for index in events.memory if
-        profile.device.name[index] == "[copy pageable to device memory]"
-    ]
-    d2h = [
-        profile.device.size[index] for index in events.memory if
-        profile.device.name[index] == "[copy device to pageable memory]"
-    ]
-    return events, h2d, d2h
-end
+_device_kernel_events(call) = length(_device_events(call).kernels)
+
+_event_sizes(profile, indices) = profile.device.size[indices]
 
 devices = collect(CUDA.devices())
 primary = first(devices)
@@ -1556,11 +1566,11 @@ end
     end
     @test audit_population.starts[] == 1
     @test profiled_result[] isa CUDA.CuArray{Int32,1}
-    # The integrated profiler adds its own eight-byte H2D warm-up copy.
-    events, h2d_sizes, d2h_sizes = _cuda_copy_sizes(profile)
+    events = _cuda_profile_events(profile)
+    h2d_sizes = _event_sizes(profile, events.host_to_device)
+    d2h_sizes = _event_sizes(profile, events.device_to_host)
     @test !isempty(events.kernels)
-    @test !isempty(events.memory)
-    @test sort(h2d_sizes) == [8, sizeof(Int32) * length(audit_population)]
+    @test sort(h2d_sizes) == [sizeof(Int32) * length(audit_population)]
     @test isempty(d2h_sizes)
 end
 
@@ -1657,11 +1667,11 @@ end
     end
     @test counted_weights.reads[] == length(counted_weights)
     @test profiled_result[] isa CUDA.CuArray{UInt16,1}
-    # The integrated profiler adds its own eight-byte H2D warm-up copy.
-    events, h2d_sizes, d2h_sizes = _cuda_copy_sizes(profile)
+    events = _cuda_profile_events(profile)
+    h2d_sizes = _event_sizes(profile, events.host_to_device)
+    d2h_sizes = _event_sizes(profile, events.device_to_host)
     @test !isempty(events.kernels)
-    @test !isempty(events.memory)
-    @test sort(h2d_sizes) == [8, sizeof(Float64) * length(counted_weights)]
+    @test sort(h2d_sizes) == [sizeof(Float64) * length(counted_weights)]
     @test d2h_sizes == [1]
 
     converted, total = IR._prepare_weights(range_rng, 1:13, true)

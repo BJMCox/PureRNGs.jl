@@ -276,13 +276,11 @@ end
             end
             CUDA.synchronize()
         end
-        events, h2d, d2h = _cuda_copy_sizes(profile)
+        events = _cuda_profile_events(profile)
         @test sprint(showerror, caught[]) == expected_error
         @test isempty(events.kernels)
-        @test !isempty(events.memory)
-        @test !isempty(h2d)
-        @test all(==(8), h2d)
-        @test isempty(d2h)
+        @test isempty(events.copies)
+        @test isempty(events.memsets)
 
         sentinel = T === Bool ? true : T(-1)
         destination = CUDA.fill(sentinel, 8)
@@ -324,12 +322,10 @@ end
             rand_next!(rng, distribution, destination)
             CUDA.synchronize()
         end
-        events, h2d, d2h = _cuda_copy_sizes(profile)
+        events = _cuda_profile_events(profile)
         @test !isempty(events.kernels)
-        @test !isempty(events.memory)
-        @test !isempty(h2d)
-        @test all(==(8), h2d)
-        @test isempty(d2h)
+        @test isempty(events.host_to_device)
+        @test isempty(events.device_to_host)
         @test _device_id(destination) == CUDA.deviceid(primary)
     end
 end
