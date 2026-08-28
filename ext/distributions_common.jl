@@ -17,42 +17,49 @@ const _FixedDistribution = Union{_MappedDistribution,Distributions.DiscreteUnifo
 @inline _result_type(::Distributions.Bernoulli{T}) where {T<:_FloatType} = Bool
 @inline _result_type(::Distributions.DiscreteUniform) = Int
 
-@noinline function _invalid_parameters(name)
-    throw(ArgumentError("invalid $(name) parameters"))
-end
+@noinline _invalid_parameters(::Distributions.Normal) =
+    throw(ArgumentError("invalid Normal parameters"))
+@noinline _invalid_parameters(::Distributions.Uniform) =
+    throw(ArgumentError("invalid Uniform parameters"))
+@noinline _invalid_parameters(::Distributions.Exponential) =
+    throw(ArgumentError("invalid Exponential parameters"))
+@noinline _invalid_parameters(::Distributions.Bernoulli) =
+    throw(ArgumentError("invalid Bernoulli parameters"))
+@noinline _invalid_parameters(::Distributions.DiscreteUniform) =
+    throw(ArgumentError("invalid DiscreteUniform parameters"))
 
 @inline function _validate_distribution(d::Distributions.Normal{T}) where {T<:_FloatType}
-    isfinite(d.μ) || _invalid_parameters("Normal")
-    isfinite(d.σ) || _invalid_parameters("Normal")
-    d.σ >= zero(T) || _invalid_parameters("Normal")
+    isfinite(d.μ) || _invalid_parameters(d)
+    isfinite(d.σ) || _invalid_parameters(d)
+    d.σ >= zero(T) || _invalid_parameters(d)
     return nothing
 end
 
 @inline function _validate_distribution(d::Distributions.Uniform{T}) where {T<:_FloatType}
-    isfinite(d.a) || _invalid_parameters("Uniform")
-    isfinite(d.b) || _invalid_parameters("Uniform")
-    d.a < d.b || _invalid_parameters("Uniform")
-    isfinite(d.b - d.a) || _invalid_parameters("Uniform")
+    isfinite(d.a) || _invalid_parameters(d)
+    isfinite(d.b) || _invalid_parameters(d)
+    d.a < d.b || _invalid_parameters(d)
+    isfinite(d.b - d.a) || _invalid_parameters(d)
     return nothing
 end
 
 @inline function _validate_distribution(
     d::Distributions.Exponential{T},
 ) where {T<:_FloatType}
-    isfinite(d.θ) || _invalid_parameters("Exponential")
-    d.θ > zero(T) || _invalid_parameters("Exponential")
+    isfinite(d.θ) || _invalid_parameters(d)
+    d.θ > zero(T) || _invalid_parameters(d)
     return nothing
 end
 
 @inline function _validate_distribution(d::Distributions.Bernoulli{T}) where {T<:_FloatType}
-    isfinite(d.p) || _invalid_parameters("Bernoulli")
-    d.p >= zero(T) || _invalid_parameters("Bernoulli")
-    d.p <= one(T) || _invalid_parameters("Bernoulli")
+    isfinite(d.p) || _invalid_parameters(d)
+    d.p >= zero(T) || _invalid_parameters(d)
+    d.p <= one(T) || _invalid_parameters(d)
     return nothing
 end
 
 @inline function _validate_distribution(d::Distributions.DiscreteUniform)
-    d.a <= d.b || _invalid_parameters("DiscreteUniform")
+    d.a <= d.b || _invalid_parameters(d)
     return nothing
 end
 

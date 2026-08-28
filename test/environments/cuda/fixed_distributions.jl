@@ -10,6 +10,13 @@ const CUDA_FIXED_DISTRIBUTIONS = (
     DiscreteUniform(-11, 17),
 )
 
+function _fixed_distribution_compile_kernel!(destination, rng, distribution)
+    if CUDA.threadIdx().x == 1
+        @inbounds destination[1] = rand(rng, distribution)
+    end
+    return
+end
+
 @inline _primitive(rng, ::Normal{T}) where {T} = randn(rng, T)
 @inline _primitive(rng, ::Uniform{T}) where {T} = rand(rng, T)
 @inline _primitive(rng, ::Distributions.Exponential{T}) where {T} = randexp(rng, T)
@@ -122,6 +129,18 @@ function _distribution_fill_functions(distribution)
         (rng, destination; threaded = true) ->
             rand_next!(rng, distribution, destination; threaded)
     return pure, continued
+end
+
+@testset "CUDA fixed-distribution validation compiles" begin
+    extension = Base.get_extension(IR, :PureRNGsDistributionsExt)
+    rng = device(Philox4x32(0x64c0))
+    for distribution in CUDA_FIXED_DISTRIBUTIONS
+        destination = CUDA.CuArray{extension._result_type(distribution)}(undef, 1)
+        signature = Tuple{typeof(destination),typeof(rng),typeof(distribution)}
+        llvm_text =
+            sprint(io -> CUDA.code_llvm(io, _fixed_distribution_compile_kernel!, signature))
+        @test !isempty(llvm_text)
+    end
 end
 
 @testset "CUDA fixed-distribution scalar kernel probes" begin
