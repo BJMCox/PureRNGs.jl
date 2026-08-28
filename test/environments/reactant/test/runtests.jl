@@ -410,7 +410,10 @@ function _last_bit_rng(::Type{F}) where {F}
     return PureRNGs._rebuild(rng, position, rng.device)
 end
 
-Reactant.set_default_backend("cpu")
+const REACTANT_TEST_BACKEND = get(ENV, "PURERNGS_REACTANT_BACKEND", "cpu")
+REACTANT_TEST_BACKEND in ("cpu", "gpu") ||
+    error("PURERNGS_REACTANT_BACKEND must be cpu or gpu")
+Reactant.set_default_backend(REACTANT_TEST_BACKEND)
 
 @testset "Reactant distribution extension loads" begin
     @test REACTANT_EXT !== nothing
