@@ -62,8 +62,7 @@ end
 @inline function _philox2x32_impl(ctr, key)
     for round = 1:10
         ctr = _philox2x32_round(ctr, key)
-        round == 10 ||
-            (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),))
+        round == 10 || (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),))
     end
     return ctr
 end
@@ -101,8 +100,7 @@ end
 @inline function _philox2x64_impl(ctr, key)
     for round = 1:10
         ctr = _philox2x64_round(ctr, key)
-        round == 10 ||
-            (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),))
+        round == 10 || (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),))
     end
     return ctr
 end
@@ -110,11 +108,12 @@ end
 @inline function _philox4x64_impl(ctr, key)
     for round = 1:10
         ctr = _philox4x64_round(ctr, key)
-        round == 10 ||
-            (key = (
+        round == 10 || (
+            key = (
                 _core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),
                 _core_add(key[2], _core_constant(key[2], _PHILOX_W64_1)),
-            ))
+            )
+        )
     end
     return ctr
 end

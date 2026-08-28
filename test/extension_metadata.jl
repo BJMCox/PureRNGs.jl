@@ -38,7 +38,8 @@ using TOML
     @test Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt) === nothing
     @test Base.get_extension(PureRNGs, :PureRNGsMetalExt) === nothing
     @test Base.get_extension(PureRNGs, :PureRNGsReactantExt) === nothing
-    @test Base.get_extension(PureRNGs, :PureRNGsReactantDistributionsExt) === nothing
+    @test Base.get_extension(PureRNGs, :PureRNGsReactantDistributionsExt) ===
+          nothing
 
     @test names(PureRNGs) == [
         :AbstractPureRNG,

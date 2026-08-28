@@ -25,10 +25,7 @@ const _THREEFRY4X64_ROTATIONS =
         if round & 3 == 3
             s = (round + 1) >> 2
             x0 = _core_add(x0, keys[s%3+1])
-            x1 = _core_add(
-                x1,
-                _core_add(keys[(s+1)%3+1], _core_constant(x1, s)),
-            )
+            x1 = _core_add(x1, _core_add(keys[(s+1)%3+1], _core_constant(x1, s)))
         end
     end
     return (x0, x1)
@@ -71,10 +68,7 @@ end
             x0 = _core_add(x0, keys[s%5+1])
             x1 = _core_add(x1, keys[(s+1)%5+1])
             x2 = _core_add(x2, keys[(s+2)%5+1])
-            x3 = _core_add(
-                x3,
-                _core_add(keys[(s+3)%5+1], _core_constant(x3, s)),
-            )
+            x3 = _core_add(x3, _core_add(keys[(s+3)%5+1], _core_constant(x3, s)))
         end
     end
     return (x0, x1, x2, x3)
@@ -84,46 +78,42 @@ end
     _threefry2x32_impl(counter, key)
 @inline _threefry2x32(counter::NTuple{2,T}, key::NTuple{2,T}) where {T<:_CoreWord{32}} =
     _threefry2x32_impl(counter, key)
-@inline _threefry2x32_impl(counter, key) =
-    _threefry2x(
-        counter,
-        key,
-        _THREEFRY2X32_ROTATIONS,
-        _core_constant(counter[1], 0x1BD11BDA),
-    )
+@inline _threefry2x32_impl(counter, key) = _threefry2x(
+    counter,
+    key,
+    _THREEFRY2X32_ROTATIONS,
+    _core_constant(counter[1], 0x1BD11BDA),
+)
 
 @inline _threefry4x32(counter::NTuple{4,UInt32}, key::NTuple{4,UInt32}) =
     _threefry4x32_impl(counter, key)
 @inline _threefry4x32(counter::NTuple{4,T}, key::NTuple{4,T}) where {T<:_CoreWord{32}} =
     _threefry4x32_impl(counter, key)
-@inline _threefry4x32_impl(counter, key) =
-    _threefry4x(
-        counter,
-        key,
-        _THREEFRY4X32_ROTATIONS,
-        _core_constant(counter[1], 0x1BD11BDA),
-    )
+@inline _threefry4x32_impl(counter, key) = _threefry4x(
+    counter,
+    key,
+    _THREEFRY4X32_ROTATIONS,
+    _core_constant(counter[1], 0x1BD11BDA),
+)
 
 @inline _threefry2x64(counter::NTuple{2,UInt64}, key::NTuple{2,UInt64}) =
     _threefry2x64_impl(counter, key)
 @inline _threefry2x64(counter::NTuple{2,T}, key::NTuple{2,T}) where {T<:_CoreWord{64}} =
     _threefry2x64_impl(counter, key)
-@inline _threefry2x64_impl(counter, key) =
-    _threefry2x(
-        counter,
-        key,
-        _THREEFRY2X64_ROTATIONS,
-        _core_constant(counter[1], 0x1BD11BDAA9FC1A22),
-    )
+@inline _threefry2x64_impl(counter, key) = _threefry2x(
+    counter,
+    key,
+    _THREEFRY2X64_ROTATIONS,
+    _core_constant(counter[1], 0x1BD11BDAA9FC1A22),
+)
 
 @inline _threefry4x64(counter::NTuple{4,UInt64}, key::NTuple{4,UInt64}) =
     _threefry4x64_impl(counter, key)
 @inline _threefry4x64(counter::NTuple{4,T}, key::NTuple{4,T}) where {T<:_CoreWord{64}} =
     _threefry4x64_impl(counter, key)
-@inline _threefry4x64_impl(counter, key) =
-    _threefry4x(
-        counter,
-        key,
-        _THREEFRY4X64_ROTATIONS,
-        _core_constant(counter[1], 0x1BD11BDAA9FC1A22),
-    )
+@inline _threefry4x64_impl(counter, key) = _threefry4x(
+    counter,
+    key,
+    _THREEFRY4X64_ROTATIONS,
+    _core_constant(counter[1], 0x1BD11BDAA9FC1A22),
+)
