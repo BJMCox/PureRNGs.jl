@@ -456,7 +456,27 @@ function _device_kernel_events(call)
         call()
         CUDA.synchronize()
     end
-    return count(value -> !ismissing(value), profile.device.grid)
+    return length(_cuda_profile_events(profile).kernels)
+end
+
+function _cuda_profile_events(profile)
+    kernels = findall(value -> !ismissing(value), profile.device.grid)
+    memory = findall(value -> !ismissing(value), profile.device.size)
+    @test sort!(vcat(kernels, memory)) == collect(eachindex(profile.device.name))
+    return (; kernels, memory)
+end
+
+function _cuda_copy_sizes(profile)
+    events = _cuda_profile_events(profile)
+    h2d = [
+        profile.device.size[index] for index in events.memory if
+        profile.device.name[index] == "[copy pageable to device memory]"
+    ]
+    d2h = [
+        profile.device.size[index] for index in events.memory if
+        profile.device.name[index] == "[copy device to pageable memory]"
+    ]
+    return events, h2d, d2h
 end
 
 devices = collect(CUDA.devices())
@@ -1256,10 +1276,12 @@ end
 @testset "CUDA exponential packed stores match grouped fallback" begin
     extension = Base.get_extension(IR, :PureRNGsCUDAExt)
     backend = CUDA.CUDABackend()
+    exercised = 0
     for F in FAMILIES, T in (Float32, Float64)
         base = device(F(0x78a))
         plan = IR._transformed_fill_plan(base.device, backend, base, T)
         length(plan) == 4 || continue
+        exercised += 1
         outputs_per_store = IR._fill_group_size(plan[4])
         count = 16outputs_per_store
         for rng in (base, _positioned_at_bit(base, UInt64(9), UInt16(5)))
@@ -1275,6 +1297,7 @@ end
             @test packed_next.position == grouped_next.position
         end
     end
+    @test exercised > 0
 end
 
 @testset "mixed widths, capacity, terminal, and failed preflight" begin
@@ -1534,14 +1557,9 @@ end
     @test audit_population.starts[] == 1
     @test profiled_result[] isa CUDA.CuArray{Int32,1}
     # The integrated profiler adds its own eight-byte H2D warm-up copy.
-    h2d_sizes = [
-        profile.device.size[index] for index in eachindex(profile.device.name) if
-        profile.device.name[index] == "[copy pageable to device memory]"
-    ]
-    d2h_sizes = [
-        profile.device.size[index] for index in eachindex(profile.device.name) if
-        profile.device.name[index] == "[copy device to pageable memory]"
-    ]
+    events, h2d_sizes, d2h_sizes = _cuda_copy_sizes(profile)
+    @test !isempty(events.kernels)
+    @test !isempty(events.memory)
     @test sort(h2d_sizes) == [8, sizeof(Int32) * length(audit_population)]
     @test isempty(d2h_sizes)
 end
@@ -1640,14 +1658,9 @@ end
     @test counted_weights.reads[] == length(counted_weights)
     @test profiled_result[] isa CUDA.CuArray{UInt16,1}
     # The integrated profiler adds its own eight-byte H2D warm-up copy.
-    h2d_sizes = [
-        profile.device.size[index] for index in eachindex(profile.device.name) if
-        profile.device.name[index] == "[copy pageable to device memory]"
-    ]
-    d2h_sizes = [
-        profile.device.size[index] for index in eachindex(profile.device.name) if
-        profile.device.name[index] == "[copy device to pageable memory]"
-    ]
+    events, h2d_sizes, d2h_sizes = _cuda_copy_sizes(profile)
+    @test !isempty(events.kernels)
+    @test !isempty(events.memory)
     @test sort(h2d_sizes) == [8, sizeof(Float64) * length(counted_weights)]
     @test d2h_sizes == [1]
 

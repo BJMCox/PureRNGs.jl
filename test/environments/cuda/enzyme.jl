@@ -2,6 +2,12 @@ function _enzyme_fill_result!(fill_function, rng, destination, threaded)
     return fill_function(rng, destination; threaded = threaded)
 end
 
+function _enzyme_fill_objective!(fill_function, rng, destination, scale, threaded)
+    result = fill_function(rng, destination; threaded = threaded)
+    values = result isa Tuple ? last(result) : result
+    return scale * sum(values)
+end
+
 const CUDA_ENZYME_FILL_CASES = (
     (Random.rand!, rand_next, false),
     (rand_next!, rand_next, true),
@@ -56,22 +62,112 @@ const CUDA_ENZYME_FILL_CASES = (
         @test isequal(Array(reverse_values), Array(expected))
         @test iszero(Array(reverse_shadow))
 
+        objective_values = CUDA.zeros(T, 17)
+        objective_shadow = CUDA.fill(T(6), 17)
+        reverse_derivative = only(
+            autodiff(
+                Reverse,
+                _enzyme_fill_objective!,
+                Active,
+                Const(fill_function),
+                Const(rng),
+                Duplicated(objective_values, objective_shadow),
+                Active(T(1.5)),
+                Const(true),
+            ),
+        )
+        @test isequal(Array(objective_values), Array(expected))
+        @test iszero(Array(objective_shadow))
+        @test reverse_derivative[4] ≈ sum(Array(expected))
+
+        forward_values = CUDA.zeros(T, 17)
+        forward_shadow = CUDA.fill(T(8), 17)
+        forward_derivative = only(
+            autodiff(
+                Forward,
+                _enzyme_fill_objective!,
+                Const(fill_function),
+                Const(rng),
+                Duplicated(forward_values, forward_shadow),
+                Duplicated(T(1.5), one(T)),
+                Const(true),
+            ),
+        )
+        @test isequal(Array(forward_values), Array(expected))
+        @test iszero(Array(forward_shadow))
+        @test forward_derivative ≈ sum(Array(expected))
+
         batch_values = CUDA.zeros(T, 17)
         shadow_one = CUDA.fill(T(3), 17)
         shadow_two = CUDA.fill(T(4), 17)
-        autodiff(
-            Forward,
-            _enzyme_fill_result!,
-            Const,
-            Const(fill_function),
-            Const(rng),
-            BatchDuplicated(batch_values, (shadow_one, shadow_two)),
-            Const(true),
+        batch_derivative = only(
+            autodiff(
+                Forward,
+                _enzyme_fill_objective!,
+                Const(fill_function),
+                Const(rng),
+                BatchDuplicated(batch_values, (shadow_one, shadow_two)),
+                BatchDuplicated(T(1.5), (one(T), T(2))),
+                Const(true),
+            ),
         )
         @test isequal(Array(batch_values), Array(expected))
         @test iszero(Array(shadow_one))
         @test iszero(Array(shadow_two))
+        @test batch_derivative[1] ≈ sum(Array(expected))
+        @test batch_derivative[2] ≈ T(2) * sum(Array(expected))
     end
+end
+
+@testset "CUDA Enzyme fill rules execute the primal once" begin
+    rng = device(Philox4x32(0x65c2))
+    values = CUDA.zeros(Float32, 4096)
+    shadow_one = similar(values)
+    shadow_two = similar(values)
+
+    primal_events = _device_kernel_events(() -> randexp_next!(rng, values))
+    zero_events = _device_kernel_events(() -> fill!(shadow_one, 0.0f0))
+    @test primal_events > 0
+    @test zero_events > 0
+
+    forward_events = _device_kernel_events() do
+        autodiff(
+            Forward,
+            _enzyme_fill_result!,
+            Const,
+            Const(randexp_next!),
+            Const(rng),
+            Duplicated(values, shadow_one),
+            Const(true),
+        )
+    end
+    @test forward_events == primal_events + zero_events
+
+    reverse_events = _device_kernel_events() do
+        autodiff(
+            Reverse,
+            _enzyme_fill_result!,
+            Const,
+            Const(randexp_next!),
+            Const(rng),
+            Duplicated(values, shadow_one),
+            Const(true),
+        )
+    end
+    @test reverse_events == primal_events + 2zero_events
+
+    batch_events = _device_kernel_events() do
+        autodiff(
+            Forward,
+            _enzyme_fill_result!,
+            Const,
+            Const(randexp_next!),
+            Const(rng),
+            BatchDuplicated(values, (shadow_one, shadow_two)),
+            Const(true),
+        )
+    end
+    @test batch_events == primal_events + 2zero_events
 end
 
 @testset "CUDA Enzyme fills do not stage through the host" begin
@@ -101,7 +197,10 @@ end
         )
         CUDA.synchronize()
     end
-    h2d, d2h = _cuda_copy_sizes(profile)
+    events, h2d, d2h = _cuda_copy_sizes(profile)
+    @test !isempty(events.kernels)
+    @test !isempty(events.memory)
+    @test !isempty(h2d)
     @test all(==(8), h2d)
     @test isempty(d2h)
     @test iszero(Array(shadow))
