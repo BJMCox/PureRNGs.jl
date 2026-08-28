@@ -1253,6 +1253,30 @@ end
     end
 end
 
+@testset "CUDA exponential packed stores match grouped fallback" begin
+    extension = Base.get_extension(IR, :PureRNGsCUDAExt)
+    backend = CUDA.CUDABackend()
+    for F in FAMILIES, T in (Float32, Float64)
+        base = device(F(0x78a))
+        plan = IR._transformed_fill_plan(base.device, backend, base, T)
+        length(plan) == 4 || continue
+        outputs_per_store = IR._fill_group_size(plan[4])
+        count = 16outputs_per_store
+        for rng in (base, _positioned_at_bit(base, UInt64(9), UInt16(5)))
+            packed = CUDA.CuArray{T}(undef, count)
+            storage = CUDA.CuArray{T}(undef, count + 1)
+            grouped = @view storage[2:end]
+            @test extension._packed_float_layout(packed, T, plan[4])
+            @test !extension._packed_float_layout(grouped, T, plan[4])
+
+            packed_next, _ = randexp_next!(rng, packed)
+            grouped_next, _ = randexp_next!(rng, grouped)
+            @test isequal(Array(packed), Array(grouped))
+            @test packed_next.position == grouped_next.position
+        end
+    end
+end
+
 @testset "mixed widths, capacity, terminal, and failed preflight" begin
     @test fieldtypes(IR._Position64) === (UInt64, UInt16)
     @test fieldtypes(IR._Position128) === (UInt64, UInt64, UInt16)
