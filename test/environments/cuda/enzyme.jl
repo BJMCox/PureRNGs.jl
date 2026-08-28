@@ -2,7 +2,13 @@ function _enzyme_fill_result!(fill_function, rng, destination, threaded)
     return fill_function(rng, destination; threaded = threaded)
 end
 
-function _enzyme_fill_objective!(
+function _enzyme_fill_objective!(fill_function, rng, destination, scale, threaded)
+    result = fill_function(rng, destination; threaded = threaded)
+    values = result isa Tuple ? last(result) : result
+    return scale * sum(values)
+end
+
+function _enzyme_fill_batch_objective!(
     fill_function,
     rng,
     destination,
@@ -10,7 +16,7 @@ function _enzyme_fill_objective!(
     reference,
     threaded,
 )
-    # Exercise caller differentiation without depending on CUDACore's reduction rules.
+    # Exercise batched caller differentiation without CUDACore's reduction rules.
     fill_function(rng, destination; threaded = threaded)
     return scale * reference
 end
@@ -81,7 +87,6 @@ const CUDA_ENZYME_FILL_CASES = (
                 Const(rng),
                 Duplicated(objective_values, objective_shadow),
                 Active(T(1.5)),
-                Const(reference),
                 Const(true),
             ),
         )
@@ -99,7 +104,6 @@ const CUDA_ENZYME_FILL_CASES = (
                 Const(rng),
                 Duplicated(forward_values, forward_shadow),
                 Duplicated(T(1.5), one(T)),
-                Const(reference),
                 Const(true),
             ),
         )
@@ -113,7 +117,7 @@ const CUDA_ENZYME_FILL_CASES = (
         batch_derivative = only(
             autodiff(
                 Forward,
-                _enzyme_fill_objective!,
+                _enzyme_fill_batch_objective!,
                 Const(fill_function),
                 Const(rng),
                 BatchDuplicated(batch_values, (shadow_one, shadow_two)),
