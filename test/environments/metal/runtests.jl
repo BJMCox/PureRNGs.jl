@@ -20,6 +20,19 @@ const METAL_FIXED_DISTRIBUTIONS = (
     (Bernoulli{Float64}(0.25), Bool),
     (DiscreteUniform(2, 9), Int),
 )
+const METAL_EXPONENTIAL_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
+const METAL_EXPONENTIAL_GOLDEN_BIT = UInt16(61)
+const METAL_EXPONENTIAL_GOLDEN_CASES = (
+    (Philox2x32, (UInt32(0x01234567),), UInt32(0xa05803)),
+    (Philox4x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0xda96ce)),
+    (Threefry2x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0x98edd2)),
+    (
+        Threefry4x32,
+        (UInt32(0x01234567), UInt32(0x89abcdef), UInt32(0xfedcba98), UInt32(0x76543210)),
+        UInt32(0xc12127),
+    ),
+)
+const METAL_EXPONENTIAL_LATTICE_LENGTH = 1 << 24
 
 struct MetalDeviceArrayProbe{T} <: AbstractVector{T}
     data::Vector{T}
@@ -46,6 +59,41 @@ end
 
 @inline _is_purerngs_method(method) =
     method.module === IR || startswith(string(nameof(method.module)), "PureRNGs")
+
+function _metal_exponential_golden_rng(F, key)
+    base = F(key)
+    position = if base.position isa IR._Position64
+        IR._Position64(METAL_EXPONENTIAL_GOLDEN_BLOCK, METAL_EXPONENTIAL_GOLDEN_BIT)
+    else
+        IR._Position128(METAL_EXPONENTIAL_GOLDEN_BLOCK, UInt64(0), METAL_EXPONENTIAL_GOLDEN_BIT)
+    end
+    return MetalDevice()(IR._rebuild(base, position, base.device))
+end
+
+@inline function _metal_exponential_ulp_error(value::Float32, raw::UInt32, scale::BigFloat)
+    reference = -log(one(BigFloat) - BigFloat(raw) * scale)
+    denominator = iszero(value) ? BigFloat(floatmin(Float32)) : BigFloat(eps(value))
+    return abs(BigFloat(value) - reference) / denominator
+end
+
+function _metal_exponential_max_ulp(values::Vector{Float32})
+    return setprecision(BigFloat, 160) do
+        scale = ldexp(one(BigFloat), -24)
+        maximum_error = zero(BigFloat)
+        for (index, value) in pairs(values)
+            raw = UInt32(index - 1)
+            maximum_error =
+                max(maximum_error, _metal_exponential_ulp_error(value, raw, scale))
+        end
+        maximum_error
+    end
+end
+
+IR.KernelAbstractions.@kernel function _metal_exponential_lattice_kernel!(values)
+    index = IR.KernelAbstractions.@index(Global, Linear)
+    raw = UInt64(index - 1)
+    @inbounds values[index] = IR._exponential_from_bits(IR._METAL_BACKEND, Float32, raw)
+end
 
 @testset "R37-R39 Metal extension host surface" begin
     extension_module = Base.get_extension(IR, :PureRNGsMetalExt)
@@ -306,6 +354,56 @@ if Metal.functional()
             @test Array(values) == Array(repeated)
             @test next_rng.position == repeat_next.position == expected_next.position
         end
+    end
+
+    @testset "R41-R43-R63 Metal Float32 exponential" begin
+        for (F, key, raw) in METAL_EXPONENTIAL_GOLDEN_CASES
+            rng = _metal_exponential_golden_rng(F, key)
+            block = IR._position_block(rng.position)
+            extracted = IR._extract_bits_unchecked(
+                rng,
+                IR.FAMILY_EXP,
+                block,
+                rng.position.bit,
+                Val(24),
+            )
+            @test extracted == UInt64(raw)
+
+            next_rng, device_values = IR.randexp_next(rng, Float32, 1)
+            value = only(Array(device_values))
+            scale = setprecision(BigFloat, 160) do
+                ldexp(one(BigFloat), -24)
+            end
+            @test device_values isa Metal.MtlArray{Float32,1}
+            @test next_rng.position ==
+                  IR._advance_position_unchecked(rng, UInt64(24), UInt64(0))
+            @test setprecision(BigFloat, 160) do
+                _metal_exponential_ulp_error(value, raw, scale) <= BigFloat(2)
+            end
+        end
+
+        device_lattice = Metal.MtlArray{Float32}(undef, METAL_EXPONENTIAL_LATTICE_LENGTH)
+        backend = IR._fill_backend(device_lattice)
+        _metal_exponential_lattice_kernel!(backend)(
+            device_lattice;
+            ndrange = METAL_EXPONENTIAL_LATTICE_LENGTH,
+        )
+        IR.KernelAbstractions.synchronize(backend)
+        lattice = Array(device_lattice)
+
+        @test isequal(first(lattice), -zero(Float32))
+        @test isfinite(last(lattice))
+        @test last(lattice) > zero(Float32)
+        @test all(isfinite, lattice)
+        @test all(value -> value >= zero(Float32), lattice)
+        @test issorted(lattice)
+        @test setprecision(BigFloat, 160) do
+            scale = ldexp(one(BigFloat), -24)
+            _metal_exponential_ulp_error(last(lattice), UInt32(0xffffff), scale) <=
+            BigFloat(2)
+        end
+        maximum_ulp = _metal_exponential_max_ulp(lattice)
+        @test maximum_ulp <= BigFloat(2)
     end
 else
     @info "Metal hardware unavailable; served device execution was not run"
