@@ -1,3 +1,4 @@
+using Distributions
 using PureRNGs
 using Metal
 using MLDataDevices
@@ -8,6 +9,17 @@ const IR = PureRNGs
 const METAL_32_FAMILIES = (Philox2x32, Philox4x32, Threefry2x32, Threefry4x32)
 const METAL_64_FAMILIES = (Philox2x64, Philox4x64, Threefry2x64, Threefry4x64)
 const METAL_FAMILIES = (METAL_32_FAMILIES..., METAL_64_FAMILIES...)
+const METAL_FIXED_DISTRIBUTIONS = (
+    (Normal{Float32}(0.5f0, 1.25f0), Float32),
+    (Normal{Float64}(0.5, 1.25), Float64),
+    (Uniform{Float32}(-1.0f0, 2.0f0), Float32),
+    (Uniform{Float64}(-1.0, 2.0), Float64),
+    (Exponential{Float32}(1.25f0), Float32),
+    (Exponential{Float64}(1.25), Float64),
+    (Bernoulli{Float32}(0.25f0), Bool),
+    (Bernoulli{Float64}(0.25), Bool),
+    (DiscreteUniform(2, 9), Int),
+)
 
 struct MetalDeviceArrayProbe{T} <: AbstractVector{T}
     data::Vector{T}
@@ -31,6 +43,9 @@ function _check_metal_error(f)
     @test occursin("Metal", sprint(showerror, error))
     return nothing
 end
+
+@inline _is_purerngs_method(method) =
+    method.module === IR || startswith(string(nameof(method.module)), "PureRNGs")
 
 @testset "R37-R39 Metal extension host surface" begin
     extension_module = Base.get_extension(IR, :PureRNGsMetalExt)
@@ -57,6 +72,16 @@ end
             @test last(IR.randn_next(rng, T)) === last(IR.randn_next(cpu_rng, T))
             @test which(randn, (typeof(rng), Type{T}, Int)).module === IR
             @test which(IR.randn_next, (typeof(rng), Type{T}, Int)).module === IR
+
+            exponential = randexp(rng, T)
+            next_rng, next_exponential = IR.randexp_next(rng, T)
+            @test isequal(exponential, randexp(rng, T))
+            @test isequal(next_exponential, exponential)
+            @test isequal(IR.randexpat(rng, T, 1), exponential)
+            @test next_rng.device === IR._METAL_BACKEND
+            @test next_rng.position == first(IR.randexp_next(cpu_rng, T)).position
+            @test which(randexp, (typeof(rng), Type{T}, Int)).module === IR
+            @test which(IR.randexp_next, (typeof(rng), Type{T}, Int)).module === IR
         end
         for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
             range = T(1):T(3)
@@ -67,7 +92,43 @@ end
         end
     end
 
-    @test isempty(Test.detect_ambiguities(IR, Random; recursive = true))
+    ambiguities = filter(Test.detect_ambiguities(IR, Random; recursive = true)) do pair
+        any(_is_purerngs_method, pair)
+    end
+    @test isempty(ambiguities)
+end
+
+@testset "R41 Metal static serviceability and ownership" begin
+    extension_module = Base.get_extension(IR, :PureRNGsMetalExt)
+    @test extension_module !== nothing
+
+    for F in METAL_32_FAMILIES
+        rng = MetalDevice()(F(0x916))
+        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
+            method = which(IR._check_serviceability, (typeof(rng), Type{T}))
+            @test method.module === extension_module
+            @test IR._check_serviceability(rng, T) === nothing
+        end
+    end
+
+    for F in METAL_64_FAMILIES
+        rng = MetalDevice()(F(0x917))
+        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
+            method = which(IR._check_serviceability, (typeof(rng), Type{T}))
+            @test method.module === extension_module
+            _check_metal_error(() -> IR._check_serviceability(rng, T))
+        end
+    end
+
+    rng = MetalDevice()(Philox4x32(0x918))
+    @test which(IR._check_serviceability, (typeof(rng), Type{Float64})).module ===
+          extension_module
+    @test which(IR._check_serviceability, (typeof(rng), UnitRange{UInt32})).module ===
+          extension_module
+    @test which(IR._check_sampling_serviceability, (typeof(rng),)).module ===
+          extension_module
+    @test which(IR._allocate_array, (IR._MetalBackend, Type{UInt32}, Tuple{Int})).module ===
+          extension_module
 end
 
 @testset "R41 Metal allocating exclusions" begin
@@ -78,9 +139,12 @@ end
             _check_metal_error(() -> IR.rand_next(rng, Float64, count))
             _check_metal_error(() -> randn(rng, Float64, count))
             _check_metal_error(() -> IR.randn_next(rng, Float64, count))
+            _check_metal_error(() -> randexp(rng, Float64, count))
+            _check_metal_error(() -> IR.randexp_next(rng, Float64, count))
         end
         _check_metal_error(() -> IR.rand_next(rng, 0))
         _check_metal_error(() -> IR.randn_next(rng, 0))
+        _check_metal_error(() -> IR.randexp_next(rng, 0))
         _check_metal_error(() -> rand(rng, Float64, -1))
         _check_metal_error(() -> IR.rand_next(rng, Float64, -1))
     end
@@ -94,6 +158,8 @@ end
         for T in (Float32, Float64), count in (0, 1)
             _check_metal_error(() -> randn(rng, T, count))
             _check_metal_error(() -> IR.randn_next(rng, T, count))
+            _check_metal_error(() -> randexp(rng, T, count))
+            _check_metal_error(() -> IR.randexp_next(rng, T, count))
         end
     end
 
@@ -116,6 +182,8 @@ end
     @test_throws ArgumentError IR.rand_next!(rng, UInt32[])
     @test_throws ArgumentError randn!(rng, Float32[])
     @test_throws ArgumentError IR.randn_next!(rng, Float32[])
+    @test_throws ArgumentError randexp!(rng, Float32[])
+    @test_throws ArgumentError IR.randexp_next!(rng, Float32[])
     @test_throws TypeError rand!(rng, UInt32[]; threaded = 1)
 
     population = MetalDeviceArrayProbe(Int32[1, 2, 3])
@@ -134,18 +202,25 @@ end
         _check_metal_error(() -> IR.rand_next!(rng, destination))
         _check_metal_error(() -> randn!(rng, destination))
         _check_metal_error(() -> IR.randn_next!(rng, destination))
+        _check_metal_error(() -> randexp!(rng, destination))
+        _check_metal_error(() -> IR.randexp_next!(rng, destination))
     end
 
     for F in METAL_64_FAMILIES
         rng = MetalDevice()(F(0x81c))
-        uniform = MetalDeviceArrayProbe(UInt32[])
-        normal = MetalDeviceArrayProbe(Float32[])
-        _check_metal_error(() -> rand!(rng, uniform))
-        _check_metal_error(() -> IR.rand_next!(rng, uniform))
-        _check_metal_error(() -> randn!(rng, normal))
-        _check_metal_error(() -> IR.randn_next!(rng, normal))
+        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
+            destination = MetalDeviceArrayProbe(Vector{T}())
+            _check_metal_error(() -> rand!(rng, destination))
+            _check_metal_error(() -> IR.rand_next!(rng, destination))
+        end
+        for T in (Float32, Float64)
+            destination = MetalDeviceArrayProbe(Vector{T}())
+            _check_metal_error(() -> randn!(rng, destination))
+            _check_metal_error(() -> IR.randn_next!(rng, destination))
+            _check_metal_error(() -> randexp!(rng, destination))
+            _check_metal_error(() -> IR.randexp_next!(rng, destination))
+        end
     end
-
 
     for F in METAL_FAMILIES
         rng = MetalDevice()(F(0x91c))
@@ -167,6 +242,46 @@ end
     @test error isa ArgumentError
     @test occursin("device", sprint(showerror, error))
     @test !occursin("Metal", sprint(showerror, error))
+end
+
+@testset "R41-R64 Metal fixed-distribution surface" begin
+    extension_module = Base.get_extension(IR, :PureRNGsDistributionsExt)
+    @test extension_module !== nothing
+
+    for F in METAL_FAMILIES, (distribution, result_type) in METAL_FIXED_DISTRIBUTIONS
+        rng = MetalDevice()(F(0x91e))
+        value = rand(rng, distribution)
+        next_rng, next_value = IR.rand_next(rng, distribution)
+        @test value isa result_type
+        @test isequal(value, rand(rng, distribution))
+        @test isequal(next_value, value)
+        @test isequal(IR.randat(rng, distribution, 1), value)
+        @test next_rng.device === IR._METAL_BACKEND
+        @test which(rand, (typeof(rng), typeof(distribution))).module === extension_module
+        @test which(IR.rand_next, (typeof(rng), typeof(distribution))).module ===
+              extension_module
+        @test which(IR.randat, (typeof(rng), typeof(distribution), Int)).module ===
+              extension_module
+        @test which(rand, (typeof(rng), typeof(distribution), Int)).module ===
+              extension_module
+        @test which(IR.rand_next, (typeof(rng), typeof(distribution), Int)).module ===
+              extension_module
+
+        for count in (0, 1)
+            _check_metal_error(() -> rand(rng, distribution, count))
+            _check_metal_error(() -> IR.rand_next(rng, distribution, count))
+        end
+
+        destination = MetalDeviceArrayProbe(Vector{result_type}())
+        @test which(rand!, (typeof(rng), typeof(distribution), typeof(destination))).module ===
+              extension_module
+        @test which(
+            IR.rand_next!,
+            (typeof(rng), typeof(distribution), typeof(destination)),
+        ).module === extension_module
+        _check_metal_error(() -> rand!(rng, distribution, destination))
+        _check_metal_error(() -> IR.rand_next!(rng, distribution, destination))
+    end
 end
 
 if Metal.functional()
