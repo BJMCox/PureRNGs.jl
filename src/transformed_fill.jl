@@ -130,8 +130,10 @@ end
     return destination
 end
 
+const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
+
 @inline _transformed_fill_chunk_elements(codec, ::Type{T}) where {T} =
-    Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_fill_width(codec, T)))
+    Int(_CPU_TRANSFORMED_FILL_CHUNK_BITS ÷ UInt64(_fill_width(codec, T)))
 
 KernelAbstractions.@kernel function _transformed_fill_dense_kernel!(
     rng,
