@@ -314,6 +314,30 @@ end
     @test weights.reads == length(weights)
 end
 
+@testset "R59 CPU weight conversion and strict fold" begin
+    rng = Philox4x64(0x9756)
+    for weights in (
+        ZeroBasedVector(Float32[1, 0, 4, 2, 3, 5]),
+        Rational{Int}[1//2, 3//2, 0//1, 4//1, 2//1, 1//1],
+    )
+        expected = Float64[
+            _weighted_population_value(weights, index) for index = 1:length(weights)
+        ]
+        expected_total = zero(Float64)
+        for weight in expected
+            expected_total += weight
+        end
+
+        converted, total = @inferred WeightedIR._prepare_weights(rng, weights, false)
+        @test converted == expected
+        @test reinterpret(UInt64, total) == reinterpret(UInt64, expected_total)
+    end
+
+    invalid = CountedWeights([1.0, -1.0, 2.0, NaN], 0)
+    @test_throws ArgumentError WeightedIR._prepare_weights(rng, invalid, false)
+    @test invalid.reads == length(invalid)
+end
+
 @testset "R54 and R60 weighted capacity is atomic" begin
     population = [:left, :right]
     weights = [1.0, 1.0]

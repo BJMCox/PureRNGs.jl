@@ -8,26 +8,25 @@ const _WEIGHT_BITS = UInt16(53)
     )
 end
 
-function _collect_weights(weights)
+function _convert_weights(weights, ::Val{fold_total}) where {fold_total}
     converted = Vector{Float64}(undef, length(weights))
+    total = zero(Float64)
     invalid = false
     @inbounds for ordinal in eachindex(converted)
         weight = Float64(_population_value(weights, UInt64(ordinal)))
         converted[ordinal] = weight
         invalid |= !isfinite(weight) || weight < zero(Float64)
+        fold_total && (total += weight)
     end
+    fold_total && (invalid |= !isfinite(total) || total <= zero(Float64))
     invalid && _invalid_weights()
-    return converted
+    return converted, total
 end
 
+@inline _collect_weights(weights) = first(_convert_weights(weights, Val(false)))
+
 function _prepare_weights(rng::_CPUFamily, weights, agnostic::Bool)
-    converted = _collect_weights(weights)
-    total = zero(Float64)
-    @inbounds for weight in converted
-        total += weight
-    end
-    isfinite(total) && total > zero(Float64) || _invalid_weights()
-    return converted, total
+    return _convert_weights(weights, Val(true))
 end
 
 @inline function _convert_and_fold_weights!(
