@@ -13,9 +13,13 @@ end
     return u, one(Float64) - u
 end
 
-@inline function _exponential_transform(::_CPUBackend, ::Type{Float32}, v::Float32)
-    sqrt2 = reinterpret(Float32, UInt32(0x3fb504f3))
-    half = reinterpret(Float32, UInt32(0x3f000000))
+struct _NativeTransformOps end
+
+function _transform_muladd end
+
+@inline _transform_muladd(::_NativeTransformOps, a, b, c) = fma(a, b, c)
+
+@inline function _exponential_reduced(ops, ::Type{Float32}, m, n)
     one_ = reinterpret(Float32, UInt32(0x3f800000))
     ln2_hi = reinterpret(Float32, UInt32(0x3f317200))
     ln2_lo = reinterpret(Float32, UInt32(0x35c00000))
@@ -25,28 +29,19 @@ end
     c9 = reinterpret(Float32, UInt32(0x3de38e39))
     c11 = reinterpret(Float32, UInt32(0x3dba2e8c))
 
-    bits = reinterpret(UInt32, v)
-    exponent = Int32((bits >> 23) & 0xff) - Int32(127)
-    m = reinterpret(Float32, (bits & 0x007fffff) | 0x3f800000)
-    upper = m > sqrt2
-    m = ifelse(upper, m * half, m)
-    exponent += ifelse(upper, Int32(1), Int32(0))
     t = (m - one_) / (m + one_)
     z = t * t
-    p = fma(z, c11, c9)
-    p = fma(z, p, c7)
-    p = fma(z, p, c5)
-    p = fma(z, p, c3)
+    p = _transform_muladd(ops, z, c11, c9)
+    p = _transform_muladd(ops, z, p, c7)
+    p = _transform_muladd(ops, z, p, c5)
+    p = _transform_muladd(ops, z, p, c3)
     tz = t * z
-    log_m = fma(tz, p, t)
+    log_m = _transform_muladd(ops, tz, p, t)
     log_m += log_m
-    n = -Float32(exponent)
-    return fma(n, ln2_hi, fma(n, ln2_lo, -log_m))
+    return _transform_muladd(ops, n, ln2_hi, _transform_muladd(ops, n, ln2_lo, -log_m))
 end
 
-@inline function _exponential_transform(::_CPUBackend, ::Type{Float64}, v::Float64)
-    sqrt2 = reinterpret(Float64, UInt64(0x3ff6a09e667f3bcd))
-    half = reinterpret(Float64, UInt64(0x3fe0000000000000))
+@inline function _exponential_reduced(ops, ::Type{Float64}, m, n)
     one_ = reinterpret(Float64, UInt64(0x3ff0000000000000))
     ln2_hi = reinterpret(Float64, UInt64(0x3fe62e42fef00000))
     ln2_lo = reinterpret(Float64, UInt64(0x3dd473de00000000))
@@ -62,29 +57,50 @@ end
     c21 = reinterpret(Float64, UInt64(0x3fa8618618618618))
     c23 = reinterpret(Float64, UInt64(0x3fa642c8590b2164))
 
+    t = (m - one_) / (m + one_)
+    z = t * t
+    p = _transform_muladd(ops, z, c23, c21)
+    p = _transform_muladd(ops, z, p, c19)
+    p = _transform_muladd(ops, z, p, c17)
+    p = _transform_muladd(ops, z, p, c15)
+    p = _transform_muladd(ops, z, p, c13)
+    p = _transform_muladd(ops, z, p, c11)
+    p = _transform_muladd(ops, z, p, c9)
+    p = _transform_muladd(ops, z, p, c7)
+    p = _transform_muladd(ops, z, p, c5)
+    p = _transform_muladd(ops, z, p, c3)
+    tz = t * z
+    log_m = _transform_muladd(ops, tz, p, t)
+    log_m += log_m
+    return _transform_muladd(ops, n, ln2_hi, _transform_muladd(ops, n, ln2_lo, -log_m))
+end
+
+@inline function _exponential_transform(::_CPUBackend, ::Type{Float32}, v::Float32)
+    sqrt2 = reinterpret(Float32, UInt32(0x3fb504f3))
+    half = reinterpret(Float32, UInt32(0x3f000000))
+
+    bits = reinterpret(UInt32, v)
+    exponent = Int32((bits >> 23) & 0xff) - Int32(127)
+    m = reinterpret(Float32, (bits & 0x007fffff) | 0x3f800000)
+    upper = m > sqrt2
+    m = ifelse(upper, m * half, m)
+    exponent += ifelse(upper, Int32(1), Int32(0))
+    n = -Float32(exponent)
+    return _exponential_reduced(_NativeTransformOps(), Float32, m, n)
+end
+
+@inline function _exponential_transform(::_CPUBackend, ::Type{Float64}, v::Float64)
+    sqrt2 = reinterpret(Float64, UInt64(0x3ff6a09e667f3bcd))
+    half = reinterpret(Float64, UInt64(0x3fe0000000000000))
+
     bits = reinterpret(UInt64, v)
     exponent = Int64((bits >> 52) & 0x7ff) - Int64(1023)
     m = reinterpret(Float64, (bits & 0x000fffffffffffff) | 0x3ff0000000000000)
     upper = m > sqrt2
     m = ifelse(upper, m * half, m)
     exponent += ifelse(upper, Int64(1), Int64(0))
-    t = (m - one_) / (m + one_)
-    z = t * t
-    p = fma(z, c23, c21)
-    p = fma(z, p, c19)
-    p = fma(z, p, c17)
-    p = fma(z, p, c15)
-    p = fma(z, p, c13)
-    p = fma(z, p, c11)
-    p = fma(z, p, c9)
-    p = fma(z, p, c7)
-    p = fma(z, p, c5)
-    p = fma(z, p, c3)
-    tz = t * z
-    log_m = fma(tz, p, t)
-    log_m += log_m
     n = -Float64(exponent)
-    return fma(n, ln2_hi, fma(n, ln2_lo, -log_m))
+    return _exponential_reduced(_NativeTransformOps(), Float64, m, n)
 end
 
 @inline _exponential_transform(::_CUDABackend, ::Type{T}, v::T) where {T} = -Base.log(v)

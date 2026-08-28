@@ -29,6 +29,10 @@ export Philox2x32,
     randsample_next,
     StatefulRNG
 
+struct _ReactantRNG{R,A}
+    state::A
+end
+
 include("core_words.jl")
 include("philox.jl")
 include("threefry.jl")
