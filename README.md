@@ -31,6 +31,10 @@ rng, exponential = randexp_next(rng, Float64)
 Keeping an older generator is useful when you want to repeat a draw. Reusing it
 by accident repeats the same stream position.
 
+Every package-owned draw uses a fixed, input-determined bit span. Generated
+values never trigger rejection or retry, so the next state depends only on the
+requested operation.
+
 For an existing array, use `rand_next!`. CPU fills use the fast threaded path by
 default:
 
@@ -72,6 +76,21 @@ weights = [1.0, 2.0, 7.0]
 rng, samples = randsample_next(rng, population, weights, 1_000)
 ```
 
+## Fixed distributions
+
+Loading Distributions.jl adds direct methods for a small, fixed set of common
+distributions:
+
+```julia
+using Distributions
+
+rng = Philox4x32(1234)
+rng, values = rand_next(rng, Normal(1.0, 2.0), 1_000)
+```
+
+These methods also have pure, addressed, and destination forms. They consume
+one fixed primitive per result and never call an upstream sampler.
+
 ## Stateful interoperability
 
 Use `StatefulRNG` when an existing host-side API requires a mutable
@@ -86,6 +105,13 @@ values = rand(mutable_rng, Float64, 1_000)
 
 The bridge advances its held immutable generator after each draw.
 
+## Automatic differentiation
+
+Loading Enzyme activates rules for uniform, normal, and exponential fills.
+Immutable generators remain constant inputs while Enzyme differentiates code
+around the generated values. See [Enzyme](docs/src/guides/enzyme.md) for the
+supported fill surface and a complete example.
+
 ## Learn more
 
 - [Immutable workflows](docs/src/tutorials/immutable-workflows.md)
@@ -93,4 +119,5 @@ The bridge advances its held immutable generator after each draw.
 - [Sampling](docs/src/tutorials/sampling.md)
 - [Stateful interoperability](docs/src/tutorials/stateful-interop.md)
 - [Fixed distributions](docs/src/guides/fixed-distributions.md)
+- [Enzyme](docs/src/guides/enzyme.md)
 - [API reference](docs/src/api.md)

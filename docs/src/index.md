@@ -28,6 +28,8 @@ requires `Random.AbstractRNG`.
 
 Start with [Immutable workflows](tutorials/immutable-workflows.md), then read
 [Splitting and devices](tutorials/splitting-and-devices.md) and
-[Sampling](tutorials/sampling.md).
+[Sampling](tutorials/sampling.md). The guides cover
+[fixed distributions](guides/fixed-distributions.md),
+[Enzyme](guides/enzyme.md), and the exact reproducibility contract.
 
 See the [API reference](@ref) for the exported interface.

@@ -65,6 +65,14 @@ All continuation methods return the next generator first. Addressed methods use
 one-based indices and do not advance the generator. A pure draw never changes
 its input generator.
 
+## Fixed work
+
+Every package-owned generation method uses an input-determined bit span. No
+generated value causes rejection, retry, or a random-dependent advance. Batch
+continuations therefore end at the same state as the corresponding chain of
+scalar continuations. This fixes random work and state advance, not elapsed
+time.
+
 The immutable API reports contract errors consistently:
 
 - An untyped pure `rand`, `randn`, or `randexp` call throws `ArgumentError`.
@@ -90,6 +98,12 @@ concrete `DiscreteUniform` type. There is no generic distribution fallback.
 
 See [Fixed distributions](guides/fixed-distributions.md) for the seven method
 forms, result types, parameter rules, fixed work, and device behavior.
+
+## Automatic differentiation
+
+Loading Enzyme activates rules for the package-owned uniform, normal, and
+exponential destination fills. See [Enzyme](guides/enzyme.md) for the exact
+method surface, activity rules, state effects, and a complete example.
 
 ## Mutable bridge
 

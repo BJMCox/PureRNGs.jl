@@ -24,6 +24,7 @@ makedocs(
         ],
         "Guides" => [
             "Device binding" => "guides/devices.md",
+            "Enzyme" => "guides/enzyme.md",
             "Fixed distributions" => "guides/fixed-distributions.md",
             "Splitting keys" => "guides/splitting.md",
             "Reproducibility" => "guides/reproducibility.md",
