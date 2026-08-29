@@ -364,7 +364,7 @@ end
 
 @inline function _normalized_binary(value, ::Type{T}) where {T}
     mantissa = value
-    exponent = zero(T)
+    exponent = -zero(T)
     for _ = 1:precision(T)
         lower = mantissa < one(T)
         mantissa = ifelse(lower, mantissa + mantissa, mantissa)

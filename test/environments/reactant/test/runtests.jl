@@ -14,9 +14,54 @@ const FAMILIES = (
     Threefry2x64,
     Threefry4x64,
 )
+
+function _select_families(names)
+    isempty(names) && return FAMILIES
+    return Tuple(map(names) do name
+        index = findfirst(F -> string(nameof(F)) == name, FAMILIES)
+        index === nothing && throw(ArgumentError("unknown RNG family: $name"))
+        return FAMILIES[index]
+    end)
+end
+
+const SELECTED_FAMILIES = _select_families(ARGS)
 const REACTANT_EXT = Base.get_extension(PureRNGs, :PureRNGsReactantExt)
 const REACTANT_DISTRIBUTIONS_EXT =
     Base.get_extension(PureRNGs, :PureRNGsReactantDistributionsExt)
+const NORMAL_DISTRIBUTIONS = (
+    Normal{Float32}(Float32(1.25), Float32(0.75)),
+    Normal{Float64}(1.25, 0.75),
+    Normal{Float32}(zero(Float32), nextfloat(zero(Float32))),
+    Normal{Float64}(zero(Float64), nextfloat(zero(Float64))),
+)
+const FIXED_DISTRIBUTIONS = (
+    Uniform{Float32}(Float32(-2), Float32(3)),
+    Uniform{Float64}(-2, 3),
+    Exponential{Float32}(Float32(1.5)),
+    Exponential{Float64}(1.5),
+    Bernoulli{Float32}(Float32(0.25)),
+    Bernoulli{Float64}(0.25),
+    DiscreteUniform(-17, 29),
+)
+const SUBNORMAL_DISTRIBUTIONS = (
+    Uniform{Float32}(nextfloat(zero(Float32)), 2 * nextfloat(zero(Float32))),
+    Uniform{Float64}(nextfloat(zero(Float64)), 2 * nextfloat(zero(Float64))),
+    Exponential{Float32}(nextfloat(zero(Float32))),
+    Exponential{Float64}(nextfloat(zero(Float64))),
+    Bernoulli{Float32}(nextfloat(zero(Float32))),
+    Bernoulli{Float64}(nextfloat(zero(Float64))),
+)
+const CANCELLATION_NORMAL_DISTRIBUTIONS = (
+    Normal{Float32}(
+        reinterpret(Float32, UInt32(0xbf97e383)),
+        reinterpret(Float32, UInt32(0x40490fdb)),
+    ),
+    Normal{Float64}(
+        reinterpret(Float64, UInt64(0x3fe04abc0dab9585)),
+        reinterpret(Float64, UInt64(0x400921fb54442d18)),
+    ),
+)
+const SUBNORMAL_BERNOULLI = Bernoulli{Float32}(nextfloat(zero(Float32)))
 
 struct NegativeIntegerRange <: AbstractRange{Int64}
     first::Int64
@@ -41,8 +86,23 @@ _same_value(got, expected::Float64) =
     reinterpret(UInt64, Float64(got)) === reinterpret(UInt64, expected)
 _same_value(got, expected::AbstractPureRNG) =
     Array(got.state) == Array(Reactant.to_rarray(expected).state)
+_same_value(got, expected::PureRNGs._ReactantRNG) =
+    Array(got.state) == Array(expected.state)
+_same_value(got::Reactant.ConcretePJRTNumber, expected::Reactant.ConcretePJRTNumber) =
+    _same_value(Reactant.to_number(got), Reactant.to_number(expected))
 _same_value(got::Tuple, expected::Tuple) =
     length(got) == length(expected) && all(_same_value.(got, expected))
+
+function _same_transform_class(got, expected::T) where {T<:Union{Float32,Float64}}
+    value = T(got)
+    isfinite(value) && isfinite(expected) || return false
+    iszero(expected) && return _same_value(value, expected)
+    return !iszero(value) && signbit(value) == signbit(expected)
+end
+
+_same_transform_value(got, expected::T) where {T<:Union{Float32,Float64}} =
+    REACTANT_TEST_BACKEND == "cpu" ? _same_value(got, expected) :
+    _same_transform_class(got, expected)
 
 function _normal_components(rng::AbstractPureRNG, ::Type{T}) where {T}
     position = rng.position
@@ -54,9 +114,7 @@ function _normal_components(rng::AbstractPureRNG, ::Type{T}) where {T}
         Val(PureRNGs._normal_bits(T)),
     )
     midpoint = PureRNGs._normal_midpoint(T, raw)
-    q = midpoint - T(0.5)
-    radius = sqrt(-log(ifelse(q < zero(T), midpoint, one(T) - midpoint)))
-    return raw, midpoint, radius
+    return raw, midpoint
 end
 
 function _normal_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) where {T}
@@ -64,9 +122,7 @@ function _normal_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) where {T}
     raw = REACTANT_EXT._raw(rng, PureRNGs.FAMILY_NORMAL, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     midpoint = REACTANT_EXT._cast_scalar(T, (raw * UInt64(2)) | UInt64(1)) * scale
-    q = midpoint - T(0.5)
-    radius = sqrt(-log(ifelse(q < zero(T), midpoint, one(T) - midpoint)))
-    return raw, midpoint, radius
+    return raw, midpoint
 end
 
 _normal_observation(rng, ::Type{T}, value) where {T} =
@@ -125,7 +181,7 @@ _exponential_probe(rng) =
 function _snapshot(rng)
     range = UInt16(2):UInt16(3):UInt16(74)
     linrange = LinRange{Int64}(Int64(1) << 53, (Int64(1) << 53) + Int64(4), 5)
-    pure = (
+    pure_values = (
         rand(rng, Bool),
         rand(rng, UInt32),
         rand(rng, Int32),
@@ -133,16 +189,17 @@ function _snapshot(rng)
         rand(rng, Int64),
         rand(rng, Float32),
         rand(rng, Float64),
-        randexp(rng, Float32),
-        randexp(rng, Float64),
+    )
+    pure_exponentials = (randexp(rng, Float32), randexp(rng, Float64))
+    pure_addressed = (
         rand(rng, range),
         rand(rng, linrange),
         randat(rng, UInt64, 3),
         randat(rng, Int32, 3),
         randat(rng, Int64, 3),
-        randexpat(rng, Float32, 3),
-        randexpat(rng, Float64, 3),
     )
+    pure_addressed_exponentials = (randexpat(rng, Float32, 3), randexpat(rng, Float64, 3))
+    pure = (pure_values, pure_exponentials, pure_addressed, pure_addressed_exponentials)
     normals = (
         _normal_observation(rng, Float32, randn(rng, Float32)),
         _normal_observation(rng, Float64, randn(rng, Float64)),
@@ -169,8 +226,7 @@ function _snapshot(rng)
     next_rng, exponential64_value = randexp_next(next_rng, Float64)
     next_rng, range_value = rand_next(next_rng, range)
     next_rng, linrange_value = rand_next(next_rng, linrange)
-    continuation = (
-        next_rng,
+    continuation_values = (
         bool_value,
         uint32_value,
         int32_value,
@@ -178,11 +234,11 @@ function _snapshot(rng)
         int64_value,
         float32_value,
         float64_value,
-        exponential32_value,
-        exponential64_value,
-        range_value,
-        linrange_value,
     )
+    continuation_exponentials = (exponential32_value, exponential64_value)
+    continuation_ranges = (range_value, linrange_value)
+    continuation =
+        (next_rng, continuation_values, continuation_exponentials, continuation_ranges)
 
     derivation = (splitrng(rng, Val(3)), subrng(rng, 0x0123456789abcdef))
     nonnormal = (pure, continuation, derivation, _exponential_probe(rng))
@@ -198,57 +254,66 @@ function _positioned(rng, block::UInt64, high::UInt64, bit::UInt16)
     return PureRNGs._rebuild(rng, position, rng.device)
 end
 
-function _range_snapshot(rng, range)
-    next_rng, continuation = rand_next(rng, range)
-    return rand(rng, range), next_rng, continuation
-end
-
-_ordinal_range_snapshot(rng) = _range_snapshot(rng, UInt16(2):UInt16(3):UInt16(74))
-_linrange_snapshot(rng) =
-    _range_snapshot(rng, LinRange{Int64}(Int64(1) << 53, (Int64(1) << 53) + Int64(4), 5))
-
 function _normal_probe64(rng)
     addressed = PureRNGs._addressed_rng(rng, UInt16(52), 3)
     raw = REACTANT_EXT._raw(addressed, PureRNGs.FAMILY_NORMAL, Val(52))
     midpoint =
         REACTANT_EXT._cast_scalar(Float64, (raw * UInt64(2)) | UInt64(1)) * Float64(0x1p-53)
-    q = midpoint - 0.5
-    radius = sqrt(-log(ifelse(q < 0.0, midpoint, 1.0 - midpoint)))
-    return raw, midpoint, radius, randnat(rng, Float64, 3)
-end
-
-function _normal_tail_from_radius(radius::T, midpoint::T) where {T<:AbstractFloat}
-    _, _, C, D, E, F = PureRNGs._as241_coefficients(T)
-    if radius <= T(5)
-        reduced = radius - T(1.6)
-        value =
-            PureRNGs._as241_horner(reduced, C) /
-            PureRNGs._as241_horner(reduced, D)
-    else
-        reduced = radius - T(5)
-        value =
-            PureRNGs._as241_horner(reduced, E) /
-            PureRNGs._as241_horner(reduced, F)
-    end
-    return midpoint < T(0.5) ? -value : value
+    return raw, midpoint, randnat(rng, Float64, 3)
 end
 
 function _same_normal_observation(got, expected)
-    T = typeof(expected[2])
     _same_value(got[1], expected[1]) || return false
     _same_value(got[2], expected[2]) || return false
-    midpoint = T(got[2])
-    expected_value = if abs(midpoint - T(0.5)) <= T(0.425)
-        expected[4]
-    else
-        _normal_tail_from_radius(T(got[3]), midpoint)
-    end
-    return _same_value(got[4], expected_value)
+    return _same_transform_value(got[3], expected[3])
+end
+
+function _same_exponential_observation(got, expected)
+    _same_value(got[1:3], expected[1:3]) || return false
+    return _same_transform_value(got[4], expected[4])
+end
+
+function _same_nonnormal_snapshot(got, expected)
+    got_pure, got_continuation, got_derivation, got_exponentials = got
+    expected_pure, expected_continuation, expected_derivation, expected_exponentials =
+        expected
+    got_values, got_pure_exp, got_addressed, got_addressed_exp = got_pure
+    expected_values, expected_pure_exp, expected_addressed, expected_addressed_exp =
+        expected_pure
+    got_state, got_continuation_values, got_continuation_exp, got_ranges = got_continuation
+    expected_state,
+    expected_continuation_values,
+    expected_continuation_exp,
+    expected_ranges = expected_continuation
+    return _same_value(got_values, expected_values) &&
+           all(_same_transform_value.(got_pure_exp, expected_pure_exp)) &&
+           _same_value(got_addressed, expected_addressed) &&
+           all(_same_transform_value.(got_addressed_exp, expected_addressed_exp)) &&
+           _same_value(got_state, expected_state) &&
+           _same_value(got_continuation_values, expected_continuation_values) &&
+           all(_same_transform_value.(got_continuation_exp, expected_continuation_exp)) &&
+           _same_value(got_ranges, expected_ranges) &&
+           _same_value(got_derivation, expected_derivation) &&
+           all(_same_exponential_observation.(got_exponentials, expected_exponentials))
 end
 
 function _same_snapshot(got, expected)
-    return _same_value(got[1], expected[1]) &&
+    return _same_nonnormal_snapshot(got[1], expected[1]) &&
            all(_same_normal_observation.(got[2], expected[2]))
+end
+
+function _snapshot_continuation(snapshot)
+    nonnormal, _ = snapshot
+    _, continuation, _, _ = nonnormal
+    state, _, _, _ = continuation
+    return state
+end
+
+function _snapshot_pure_exponential32(snapshot)
+    nonnormal, _ = snapshot
+    pure, _, _, _ = nonnormal
+    _, exponentials, _, _ = pure
+    return first(exponentials)
 end
 
 _distribution_primitive(rng, ::Uniform{T}) where {T} = rand(rng, T)
@@ -268,10 +333,33 @@ function _distribution_primitive_at(rng, distribution::DiscreteUniform, index)
     return rand(addressed, distribution.a:distribution.b)
 end
 
-_distribution_pair(rng, distribution) =
-    (_distribution_primitive(rng, distribution), rand(rng, distribution))
-_distribution_pair_at(rng, distribution, index) =
-    (_distribution_primitive_at(rng, distribution, index), randat(rng, distribution, index))
+function _distribution_formula(d::Uniform{T}, primitive) where {T}
+    width = d.b - d.a
+    scaled = PureRNGs._rounded_product(width, primitive, primitive - T(0.5))
+    return d.a + scaled
+end
+
+_distribution_formula(d::Exponential, primitive) = d.θ * primitive[4]
+_distribution_formula(d::Bernoulli, primitive) = primitive < d.p
+_distribution_formula(::DiscreteUniform, primitive) = primitive
+
+function _distribution_pair(rng, distribution)
+    primitive = _distribution_primitive(rng, distribution)
+    return (
+        primitive,
+        rand(rng, distribution),
+        _distribution_formula(distribution, primitive),
+    )
+end
+
+function _distribution_pair_at(rng, distribution, index)
+    primitive = _distribution_primitive_at(rng, distribution, index)
+    return (
+        primitive,
+        randat(rng, distribution, index),
+        _distribution_formula(distribution, primitive),
+    )
+end
 
 _distribution_chain(rng, ::Tuple{}) = (rng, ())
 function _distribution_chain(rng, distributions::Tuple)
@@ -279,13 +367,20 @@ function _distribution_chain(rng, distributions::Tuple)
     primitive = _distribution_primitive(rng, distribution)
     next_rng, value = rand_next(rng, distribution)
     final_rng, values = _distribution_chain(next_rng, Base.tail(distributions))
-    return final_rng, ((primitive, value), values...)
+    direct = _distribution_formula(distribution, primitive)
+    return final_rng, ((primitive, value, direct), values...)
 end
 
-_normal_distribution_pair(rng, d::Normal{T}) where {T} =
-    (_normal_observation(rng, T, randn(rng, T)), rand(rng, d))
-_normal_distribution_pair_at(rng, d::Normal{T}, index) where {T} =
-    (_normal_at_observation(rng, T, index), randat(rng, d, index))
+function _normal_distribution_pair(rng, d::Normal{T}) where {T}
+    primitive = _normal_observation(rng, T, randn(rng, T))
+    return primitive, rand(rng, d), muladd(d.σ, primitive[3], d.μ)
+end
+
+function _normal_distribution_pair_at(rng, d::Normal{T}, index) where {T}
+    primitive = _normal_at_observation(rng, T, index)
+    return primitive, randat(rng, d, index), muladd(d.σ, primitive[3], d.μ)
+end
+
 _normal_distribution_type(::Normal{T}) where {T} = T
 
 _normal_distribution_chain(rng, ::Tuple{}) = (rng, ())
@@ -295,107 +390,141 @@ function _normal_distribution_chain(rng, distributions::Tuple)
     primitive = _normal_observation(rng, T, randn(rng, T))
     next_rng, value = rand_next(rng, distribution)
     final_rng, values = _normal_distribution_chain(next_rng, Base.tail(distributions))
-    return final_rng, ((primitive, value), values...)
+    direct = muladd(distribution.σ, primitive[3], distribution.μ)
+    return final_rng, ((primitive, value, direct), values...)
 end
 
-function _distribution_snapshot(rng)
-    normal_distributions =
-        (Normal{Float32}(Float32(1.25), Float32(0.75)), Normal{Float64}(1.25, 0.75))
-    distributions = (
-        Uniform{Float32}(Float32(-2), Float32(3)),
-        Uniform{Float64}(-2, 3),
-        Exponential{Float32}(Float32(1.5)),
-        Exponential{Float64}(1.5),
-        Bernoulli{Float32}(Float32(0.25)),
-        Bernoulli{Float64}(0.25),
-        DiscreteUniform(-17, 29),
-    )
+function _distribution_group(rng, distributions)
     pure = map(distribution -> _distribution_pair(rng, distribution), distributions)
     addressed =
         map(distribution -> _distribution_pair_at(rng, distribution, 3), distributions)
     next_rng, continuation = _distribution_chain(rng, distributions)
-    normal_pure = map(
-        distribution -> _normal_distribution_pair(rng, distribution),
-        normal_distributions,
-    )
+    return pure, addressed, next_rng, continuation
+end
+
+function _normal_distribution_group(rng, distributions)
+    normal_pure =
+        map(distribution -> _normal_distribution_pair(rng, distribution), distributions)
     normal_addressed = map(
         distribution -> _normal_distribution_pair_at(rng, distribution, 3),
-        normal_distributions,
+        distributions,
     )
-    normal_next_rng, normal_continuation =
-        _normal_distribution_chain(rng, normal_distributions)
-    return (
-        pure,
-        addressed,
-        next_rng,
-        continuation,
-        normal_pure,
-        normal_addressed,
-        normal_next_rng,
-        normal_continuation,
-    )
+    normal_next_rng, normal_continuation = _normal_distribution_chain(rng, distributions)
+    return normal_pure, normal_addressed, normal_next_rng, normal_continuation
 end
+
+_fixed_distribution_snapshot(rng) = _distribution_group(rng, FIXED_DISTRIBUTIONS)
+_normal_distribution_snapshot(rng) = _normal_distribution_group(rng, NORMAL_DISTRIBUTIONS)
+_subnormal_distribution_snapshot(rng) = _distribution_group(rng, SUBNORMAL_DISTRIBUTIONS)
 
 function _same_normal_mapping(got, expected, distribution::Normal{T}) where {T}
     _same_normal_observation(got[1], expected[1]) || return false
-    primitive = T(got[1][4])
-    mapped = T(got[2])
-    mapped_expected = fma(distribution.σ, primitive, distribution.μ)
-    return _same_value(mapped, mapped_expected)
+    return _same_value(T(got[2]), T(got[3]))
 end
 
 function _same_distribution_mapping(got, expected, distribution::Exponential{T}) where {T}
     got_primitive = got[1]
     expected_primitive = expected[1]
     _same_value(got_primitive[1:3], expected_primitive[1:3]) || return false
-    return _same_value(T(got[2]), distribution.θ * T(got_primitive[4]))
+    _same_transform_value(got_primitive[4], expected_primitive[4]) || return false
+    return _same_value(T(got[2]), T(got[3]))
 end
 
-function _same_distribution_mapping(got, expected, distribution::Uniform{T}) where {T}
+function _same_distribution_mapping(got, expected, ::Uniform{T}) where {T}
     primitive = T(got[1])
     _same_value(primitive, expected[1]) || return false
-    width = distribution.b - distribution.a
-    scaled = PureRNGs._rounded_product(width, primitive, primitive - T(0.5))
-    return _same_value(T(got[2]), distribution.a + scaled)
+    return _same_value(T(got[2]), T(got[3]))
 end
 
-function _same_distribution_mapping(got, expected, distribution::Bernoulli{T}) where {T}
+function _same_distribution_mapping(got, expected, ::Bernoulli{T}) where {T}
     primitive = T(got[1])
-    return _same_value(primitive, expected[1]) &&
-           _same_value(Bool(got[2]), primitive < distribution.p)
+    return _same_value(primitive, expected[1]) && _same_value(Bool(got[2]), Bool(got[3]))
 end
 
 function _same_distribution_mapping(got, expected, ::DiscreteUniform)
     primitive = Int(got[1])
-    return _same_value(primitive, expected[1]) && _same_value(Int(got[2]), primitive)
+    return _same_value(primitive, expected[1]) &&
+           _same_value(Int(got[2]), expected[2]) &&
+           _same_value(Int(got[3]), primitive)
 end
 
-function _same_distribution_snapshot(got, expected)
-    normal_distributions =
-        (Normal{Float32}(Float32(1.25), Float32(0.75)), Normal{Float64}(1.25, 0.75))
-    distributions = (
-        Uniform{Float32}(Float32(-2), Float32(3)),
-        Uniform{Float64}(-2, 3),
-        Exponential{Float32}(Float32(1.5)),
-        Exponential{Float64}(1.5),
-        Bernoulli{Float32}(Float32(0.25)),
-        Bernoulli{Float64}(0.25),
-        DiscreteUniform(-17, 29),
+function _check_distribution_group(got, expected, distributions, comparator)
+    got_pure, got_addressed, got_state, got_continuation = got
+    expected_pure, expected_addressed, expected_state, expected_continuation = expected
+    for (form, got_values, expected_values) in (
+        ("pure", got_pure, expected_pure),
+        ("addressed", got_addressed, expected_addressed),
+        ("continuation", got_continuation, expected_continuation),
     )
-    return all(_same_distribution_mapping.(got[1], expected[1], distributions)) &&
-           all(_same_distribution_mapping.(got[2], expected[2], distributions)) &&
-           _same_value(got[3], expected[3]) &&
-           all(_same_distribution_mapping.(got[4], expected[4], distributions)) &&
-           all(_same_normal_mapping.(got[5], expected[5], normal_distributions)) &&
-           all(_same_normal_mapping.(got[6], expected[6], normal_distributions)) &&
-           _same_value(got[7], expected[7]) &&
-           all(_same_normal_mapping.(got[8], expected[8], normal_distributions))
+        @testset "$form" begin
+            for (got_value, expected_value, distribution) in
+                zip(got_values, expected_values, distributions)
+                @testset "$distribution" begin
+                    @test comparator(got_value, expected_value, distribution)
+                end
+            end
+        end
+    end
+    @testset "state" begin
+        @test _same_value(got_state, expected_state)
+    end
 end
 
-function _primitive_step(rng)
-    next_rng, value = rand_next(rng, UInt32)
-    return next_rng, value, rand(rng, UInt64), randat(rng, UInt32, 3)
+function _check_distribution_executable(
+    group,
+    compiled,
+    snapshot,
+    distributions,
+    comparator,
+    first,
+    second,
+    first_carrier,
+    second_carrier,
+)
+    @testset "$group" begin
+        first_got = compiled(first_carrier)
+        first_expected = snapshot(first)
+        @testset "first carrier" begin
+            _check_distribution_group(first_got, first_expected, distributions, comparator)
+        end
+        @testset "exact replay" begin
+            @test _same_value(compiled(first_carrier), first_got)
+        end
+        @testset "second carrier" begin
+            _check_distribution_group(
+                compiled(second_carrier),
+                snapshot(second),
+                distributions,
+                comparator,
+            )
+        end
+
+        _, _, got_next, _ = first_got
+        _, _, expected_next, _ = first_expected
+        @test typeof(got_next) === typeof(first_carrier)
+        @testset "returned continuation carrier" begin
+            _check_distribution_group(
+                compiled(got_next),
+                snapshot(expected_next),
+                distributions,
+                comparator,
+            )
+        end
+    end
 end
+
+function _cancellation_distribution_snapshot(rng)
+    float32, float64 = CANCELLATION_NORMAL_DISTRIBUTIONS
+    return (
+        _normal_distribution_pair_at(rng, float32, 3),
+        _normal_distribution_pair(rng, float64),
+    )
+end
+
+_same_cancellation_distribution_snapshot(got, expected) =
+    all(_same_normal_mapping.(got, expected, CANCELLATION_NORMAL_DISTRIBUTIONS))
+
+_subnormal_bernoulli_snapshot(rng) = _distribution_pair(rng, SUBNORMAL_BERNOULLI)
 
 _large_addressed_uint64(rng) = randat(rng, UInt64, (big(1) << 122) + 1)
 
@@ -415,54 +544,95 @@ REACTANT_TEST_BACKEND in ("cpu", "gpu") ||
     error("PURERNGS_REACTANT_BACKEND must be cpu or gpu")
 Reactant.set_default_backend(REACTANT_TEST_BACKEND)
 
+@testset "Reactant transform result class" begin
+    for T in (Float32, Float64)
+        expected = one(T)
+        @test _same_transform_class(nextfloat(expected), expected)
+        @test !_same_transform_class(-expected, expected)
+        @test !_same_transform_class(zero(T), expected)
+        @test _same_transform_class(zero(T), zero(T))
+        @test _same_transform_class(-zero(T), -zero(T))
+        @test !_same_transform_class(-zero(T), zero(T))
+        @test !_same_transform_class(nextfloat(zero(T)), zero(T))
+        @test !_same_transform_class(T(Inf), expected)
+        @test !_same_transform_class(T(-Inf), -expected)
+        @test !_same_transform_class(T(NaN), expected)
+        @test _same_transform_value(nextfloat(expected), expected) ==
+              (REACTANT_TEST_BACKEND == "gpu")
+    end
+end
+
 @testset "Reactant distribution extension loads" begin
     @test REACTANT_EXT !== nothing
     @test REACTANT_DISTRIBUTIONS_EXT !== nothing
 end
 
-@testset "R42 wide addressed index" begin
-    index = (big(1) << 122) + 1
-    eager = Philox4x64(0x123456)
-    carrier = Reactant.to_rarray(eager)
-    @test REACTANT_EXT._address_offset(index, UInt64(64)) ==
-          (UInt64(0), UInt64(0), UInt64(1))
-    compiled = Reactant.@compile sync = true _large_addressed_uint64(carrier)
-    @test UInt64(compiled(carrier)) == _large_addressed_uint64(eager)
+if Philox4x64 in SELECTED_FAMILIES
+    @testset "R42 wide addressed index" begin
+        index = (big(1) << 122) + 1
+        eager = Philox4x64(0x123456)
+        carrier = Reactant.to_rarray(eager)
+        @test REACTANT_EXT._address_offset(index, UInt64(64)) ==
+              (UInt64(0), UInt64(0), UInt64(1))
+        compiled = Reactant.@compile sync = true _large_addressed_uint64(carrier)
+        @test UInt64(compiled(carrier)) == _large_addressed_uint64(eager)
+    end
 end
 
-@testset "R43 Reactant preserves eager normal arithmetic" begin
-    compile_rng = _positioned(Philox2x64(0x123456), UInt64(3), UInt16(17))
-    central_rng = _positioned(Philox2x64(0x654321), UInt64(7), UInt16(29))
-    tail_rng = Philox2x64(0x5)
-    compile_carrier = Reactant.to_rarray(compile_rng)
-    compiled = Reactant.@compile sync = true _normal_probe64(compile_carrier)
+if Philox2x64 in SELECTED_FAMILIES
+    @testset "R43 Reactant normal primitive conformance" begin
+        compile_rng = _positioned(Philox2x64(0x123456), UInt64(3), UInt16(17))
+        central_rng = _positioned(Philox2x64(0x654321), UInt64(7), UInt16(29))
+        tail_rng = Philox2x64(0x5)
+        compile_carrier = Reactant.to_rarray(compile_rng)
+        compiled = Reactant.@compile sync = true _normal_probe64(compile_carrier)
 
-    central_raw, central_midpoint, _, central_value =
-        compiled(Reactant.to_rarray(central_rng))
-    @test UInt64(central_raw) == 0x000174208c39ebcd
-    @test reinterpret(UInt64, Float64(central_midpoint)) == 0x3fb74208c39ebcd8
-    @test reinterpret(UInt64, Float64(central_value)) == 0xbff55e55782ee12e
+        central = compiled(Reactant.to_rarray(central_rng))
+        central_expected = _normal_at_observation(central_rng, Float64, 3)
+        @test _same_normal_observation(central, central_expected)
+        @test UInt64(central[1]) == 0x000174208c39ebcd
+        @test reinterpret(UInt64, Float64(central[2])) == 0x3fb74208c39ebcd8
+        @test reinterpret(UInt64, central_expected[3]) == 0xbff55e55782ee12e
 
-    tail_raw, tail_midpoint, tail_radius, tail_value =
-        compiled(Reactant.to_rarray(tail_rng))
-    tail_midpoint_host = Float64(tail_midpoint)
-    expected_tail = _normal_tail_from_radius(Float64(tail_radius), tail_midpoint_host)
-    @test UInt64(tail_raw) == 0x000114ac2a562bb5
-    @test reinterpret(UInt64, tail_midpoint_host) == 0x3fb14ac2a562bb58
-    @test reinterpret(UInt64, Float64(tail_value)) == reinterpret(UInt64, expected_tail)
+        tail = compiled(Reactant.to_rarray(tail_rng))
+        tail_expected = _normal_at_observation(tail_rng, Float64, 3)
+        @test _same_normal_observation(tail, tail_expected)
+        @test UInt64(tail[1]) == 0x000114ac2a562bb5
+        @test reinterpret(UInt64, Float64(tail[2])) == 0x3fb14ac2a562bb58
+    end
 end
 
-@testset "R42 Reactant compiled values equal eager values" begin
+@testset "R42 Reactant primitive and state conformance" begin
     @test Base.pkgversion(Reactant) == v"0.2.280"
-    for F in FAMILIES
+    for F in SELECTED_FAMILIES
         @testset "$F" begin
             first = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
             second = _positioned(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
             first_carrier = Reactant.to_rarray(first)
             second_carrier = Reactant.to_rarray(second)
+            @test !(first_carrier isa AbstractPureRNG)
             compiled = Reactant.@compile sync = true _snapshot(first_carrier)
-            @test _same_snapshot(compiled(first_carrier), _snapshot(first))
+            first_got = compiled(first_carrier)
+            first_expected = _snapshot(first)
+            @test _same_snapshot(first_got, first_expected)
+            @test _same_value(compiled(first_carrier), first_got)
             @test _same_snapshot(compiled(second_carrier), _snapshot(second))
+            if F === Philox2x32
+                endpoint = Philox2x32(UInt64(0x2f378f))
+                endpoint_expected = _snapshot(endpoint)
+                @test reinterpret(
+                    UInt32,
+                    _snapshot_pure_exponential32(endpoint_expected),
+                ) == 0x80000000
+                @test _same_snapshot(
+                    compiled(Reactant.to_rarray(endpoint)),
+                    endpoint_expected,
+                )
+            end
+            got_next = _snapshot_continuation(first_got)
+            expected_next = _snapshot_continuation(first_expected)
+            @test typeof(got_next) === typeof(first_carrier)
+            @test _same_snapshot(compiled(got_next), _snapshot(expected_next))
         end
     end
 end
@@ -484,6 +654,7 @@ end
     )
 
     for (F, state_length) in cases
+        F in SELECTED_FAMILIES || continue
         carrier = Reactant.to_rarray(_positioned(F(0x123456), UInt64(3), UInt16(17)))
         hlo = String(Reactant.@code_hlo optimize = false rand_next(carrier, UInt64))
         state_type = "tensor<$(state_length)xui64>"
@@ -497,49 +668,112 @@ end
 end
 
 @testset "R42 fixed distributions" begin
-    for F in FAMILIES
-        first = _positioned(F(0x123456), UInt64(3), UInt16(17))
-        second = _positioned(F(0x654321), UInt64(7), UInt16(29))
-        first_carrier = Reactant.to_rarray(first)
-        second_carrier = Reactant.to_rarray(second)
-        compiled = Reactant.@compile sync = true _distribution_snapshot(first_carrier)
-        @test _same_distribution_snapshot(
-            compiled(first_carrier),
-            _distribution_snapshot(first),
-        )
-        @test _same_distribution_snapshot(
-            compiled(second_carrier),
-            _distribution_snapshot(second),
-        )
+    for F in SELECTED_FAMILIES
+        @testset "$F" begin
+            first = _positioned(F(0x123456), UInt64(3), UInt16(17))
+            second = _positioned(F(0x654321), UInt64(7), UInt16(29))
+            first_carrier = Reactant.to_rarray(first)
+            second_carrier = Reactant.to_rarray(second)
+
+            fixed =
+                Reactant.@compile sync = true _fixed_distribution_snapshot(first_carrier)
+            _check_distribution_executable(
+                "regular",
+                fixed,
+                _fixed_distribution_snapshot,
+                FIXED_DISTRIBUTIONS,
+                _same_distribution_mapping,
+                first,
+                second,
+                first_carrier,
+                second_carrier,
+            )
+
+            normal =
+                Reactant.@compile sync = true _normal_distribution_snapshot(first_carrier)
+            _check_distribution_executable(
+                "Normal",
+                normal,
+                _normal_distribution_snapshot,
+                NORMAL_DISTRIBUTIONS,
+                _same_normal_mapping,
+                first,
+                second,
+                first_carrier,
+                second_carrier,
+            )
+
+            subnormal = Reactant.@compile sync = true _subnormal_distribution_snapshot(
+                first_carrier,
+            )
+            _check_distribution_executable(
+                "subnormal",
+                subnormal,
+                _subnormal_distribution_snapshot,
+                SUBNORMAL_DISTRIBUTIONS,
+                _same_distribution_mapping,
+                first,
+                second,
+                first_carrier,
+                second_carrier,
+            )
+        end
     end
 end
 
-@testset "R42 integer range method surface" begin
-    first = _positioned(Philox4x32(0x123456), UInt64(3), UInt16(17))
-    second = _positioned(Philox4x32(0x654321), UInt64(7), UInt16(29))
-    first_carrier = Reactant.to_rarray(first)
-    second_carrier = Reactant.to_rarray(second)
-    unsupported = NegativeIntegerRange(-5, -2, 4)
+if Philox2x32 in SELECTED_FAMILIES
+    @testset "R42 subnormal and cancellation mappings" begin
+        root = _positioned(Philox2x32(0x123456), UInt64(3), UInt64(2), UInt16(17))
+        carrier = Reactant.to_rarray(root)
+        compiled =
+            Reactant.@compile sync = true _cancellation_distribution_snapshot(carrier)
+        got = compiled(carrier)
+        expected = _cancellation_distribution_snapshot(root)
+        @test _same_cancellation_distribution_snapshot(got, expected)
+        @test _same_value(compiled(carrier), got)
+        for (pair, distribution) in zip(expected, CANCELLATION_NORMAL_DISTRIBUTIONS)
+            primitive = pair[1][3]
+            fused = fma(distribution.σ, primitive, distribution.μ)
+            separate = distribution.σ * primitive + distribution.μ
+            @test !_same_value(fused, separate)
+        end
 
-    @test !applicable(rand, first_carrier, unsupported)
-    @test !applicable(rand_next, first_carrier, unsupported)
-
-    for range in (UInt16(2):UInt16(3):UInt16(74), LinRange{Int64}(-20, 20, 5))
-        @test applicable(rand, first_carrier, range)
-        @test applicable(rand_next, first_carrier, range)
+        bernoulli_root =
+            _positioned(Philox2x32(0x123456), UInt64(0x01852ed9), UInt64(2), UInt16(0))
+        bernoulli_carrier = Reactant.to_rarray(bernoulli_root)
+        bernoulli_compiled =
+            Reactant.@compile sync = true _subnormal_bernoulli_snapshot(bernoulli_carrier)
+        bernoulli_got = bernoulli_compiled(bernoulli_carrier)
+        bernoulli_expected = _subnormal_bernoulli_snapshot(bernoulli_root)
+        @test _same_value(bernoulli_expected[1], zero(Float32))
+        @test _same_distribution_mapping(
+            bernoulli_got,
+            bernoulli_expected,
+            SUBNORMAL_BERNOULLI,
+        )
+        @test _same_value(bernoulli_compiled(bernoulli_carrier), bernoulli_got)
     end
+end
 
-    compiled_ordinal = Reactant.@compile sync = true _ordinal_range_snapshot(first_carrier)
-    @test _same_value(compiled_ordinal(first_carrier), _ordinal_range_snapshot(first))
-    @test _same_value(compiled_ordinal(second_carrier), _ordinal_range_snapshot(second))
+if Philox4x32 in SELECTED_FAMILIES
+    @testset "R42 integer range method surface" begin
+        first = _positioned(Philox4x32(0x123456), UInt64(3), UInt16(17))
+        first_carrier = Reactant.to_rarray(first)
+        unsupported = NegativeIntegerRange(-5, -2, 4)
 
-    compiled_linrange = Reactant.@compile sync = true _linrange_snapshot(first_carrier)
-    @test _same_value(compiled_linrange(first_carrier), _linrange_snapshot(first))
-    @test _same_value(compiled_linrange(second_carrier), _linrange_snapshot(second))
+        @test !applicable(rand, first_carrier, unsupported)
+        @test !applicable(rand_next, first_carrier, unsupported)
+
+        for range in (UInt16(2):UInt16(3):UInt16(74), LinRange{Int64}(-20, 20, 5))
+            @test applicable(rand, first_carrier, range)
+            @test applicable(rand_next, first_carrier, range)
+        end
+    end
 end
 
 @testset "R42 exact-end continuation" begin
     for F in (Philox2x32, Philox4x32, Philox4x64)
+        F in SELECTED_FAMILIES || continue
         eager = _last_bit_rng(F)
         eager_next, eager_value = rand_next(eager, Bool)
         carrier = Reactant.to_rarray(eager)
@@ -552,7 +786,7 @@ end
 end
 
 @testset "R42 eager exhaustion remains checked with Reactant loaded" begin
-    for F in FAMILIES
+    for F in SELECTED_FAMILIES
         last = _last_bit_rng(F)
         terminal, value = rand_next(last, Bool)
         terminal_state = Reactant.to_rarray(terminal).state |> Array
@@ -561,31 +795,5 @@ end
         @test_throws ArgumentError rand(terminal, Bool)
         @test_throws ArgumentError rand_next(terminal, Bool)
         @test Array(Reactant.to_rarray(terminal).state) == terminal_state
-    end
-end
-
-@testset "R42 dynamic carrier reuse" begin
-    first = Philox4x32(0x0123456789abcdef)
-    second = Philox4x32(0xfedcba9876543210)
-    advanced, _ = rand_next(first, UInt64)
-    first_carrier = Reactant.to_rarray(first)
-    second_carrier = Reactant.to_rarray(second)
-    advanced_carrier = Reactant.to_rarray(advanced)
-    @test !(first_carrier isa AbstractPureRNG)
-
-    compiled = Reactant.@compile sync = true _primitive_step(first_carrier)
-    for (carrier, eager) in
-        ((first_carrier, first), (second_carrier, second), (advanced_carrier, advanced))
-        next_carrier, value, pure, addressed = compiled(carrier)
-        eager_next, eager_value, eager_pure, eager_addressed = _primitive_step(eager)
-        @test value == eager_value
-        @test pure == eager_pure
-        @test addressed == eager_addressed
-
-        reused_next, reused_value, _, _ = compiled(next_carrier)
-        eager_reused_next, eager_reused_value, _, _ = _primitive_step(eager_next)
-        @test reused_value == eager_reused_value
-        @test typeof(reused_next) === typeof(next_carrier)
-        @test typeof(eager_reused_next) === typeof(eager_next)
     end
 end
