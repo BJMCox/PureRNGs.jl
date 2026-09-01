@@ -127,11 +127,11 @@ end
 end
 
 @inline IR._transformed_fill_plan(
-    ::_DistributionCodec{<:Distributions.Exponential},
+    codec::_DistributionCodec{<:Distributions.Exponential},
     backend,
     rng,
-    ::Type,
-) = nothing
+    ::Type{T},
+) where {T<:_FloatType} = IR._transformed_fill_plan(codec.device, backend, rng, T)
 
 @inline function IR._transformed_fill_plan(
     ::_DistributionCodec{Distributions.Bernoulli{T}},

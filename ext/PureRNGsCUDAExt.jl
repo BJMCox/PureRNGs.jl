@@ -27,7 +27,9 @@ const _CUDA_F32X4 = NTuple{4,VecElement{Float32}}
 const _CUDA_F64X2 = NTuple{2,VecElement{Float64}}
 const _CUDA_B8X16 = NTuple{16,VecElement{Bool}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
-const _CUDAPackedFloatCodec = Union{Val{:uniform},Val{:normal},IR._CUDABackend}
+# Mapped codecs using this path must share the uniform-width fallback contract.
+const _CUDAPackedFloatCodec =
+    Union{Val{:uniform},Val{:normal},IR._CUDABackend,IR._MappedFillCodec}
 
 @inline _bool_packs_per_block(rng) = Val(Int(IR._block_bits(rng)) ÷ 16)
 
@@ -85,7 +87,7 @@ end
 @inline _packed_float_fallback_group(
     rng,
     ::Type{T},
-    ::Union{Val{:uniform},IR._CUDABackend},
+    ::Union{Val{:uniform},IR._CUDABackend,IR._MappedFillCodec},
 ) where {T} = IR._device_uniform_fill_group(rng, T)
 
 @inline function IR._launch_device_fill!(
