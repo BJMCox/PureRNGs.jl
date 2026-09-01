@@ -282,18 +282,6 @@ end
     destination,
     width::UInt16,
 )
-    if length(destination) <= _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS
-        _fill_unweighted_cpu_unchecked!(
-            rng,
-            rng.position,
-            population,
-            cardinality,
-            destination,
-            width,
-            eachindex(destination),
-        )
-        return destination
-    end
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(width))
     workitems = cld(length(destination), chunk_elements)
     if workitems < _CPU_FILL_MIN_WORKITEMS
