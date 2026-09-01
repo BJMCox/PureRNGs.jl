@@ -99,7 +99,7 @@ end
     _, ok = _try_advance(rng, end_lo, end_hi)
     ok || _address_capacity_error()
     start_lo, start_hi = _bit_span(index - UInt64(1), width)
-    position, _ = _try_advance(rng, start_lo, start_hi)
+    position = _advance_position_unchecked(rng, start_lo, start_hi)
     position == rng.position && return rng
     return _rebuild(rng, position, rng.device)
 end

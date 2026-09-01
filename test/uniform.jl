@@ -304,6 +304,17 @@ end
     end
 end
 
+@testset "R29 addressed end-span preflight" begin
+    base = Philox4x32(0x5231)
+    last = IR._rebuild(
+        base,
+        IR._Position64(IR._max_block(base), IR._block_bits(base) - UInt16(32)),
+        base.device,
+    )
+    @test randat(last, UInt32, UInt64(1)) === rand(last, UInt32)
+    @test_throws ArgumentError randat(last, UInt32, UInt64(2))
+end
+
 @testset "R26 packed CPU fills, shapes, views, and BitArray" begin
     for F in FAMILY_TYPES, T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x524, UInt64(7), UInt16(61))
