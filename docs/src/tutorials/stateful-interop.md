@@ -40,7 +40,8 @@ exponentials64 = randexp(bridge, Float64, 128)
 ## Fill host arrays
 
 The package owns `rand!`, `randn!`, and `randexp!` for matching concrete
-`Array` destinations. It also owns `rand!` for `BitArray`.
+`Array` destinations. It also owns `rand!` for `BitArray` and integer-range
+`Array` fills.
 
 ```julia
 bridge = StatefulRNG(Threefry4x32(9))
@@ -57,9 +58,13 @@ randexp!(bridge, exponentials)
 @assert all(value -> value >= 0, exponentials)
 ```
 
-Each owned fill preflights its full reservation before mutation and equals
-chained scalar continuation draws. Counter exhaustion therefore leaves an
-owned destination and the bridge unchanged.
+Each one-argument owned fill preflights its full reservation before mutation
+and equals chained scalar continuation draws. Counter exhaustion therefore
+leaves its destination and the bridge unchanged.
+
+The integer-range form `rand!(bridge, destination, range)` consumes chained
+scalar range draws. Counter exhaustion writes only the maximal valid prefix
+and leaves the bridge after the last successful draw.
 
 Other destination types use foreign `Random` fill methods. Those methods may
 use another scalar consumption order. If exhaustion occurs mid-fill, the

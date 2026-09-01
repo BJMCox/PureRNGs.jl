@@ -156,6 +156,42 @@ end
     end
 end
 
+@testset "R34 range bridge Array fill" begin
+    range = UInt16(2):UInt16(17)
+    root = Philox4x32(0x819)
+    expected_rng, expected = rand_next(root, range, 3)
+    destination = fill(UInt16(0xdead), 3)
+    mutable_rng = StatefulRNG(root)
+    @test rand!(mutable_rng, destination, range) === destination
+    @test destination == expected
+    @test parent(mutable_rng) === expected_rng
+
+    root = Philox4x32(0x81b)
+    position = StatefulIR._Position64(StatefulIR._max_block(root), UInt16(0))
+    near_last = StatefulIR._rebuild(root, position, root.device)
+    expected_rng, expected = rand_next(near_last, range, 2)
+    destination = fill(UInt16(0xdead), 3)
+    mutable_rng = StatefulRNG(near_last)
+    @test_throws ArgumentError rand!(mutable_rng, destination, range)
+    @test destination == [expected..., UInt16(0xdead)]
+    @test parent(mutable_rng) === expected_rng
+
+    insufficient = StatefulIR._reserve(
+        _bridge_last(Philox4x32(0x81a), UInt16(64)),
+        UInt64(1),
+        UInt64(0),
+    )
+    destination = fill(UInt16(0xdead), 1)
+    mutable_rng = StatefulRNG(insufficient)
+    @test_throws ArgumentError rand!(mutable_rng, destination, range)
+    @test destination == [UInt16(0xdead)]
+    @test parent(mutable_rng) === insufficient
+
+    empty_rng = StatefulRNG(root)
+    @test rand!(empty_rng, UInt16[], UInt16(1):UInt16(0)) == UInt16[]
+    @test parent(empty_rng) === root
+end
+
 @testset "R34 and R54 owned bridge fills" begin
     root = Philox4x32(0x806)
     expected_rng, expected = rand_next(root, UInt64, 19)
@@ -320,6 +356,7 @@ end
     for T in PURE_UNIFORM_TYPES
         require(Random.rand!, Tuple{M,Vector{T}})
     end
+    require(Random.rand!, Tuple{M,Vector{UInt16},AbstractRange{UInt16}})
     require(Random.rand!, Tuple{M,BitArray})
     for T in NORMAL_TYPES
         require(Random.randn!, Tuple{M,Vector{T}})

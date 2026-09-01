@@ -6,11 +6,13 @@ Construction preserves the key and position and rebinds the generator to the CPU
 `parent(bridge)` returns the exact immutable generator currently held by the
 bridge without allocating, mutating, or advancing it.
 
-Package-owned `Array` and `BitArray` fills preflight their full counter span. A
-foreign `Random` fill has no chained-scalar consumption-order guarantee. It may
-leave its destination partially written on counter exhaustion because each
-scalar bridge draw preflights only its own span. The held generator remains
-valid at the position after the last successful draw.
+Package-owned one-argument `Array` and `BitArray` fills preflight their full
+counter span. The integer-range `Array` fill preserves Julia's scalar bridge
+behavior: counter exhaustion may leave its maximal valid prefix written, with
+the held generator after that prefix. A foreign `Random` fill has no
+chained-scalar consumption-order guarantee and may also leave its destination
+partially written. The held generator remains valid at the position after the
+last successful draw.
 """
 mutable struct StatefulRNG{R<:AbstractPureRNG} <: Random.AbstractRNG
     rng::R
@@ -85,6 +87,52 @@ end
 
 @inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulRangeSampler) =
     _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, sampler.range))
+
+@inline function Random.rand!(
+    mutable_rng::StatefulRNG,
+    destination::Array{T},
+    range::AbstractRange{T},
+) where {T<:_RangeInteger}
+    isempty(destination) && return destination
+    span = _range_span(range)
+    width = _range_bits(span)
+    count = UInt64(length(destination))
+    bits_lo, bits_hi = _bit_span(count, width)
+    position, complete = _try_advance(mutable_rng.rng, bits_lo, bits_hi)
+    fitting_count = count
+    if !complete
+        fitting_count = UInt64(0)
+        failing_count = count
+        while fitting_count + UInt64(1) < failing_count
+            midpoint = fitting_count + ((failing_count - fitting_count) >> 1)
+            bits_lo, bits_hi = _bit_span(midpoint, width)
+            _, fits = _try_advance(mutable_rng.rng, bits_lo, bits_hi)
+            if fits
+                fitting_count = midpoint
+            else
+                failing_count = midpoint
+            end
+        end
+        if !iszero(fitting_count)
+            bits_lo, bits_hi = _bit_span(fitting_count, width)
+            position, _ = _try_advance(mutable_rng.rng, bits_lo, bits_hi)
+        end
+    end
+    if !iszero(fitting_count)
+        _fill_range_cpu_unchecked!(
+            mutable_rng.rng,
+            mutable_rng.rng.position,
+            destination,
+            range,
+            span,
+            1:Int(fitting_count),
+        )
+        mutable_rng.rng = _rebuild(mutable_rng.rng, position, mutable_rng.rng.device)
+    end
+    complete && return destination
+    rand_next(mutable_rng.rng, range)
+    return destination
+end
 
 const _StatefulUniform = Union{Bool,UInt32,Int32,UInt64,Int64,Float32,Float64}
 
