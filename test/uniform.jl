@@ -373,6 +373,17 @@ end
 
 end
 
+@testset "R26 small allocating uniform boundary" begin
+    rng = _positioned(Philox4x32, 0x5250, UInt64(5), UInt16(61))
+    for count in (128, 129)
+        expected_rng, expected = _reference_chain(rng, Float64, count)
+        next_rng, values = rand_next(rng, Float64, count)
+        sync_cpu()
+        @test values == expected
+        @test next_rng.position == expected_rng.position
+    end
+end
+
 @testset "R26 parallel packed fills cross CPU chunks" begin
     for F in (Philox2x32, Philox4x32, Philox4x64), T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x5251, UInt64(4), UInt16(61))
