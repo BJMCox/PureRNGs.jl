@@ -241,24 +241,6 @@ KernelAbstractions.@kernel function _unweighted_sample_cpu_kernel!(
     )
 end
 
-KernelAbstractions.@kernel function _unweighted_sample_cpu_serial_kernel!(
-    rng,
-    population,
-    cardinality::UInt64,
-    destination,
-    width::UInt16,
-)
-    _fill_unweighted_cpu_unchecked!(
-        rng,
-        rng.position,
-        population,
-        cardinality,
-        destination,
-        width,
-        eachindex(destination),
-    )
-end
-
 @inline function _launch_unweighted_sample!(
     backend,
     rng,
@@ -315,13 +297,14 @@ end
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(width))
     workitems = cld(length(destination), chunk_elements)
     if workitems < _CPU_FILL_MIN_WORKITEMS
-        _unweighted_sample_cpu_serial_kernel!(backend)(
+        _fill_unweighted_cpu_unchecked!(
             rng,
+            rng.position,
             population,
             cardinality,
             destination,
-            width;
-            ndrange = 1,
+            width,
+            eachindex(destination),
         )
         return destination
     end
