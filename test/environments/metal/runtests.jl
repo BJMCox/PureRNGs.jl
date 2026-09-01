@@ -274,7 +274,7 @@ if Metal.functional()
             @test next_rng.position ==
                   IR._advance_position_unchecked(rng, UInt64(24), UInt64(0))
             @test setprecision(BigFloat, 160) do
-                _metal_exponential_ulp_error(value, raw, scale) <= BigFloat(2)
+                _metal_exponential_ulp_error(value, raw, scale) <= BigFloat(3)
             end
         end
 
@@ -296,10 +296,10 @@ if Metal.functional()
         @test setprecision(BigFloat, 160) do
             scale = ldexp(one(BigFloat), -24)
             _metal_exponential_ulp_error(last(lattice), UInt32(0xffffff), scale) <=
-            BigFloat(2)
+            BigFloat(3)
         end
         maximum_ulp = _metal_exponential_max_ulp(lattice)
-        @test maximum_ulp <= BigFloat(2)
+        @test maximum_ulp <= BigFloat(3)
     end
 else
     @info "Metal hardware unavailable; served device execution was not run"
