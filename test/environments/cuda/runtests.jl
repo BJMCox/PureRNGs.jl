@@ -1474,6 +1474,13 @@ end
         @test chained == expected
         @test cursor.position == next_rng.position
 
+        ordered_next, ordered_values =
+            randsample_next(gpu_rng, gpu_population, gpu_weights, 257)
+        cpu_ordered_next, cpu_ordered_values =
+            randsample_next(cpu_rng, cpu_population, cpu_weights, 257)
+        @test Array(ordered_values) == cpu_ordered_values
+        @test ordered_next.position == cpu_ordered_next.position
+
         no_k_next, no_k = randsample_next(gpu_rng, gpu_population, gpu_weights)
         cpu_no_k_next, cpu_no_k = randsample_next(cpu_rng, cpu_population, cpu_weights)
         @test Array(no_k) == cpu_no_k
@@ -1557,7 +1564,7 @@ end
         scan_population,
         scan_weights,
         CUDA.CuArray(Float64[0x1p53]),
-        CUDA.CuArray([1]),
+        nothing,
         scan_cumulative,
         scan_destination,
     )
