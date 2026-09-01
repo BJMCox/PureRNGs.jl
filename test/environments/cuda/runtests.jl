@@ -295,6 +295,8 @@ const NATURAL_128_TYPES = (
     (Philox4x32, Int64),
     (Threefry4x32, UInt32),
     (Threefry4x32, Int32),
+    (Threefry4x32, UInt64),
+    (Threefry4x32, Int64),
 )
 const PACKED_DRAW_SPECS = (
     (Bool, rand_next, rand_next!, UInt16(1), false),
@@ -760,6 +762,14 @@ end
     for F in FAMILIES, T in (UInt32, UInt64)
         rng = _positioned_at_bit(device(F(0x784)), UInt64(7), UInt16(0))
         _check_public_packed_fill(rng, T, 9, rand_next, rand_next!)
+    end
+end
+
+@testset "Threefry4x32 aligned 64-bit fills use natural 128-bit packs" begin
+    backend = CUDA.CUDABackend()
+    rng = _positioned_at_bit(device(Threefry4x32(0x784)), UInt64(7), UInt16(0))
+    for T in (UInt64, Int64)
+        @test IR._device_uniform_fill_plan(backend, rng, T) == (Val(:natural128_packed),)
     end
 end
 

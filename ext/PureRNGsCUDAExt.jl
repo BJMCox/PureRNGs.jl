@@ -45,7 +45,7 @@ end
     ::CUDA.CUDABackend,
     ::_CUDAThreefry4x32,
     ::Type{T},
-) where {T<:IR._UniformInteger32} = (Val(:natural128_packed),)
+) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)
 
 @inline IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
