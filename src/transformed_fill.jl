@@ -261,6 +261,18 @@ end
 end
 
 @inline function _rand_transformed_next_array(
+    rng::_CPUFamily,
+    ::Type{T},
+    dims::Tuple,
+    codec::_TransformedFillCodec,
+) where {T}
+    _check_serviceability(rng, T)
+    destination = _allocate_draw_array(rng.device, T, dims)
+    threaded = length(destination) > _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS
+    return _fill_transformed_prevalidated!(rng, destination, threaded, codec)
+end
+
+@inline function _rand_transformed_next_array(
     rng::_ScalarUniformFamily,
     ::Type{T},
     dims::Tuple,

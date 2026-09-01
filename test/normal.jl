@@ -501,6 +501,17 @@ end
     @test next_rng.position == expected_rng.position
 end
 
+@testset "R26 small allocating normal boundary" begin
+    rng = _positioned(Philox4x32, 0x74b1, UInt64(5), UInt16(61))
+    for count in (128, 129)
+        expected_next, expected = _reference_normal_chain(rng, Float64, count)
+        next_rng, values = randn_next(rng, Float64, count)
+        sync_cpu()
+        @test values == expected
+        @test next_rng.position == expected_next.position
+    end
+end
+
 @testset "R30, R39, R40, and R54 normal fill validation" begin
     rng = Philox4x32(0x74c)
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
