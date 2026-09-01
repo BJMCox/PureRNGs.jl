@@ -222,19 +222,20 @@ end
     end
 end
 
-@testset "CUDA fixed Exponential packed and offset fills agree" begin
+@testset "CUDA fixed packed and offset fills agree" begin
     for F in FAMILIES, T in (Float32, Float64)
         rng = device(F(0x64c5))
-        distribution = Distributions.Exponential(T(1.5))
         count = T === Float32 ? 2048 : 1024
         aligned = CUDA.CuArray{T}(undef, count)
         offset_storage = CUDA.CuArray{T}(undef, count + 1)
         offset = @view offset_storage[2:end]
 
-        aligned_next, _ = rand_next!(rng, distribution, aligned)
-        offset_next, _ = rand_next!(rng, distribution, offset)
-        @test isequal(Array(aligned), Array(offset))
-        @test aligned_next.position == offset_next.position
+        for distribution in (Uniform(T(-1.5), T(2.75)), Distributions.Exponential(T(1.5)))
+            aligned_next, _ = rand_next!(rng, distribution, aligned)
+            offset_next, _ = rand_next!(rng, distribution, offset)
+            @test isequal(Array(aligned), Array(offset))
+            @test aligned_next.position == offset_next.position
+        end
     end
 end
 

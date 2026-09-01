@@ -123,7 +123,7 @@ end
     rng,
     ::Type,
 ) where {T<:_FloatType}
-    return _scalar_store_plan(IR._device_uniform_fill_plan(backend, rng, T))
+    return IR._device_uniform_fill_plan(backend, rng, T)
 end
 
 @inline IR._transformed_fill_plan(
