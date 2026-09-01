@@ -167,6 +167,7 @@ end
 
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
 const _CPU_FILL_MIN_WORKITEMS = 4
+const _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS = 128
 
 @inline function _dense_fill_chunk_elements(::Type{T}) where {T}
     raw = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_draw_bits(T)))

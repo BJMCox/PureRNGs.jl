@@ -120,6 +120,17 @@ end
     range,
     span,
 )
+    if length(destination) <= _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS
+        _fill_range_cpu_unchecked!(
+            rng,
+            rng.position,
+            destination,
+            range,
+            span,
+            eachindex(destination),
+        )
+        return destination
+    end
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_range_bits(span)))
     workitems = cld(length(destination), chunk_elements)
     _range_fill_cpu_kernel!(backend)(

@@ -153,6 +153,17 @@ end
     @test reads[] == 17
 end
 
+@testset "R58 small unweighted samples" begin
+    rng = Philox4x32(0x905)
+    population = UInt64(0):(UInt64(1)<<32)
+    count = 128
+    expected_next, expected = _chained_unweighted(rng, population, count)
+    next_rng, values = randsample_next(rng, population, count)
+
+    @test values == expected
+    @test next_rng == expected_next
+end
+
 @testset "R60 validation and atomic preflight" begin
     rng = Philox4x32(0x904)
     empty = Int32[]

@@ -82,6 +82,17 @@ end
     @test next_rng === expected_next
 end
 
+@testset "R26 packed small range arrays" begin
+    rng = _range_positioned(Philox4x32, 0x65b3, UInt64(13), UInt16(61))
+    range = UInt64(0):(UInt64(1)<<32)
+    count = 128
+    expected_next, expected = _chained_range(rng, range, count)
+    next_rng, values = rand_next(rng, range, count)
+
+    @test values == expected
+    @test next_rng === expected_next
+end
+
 @testset "R53-R55 allocating range validation and capacity" begin
     nonempty = UInt16(2):UInt16(3):UInt16(20)
     for F in FAMILY_TYPES
