@@ -114,7 +114,7 @@ end
     rng,
     ::Type,
 ) where {T<:_FloatType}
-    return IR._device_normal_fill_plan(backend, rng, T)
+    return _scalar_store_plan(IR._device_normal_fill_plan(backend, rng, T))
 end
 
 @inline function IR._transformed_fill_plan(

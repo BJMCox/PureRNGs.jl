@@ -390,6 +390,7 @@ function _check_cooperative_kernel_code(
     plan,
     stream_aligned;
     check_store::Bool,
+    codec = Val(:uniform),
 ) where {T}
     kernel = IR._fill_cooperative_kernel!(backend)
     workgroup = IR._fill_group_size(plan[3])
@@ -404,8 +405,8 @@ function _check_cooperative_kernel_code(
         plan[3],
         plan[4],
         stream_aligned,
-        IR.FAMILY_BITS,
-        Val(:uniform),
+        IR._fill_family(codec),
+        codec,
         ndrange = workgroup,
         workgroupsize = workgroup,
     )
@@ -421,8 +422,8 @@ function _check_cooperative_kernel_code(
             plan[3],
             plan[4],
             stream_aligned,
-            IR.FAMILY_BITS,
-            Val(:uniform);
+            IR._fill_family(codec),
+            codec;
             ndrange = workgroup,
             workgroupsize = workgroup,
         )
@@ -442,8 +443,8 @@ function _check_cooperative_kernel_code(
                 plan[3],
                 plan[4],
                 stream_aligned,
-                IR.FAMILY_BITS,
-                Val(:uniform);
+                IR._fill_family(codec),
+                codec;
                 ndrange = workgroup,
                 workgroupsize = workgroup,
             )
@@ -758,6 +759,24 @@ end
     end
 end
 
+@testset "non-Philox normal packed fills preserve every family stream" begin
+    backend = CUDA.CUDABackend()
+    for F in FAMILIES, T in NORMAL_TYPES
+        F === Philox4x32 && continue
+        rng = device(F(0x782))
+        plan = IR._device_normal_fill_plan(backend, rng, T)
+        @test plan[1] == Val(:cooperative)
+        _check_public_packed_fill(
+            rng,
+            T,
+            IR._fill_group_size(plan[2]),
+            randn_next,
+            randn_next!;
+            addressed_normal = true,
+        )
+    end
+end
+
 @testset "aligned public integer fills preserve packed results" begin
     for F in FAMILIES, T in (UInt32, UInt64)
         rng = _positioned_at_bit(device(F(0x784)), UInt64(7), UInt16(0))
@@ -1045,6 +1064,25 @@ end
                 check_store = true,
             )
         end
+    end
+
+    for T in (Float32, Float64)
+        rng = device(Threefry4x32(0x788))
+        plan = IR._device_normal_fill_plan(backend, rng, T)
+        packed = reinterpret(
+            extension_module._packed_float_type(T),
+            CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2])),
+        )
+        _check_cooperative_kernel_code(
+            backend,
+            rng,
+            packed,
+            T,
+            plan,
+            Val(false),
+            check_store = true,
+            codec = Val(:normal),
+        )
     end
 
     for F in FAMILIES

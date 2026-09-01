@@ -27,7 +27,7 @@ const _CUDA_F32X4 = NTuple{4,VecElement{Float32}}
 const _CUDA_F64X2 = NTuple{2,VecElement{Float64}}
 const _CUDA_B8X16 = NTuple{16,VecElement{Bool}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
-const _CUDAPackedFloatCodec = Union{Val{:uniform},IR._CUDABackend}
+const _CUDAPackedFloatCodec = Union{Val{:uniform},Val{:normal},IR._CUDABackend}
 
 @inline _bool_packs_per_block(rng) = Val(Int(IR._block_bits(rng)) ÷ 16)
 
@@ -80,6 +80,14 @@ end
 @inline _packed_float_type(::Type{Float32}) = _CUDA_F32X4
 @inline _packed_float_type(::Type{Float64}) = _CUDA_F64X2
 
+@inline _packed_float_fallback_group(rng, ::Type{T}, ::Val{:normal}) where {T} =
+    IR._device_normal_fill_group(T)
+@inline _packed_float_fallback_group(
+    rng,
+    ::Type{T},
+    ::Union{Val{:uniform},IR._CUDABackend},
+) where {T} = IR._device_uniform_fill_group(rng, T)
+
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
     rng::_CUDANonPhilox4x32,
@@ -95,7 +103,7 @@ end
             destination,
             T,
             codec,
-            (Val(:grouped), IR._device_uniform_fill_group(rng, T)),
+            (Val(:grouped), _packed_float_fallback_group(rng, T, codec)),
         )
     end
 
@@ -260,6 +268,12 @@ end
     return cooperative === nothing ? (Val(:grouped), IR._device_normal_fill_group(T)) :
            (Val(:cooperative), cooperative...)
 end
+
+@inline IR._device_normal_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDANonPhilox4x32,
+    ::Type{T},
+) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_float_plan(T)...)
 
 @inline function IR._transformed_fill_plan(
     ::IR._CUDABackend,
