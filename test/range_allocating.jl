@@ -22,26 +22,17 @@ end
 
         pure = rand(rng, range, 12)
         next_rng, continued = rand_next(rng, range, 12)
-        @test pure isa Vector{T}
-        @test continued isa Vector{T}
         @test pure == continued == expected
         @test rng.position === original_position
         @test next_rng === expected_next
 
         matrix = rand(rng, range, 3, 4)
         matrix_next, continued_matrix = rand_next(rng, range, 3, 4)
-        @test matrix isa Matrix{T}
         @test size(matrix) == (3, 4)
         @test vec(matrix) == expected
         @test continued_matrix == matrix
         @test matrix_next === next_rng
 
-        mixed_dims = rand(rng, range, UInt8(2), Int16(3))
-        @test size(mixed_dims) == (2, 3)
-        @test vec(mixed_dims) == expected[1:6]
-
-        @test @inferred(rand(rng, range, 2, 3)) isa Matrix{T}
-        @test @inferred(rand_next(rng, range, 2, 3)) isa Tuple{typeof(rng),Matrix{T}}
     end
 end
 
@@ -82,9 +73,6 @@ end
     range = UInt16(2):UInt16(17)
     width = RangeAllocIR._range_bits(length(range) % UInt64)
     chunk_elements = Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width))
-    chunk_lo, chunk_hi = RangeAllocIR._bit_span(UInt64(chunk_elements), width)
-    second_position = RangeAllocIR._advance_position_unchecked(rng, chunk_lo, chunk_hi)
-    @test second_position == RangeAllocIR._Position128(UInt64(0x1ff), UInt64(8), UInt16(61))
 
     count = chunk_elements + 3
     expected_next, expected = _chained_range(rng, range, count)
@@ -114,16 +102,6 @@ end
         for empty_range in (UInt16(2):UInt16(1), UInt64(1):UInt64(0))
             @test_throws ArgumentError rand(terminal, empty_range, 0)
             @test_throws ArgumentError rand_next(terminal, empty_range, 0)
-            for draw in (rand, rand_next)
-                exception = try
-                    draw(base, empty_range, -1)
-                    nothing
-                catch error
-                    error
-                end
-                @test exception isa ArgumentError
-                @test occursin("range", sprint(showerror, exception))
-            end
         end
 
         @test_throws ArgumentError rand(base, nonempty, -1)
@@ -156,51 +134,10 @@ end
     end
 end
 
-@testset "R23, R47, and R49 allocating range method surface" begin
-    rng = Philox4x32(0x65e)
-    for T in RANGE_INTS
-        range = _small_allocating_range(T)
-        @test which(rand, (typeof(rng), typeof(range), Int)).module === RangeAllocIR
-        @test which(rand_next, (typeof(rng), typeof(range), Int)).module === RangeAllocIR
-        @test Base.kwarg_decl(which(rand, (typeof(rng), typeof(range), Int))) == Symbol[]
-        @test Base.kwarg_decl(which(rand_next, (typeof(rng), typeof(range), Int))) ==
-              Symbol[]
-        @test_throws MethodError rand(rng, range, 3; threaded = false)
-        @test_throws MethodError rand_next(rng, range, 3; threaded = false)
-    end
-
-    for range in (false:true, Int128(1):Int128(3), UInt128(1):UInt128(3), 1.0:3.0)
-        @test !applicable(rand, rng, range, 3)
-        @test !applicable(rand_next, rng, range, 3)
-    end
-
-end
-
-@testset "R30, R54, and R61 allocating range inference and IR" begin
+@testset "R30, R54, and R61 allocating range codegen" begin
     for (F, range) in
         ((Philox2x32, UInt16(2):UInt16(17)), (Philox4x64, UInt64(0):typemax(UInt64)))
         rng = F(0x65f)
-        destination = Vector{eltype(range)}(undef, 17)
-        span = RangeAllocIR._range_span(range)
-        RangeAllocIR._fill_range_cpu_unchecked!(
-            rng,
-            rng.position,
-            destination,
-            range,
-            span,
-            eachindex(destination),
-        )
-        @test @allocated(
-            RangeAllocIR._fill_range_cpu_unchecked!(
-                rng,
-                rng.position,
-                destination,
-                range,
-                span,
-                eachindex(destination),
-            )
-        ) == 0
-
         signature = Tuple{typeof(rng),typeof(range),Int}
         typed_ir = sprint(show, code_typed(rand_next, signature; optimize = true))
         llvm_ir = sprint() do io

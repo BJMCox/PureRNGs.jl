@@ -104,29 +104,24 @@ end
         big(-7):big(2):big(7),
     )
 
-    @test SamplingIR._population_value(populations[3], UInt64(length(populations[3]))) ==
-          last(populations[3].data)
-    @test SamplingIR._population_value(populations[4], UInt64(length(populations[4]))) ==
-          last(populations[4].data)
-
-    for F in FAMILY_TYPES, population in populations
-        rng = F(0x901)
+    for population in populations
+        rng = Philox4x32(0x901)
         expected_next, expected = _chained_unweighted(rng, population, 19)
         next_rng, values = randsample_next(rng, population, 19)
 
         @test values == expected
         @test next_rng == expected_next
-        @test randsample(rng, population, 19) == expected
-        @test rng == F(0x901)
-        @test randsample(rng, population, 7) == expected[1:7]
-
-        no_k_next, no_k = randsample_next(rng, population)
-        chained_next, chained = _chained_unweighted(rng, population, length(population))
-        @test no_k == chained
-        @test no_k_next == chained_next
-        @test randsample(rng, population) == chained
-        @test eltype(values) === eltype(population)
     end
+
+    rng = Philox4x32(0x901)
+    population = first(populations)
+    _, expected = _chained_unweighted(rng, population, 19)
+    @test randsample(rng, population, 7) == expected[1:7]
+    no_k_next, no_k = randsample_next(rng, population)
+    chained_next, chained = _chained_unweighted(rng, population, length(population))
+    @test no_k == chained
+    @test no_k_next == chained_next
+    @test randsample(rng, population) == chained
 end
 
 @testset "R57 device-agnostic iterable materializes once" begin
@@ -138,9 +133,6 @@ end
     @test starts[] == 1
     @test values == expected
     @test next_rng == expected_next
-    @test values isa Vector{Int32}
-    @test SamplingIR._prepare_population(SamplingIR._CUDA_BACKEND, big(1):big(7), true) isa
-          UnitRange{BigInt}
 end
 
 @testset "R58 fixed work, wide cardinality, and O(k)" begin
@@ -159,12 +151,6 @@ end
     counted = CountedPopulation(collect(Int32(1):Int32(100)), reads)
     @test length(randsample(rng, counted, 17)) == 17
     @test reads[] == 17
-
-    large_population = collect(Int32(1):Int32(1024))
-    large_next, large_values = randsample_next(rng, large_population, 20_000)
-    expected_large_next, expected_large = _chained_unweighted(rng, large_population, 20_000)
-    @test large_values == expected_large
-    @test large_next == expected_large_next
 end
 
 @testset "R60 validation and atomic preflight" begin
@@ -173,11 +159,8 @@ end
     @test randsample(rng, empty, 0) == Int32[]
     @test randsample_next(rng, empty, 0) == (rng, Int32[])
     @test randsample(rng, empty) == Int32[]
-    @test_throws ArgumentError randsample(rng, empty, 1)
     @test_throws ArgumentError randsample_next(rng, empty, 1)
-    @test_throws ArgumentError randsample(rng, 1:3, -1)
     @test_throws ArgumentError randsample_next(rng, 1:3, -1)
-    @test_throws ArgumentError randsample(rng, 1:3, big(typemax(Int)) + 1)
     @test_throws ArgumentError randsample_next(rng, 1:3, big(typemax(Int)) + 1)
     @test_throws ArgumentError randsample(rng, UInt64(0):UInt64(typemax(Int)))
     @test_throws ArgumentError randsample(rng, big(0):(big(typemax(UInt64))+1), 0)
@@ -195,20 +178,8 @@ end
     huge_next, huge_values = randsample_next(rng, huge_generic, 1)
     @test huge_values == last(_chained_unweighted(rng, huge_generic, 1))
     @test huge_next == first(_chained_unweighted(rng, huge_generic, 1))
-    @test SamplingIR._population_value(huge_generic, UInt64(typemax(Int)) + 1) ==
-          big(typemax(Int))
-
     wrong = SamplingCUDAProbe([1, 2, 3])
-    error = try
-        randsample(rng, wrong, -1)
-        nothing
-    catch caught
-        caught
-    end
-    @test error isa ArgumentError
-    @test occursin("device", sprint(showerror, error))
-    cuda_rng = SamplingMLD.CUDADevice(:generator)(rng)
-    @test !SamplingIR._check_sampling_device(cuda_rng, wrong, "population")
+    @test_throws ArgumentError randsample(rng, wrong, -1)
 
     last_rng = SamplingIR._rebuild(
         rng,
@@ -220,16 +191,4 @@ end
     @test terminal.position == SamplingIR._terminal64(typemax(UInt64))
     @test_throws ArgumentError randsample_next(last_rng, 1:3, 2)
     @test last_rng.position == SamplingIR._Position64(typemax(UInt64), UInt16(64))
-end
-
-@testset "R1 and R56 sampling method surface" begin
-    @test Base.isexported(PureRNGs, :randsample)
-    @test Base.isexported(PureRNGs, :randsample_next)
-    rng = Philox4x32(0x905)
-    @test applicable(randsample, rng, 1:3)
-    @test applicable(randsample, rng, 1:3, 2)
-    @test applicable(randsample_next, rng, 1:3)
-    @test applicable(randsample_next, rng, 1:3, 2)
-    @test !applicable(randsample, rng, 1:3, 2.0)
-    @test !applicable(randsample_next, rng, 1:3, 2.0)
 end

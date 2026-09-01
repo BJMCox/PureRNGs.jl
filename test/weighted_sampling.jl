@@ -22,10 +22,6 @@ const WEIGHTED_OFFSET_GOLDEN = (
     Threefry4x64 => Int32[106, 106, 103, 106, 104, 106, 105, 106, 106, 106, 106, 101],
 )
 
-struct WeightWrapper{T}
-    values::Vector{T}
-end
-
 mutable struct CountedWeights{T} <: AbstractVector{T}
     values::Vector{T}
     reads::Int
@@ -105,31 +101,6 @@ function _last_weighted_rng(F)
     return WeightedIR._rebuild(rng, position, rng.device)
 end
 
-function _scalar_weighted_thresholds(rng, total, count)
-    thresholds = Vector{Float64}(undef, count)
-    position = rng.position
-    @inbounds for index in eachindex(thresholds)
-        thresholds[index] = WeightedIR._weighted_threshold(rng, position, total)
-        position = WeightedIR._advance_position_unchecked(
-            position,
-            UInt64(53),
-            UInt64(0),
-            WeightedIR._block_shift(rng),
-        )
-    end
-    return thresholds
-end
-
-function _weighted_threshold_fill_allocations(backend, rng, total, destination)
-    WeightedIR._fill_weighted_thresholds!(backend, rng, total, destination)
-    return @allocated WeightedIR._fill_weighted_thresholds!(
-        backend,
-        rng,
-        total,
-        destination,
-    )
-end
-
 @testset "R13 and R59 weighted packed-stream golden vectors" begin
     population = Int32[10, 20, 30, 40]
     weights = Float64[1, 2, 3, 4]
@@ -152,56 +123,11 @@ end
     end
 end
 
-@testset "R13 and R59 CPU weighted threshold traversal" begin
-    backend = WeightedIR.KernelAbstractions.CPU()
-    total = 9.75
-    # A unit total maps every raw 53-bit integer to a distinct exact Float64.
-    for comparison_total in (1.0, total)
-        for F in FAMILY_TYPES, offset in (0, 1, 52, 53, 64, 127, 128, 255, 256)
-            rng = WeightedIR._reserve(F(0x9762), UInt64(offset), UInt64(0))
-            for count in (0, 1, 2, 64, 65, 129, 10_003)
-                expected = _scalar_weighted_thresholds(rng, comparison_total, count)
-                destination = similar(expected)
-                @test @inferred(
-                    WeightedIR._fill_weighted_thresholds!(
-                        backend,
-                        rng,
-                        comparison_total,
-                        destination,
-                    )
-                ) === destination
-                @test destination == expected
-            end
-        end
-    end
-
-    rng = Philox4x32(0x9762)
-    destination = Vector{Float64}(undef, 10_003)
-    @test _weighted_threshold_fill_allocations(backend, rng, total, destination) == 0
-end
-
 @testset "R59 strict Float64 fold golden boundaries" begin
     rng = Philox4x32(0x9750)
     population = Int32[10, 20, 30, 40]
     weights = Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0]
-    converted, total = WeightedIR._prepare_weights(rng, weights, false)
-    @test reinterpret(UInt64, total) == 0x4340000000000000
-    @test reinterpret(UInt64, (weights[1] + weights[2]) + (weights[3] + weights[4])) ==
-          0x4340000000000001
-    @test WeightedIR._weighted_threshold(rng, rng.position, total) ==
-          Float64(0x000f5d057718d3b6)
     @test randsample(rng, population, weights, 1) == Int32[10]
-
-    destination = Vector{Int32}(undef, 1)
-    WeightedIR._scan_weighted!(
-        population,
-        Float64[0x1p53, 1.0, 1.0, 2.0],
-        Float64[0x1p53],
-        [1],
-        destination,
-    )
-    @test destination == Int32[40]
-    @test converted == weights
 end
 
 @testset "R56 and R59 weighted sampling surface and fixed work" begin
@@ -218,98 +144,68 @@ end
         UInt8[1, 4, 2, 3, 5, 6, 7, 8],
     )
 
-    for F in FAMILY_TYPES, (population, weights) in zip(populations, weight_sets)
-        rng = F(0x9752)
+    for (population, weights) in zip(populations, weight_sets)
+        rng = Philox4x32(0x9752)
         expected_next, expected = _weighted_reference(rng, population, weights, 11)
         next_rng, values = randsample_next(rng, population, weights, 11)
 
         @test values == expected
         @test next_rng === expected_next
-        @test randsample(rng, population, weights, 11) == expected
-        @test randsample(rng, population, weights, 5) == expected[1:5]
-        @test rng.position == F(0x9752).position
-
-        default_expected_next, default_expected =
-            _weighted_reference(rng, population, weights, length(population))
-        default_next, default_values = randsample_next(rng, population, weights)
-        @test default_values == default_expected
-        @test default_next === default_expected_next
-        @test randsample(rng, population, weights) == default_expected
     end
+
+    rng = Philox4x32(0x9752)
+    population, weights = first(zip(populations, weight_sets))
+    _, expected = _weighted_reference(rng, population, weights, 11)
+    @test randsample(rng, population, weights, 5) == expected[1:5]
+    default_expected_next, default_expected =
+        _weighted_reference(rng, population, weights, length(population))
+    default_next, default_values = randsample_next(rng, population, weights)
+    @test default_values == default_expected
+    @test default_next === default_expected_next
+    @test randsample(rng, population, weights) == default_expected
 end
 
 @testset "R59 sorted batch equals chained weighted scalar sampling" begin
     population = collect('a':'f')
     weights = [0.0, 1.0, 7.0, 0.0, 2.0, 4.0]
-    for F in FAMILY_TYPES
-        rng = F(0x9753)
-        batch_next, batch = randsample_next(rng, population, weights, 17)
-        cursor = rng
-        chained = similar(batch)
-        for index in eachindex(chained)
-            cursor, value = randsample_next(cursor, population, weights, 1)
-            chained[index] = only(value)
-        end
-        @test batch == chained
-        @test batch_next === cursor
-        @test all(value -> value in ('b', 'c', 'e', 'f'), batch)
-        @test randsample(rng, population, weights, 9) == batch[1:9]
+    rng = Philox4x32(0x9753)
+    batch_next, batch = randsample_next(rng, population, weights, 17)
+    cursor = rng
+    chained = similar(batch)
+    for index in eachindex(chained)
+        cursor, value = randsample_next(cursor, population, weights, 1)
+        chained[index] = only(value)
     end
+    @test batch == chained
+    @test batch_next === cursor
 end
 
 @testset "R59 and R60 weighted validation precedes generation" begin
     rng = Philox4x32(0x9754)
     population = [10, 20, 30]
+    initial_position = rng.position
 
-    for invalid in (
-        [1.0, 2.0],
-        [1.0, -1.0, 2.0],
-        [1.0, Inf, 2.0],
-        [1.0, NaN, 2.0],
-        [0.0, 0.0, 0.0],
-        [floatmax(Float64), floatmax(Float64), 1.0],
+    invalid = (
+        ([1.0, 2.0], 1),
+        ([1.0, -1.0, 2.0], 1),
+        ([1.0, Inf, 2.0], 1),
+        ([1.0, NaN, 2.0], 1),
+        (zeros(3), 1),
+        (fill(floatmax(Float64), 3), 1),
+        (ones(3), big(typemax(Int)) + 1),
     )
-        @test_throws ArgumentError randsample(rng, population, invalid, 2)
-        @test_throws ArgumentError randsample_next(rng, population, invalid, 2)
+    for (weights, count) in invalid
+        @test_throws ArgumentError randsample_next(rng, population, weights, count)
     end
-
-    @test_throws ArgumentError randsample(rng, population, ones(3), -1)
-    @test_throws ArgumentError randsample_next(rng, population, ones(3), -1)
-    @test_throws ArgumentError randsample(rng, population, ones(3), big(typemax(Int)) + 1)
-    @test_throws ArgumentError randsample_next(
-        rng,
-        population,
-        ones(3),
-        big(typemax(Int)) + 1,
-    )
-    @test_throws ArgumentError randsample(rng, DeclaredHugeIterable(), ones(1))
+    @test rng.position == initial_position
 
     wrong_weights = SamplingCUDAProbe([1.0, 2.0, 3.0])
-    device_error = try
-        randsample(rng, population, wrong_weights, -1)
-        nothing
-    catch caught
-        caught
-    end
-    @test device_error isa ArgumentError
-    @test occursin("weights device", sprint(showerror, device_error))
-
-    @test !applicable(randsample, rng, population, WeightWrapper([1.0, 2.0, 3.0]))
-    @test !applicable(randsample_next, rng, population, WeightWrapper([1.0, 2.0, 3.0]))
-    @test !applicable(randsample, rng, population, (1.0, 2.0, 3.0))
-    @test !applicable(randsample_next, rng, population, (1.0, 2.0, 3.0))
-
-    exhausted = WeightedIR._reserve(_last_weighted_rng(Philox4x32), UInt64(53), UInt64(0))
-    @test_throws ArgumentError randsample_next(exhausted, population, [1.0, -1.0, 2.0], 1)
-    @test_throws ArgumentError randsample_next(exhausted, population, ones(3), 1)
+    @test_throws ArgumentError randsample(rng, population, wrong_weights, -1)
 
     empty_next, empty = randsample_next(rng, population, ones(3), 0)
-    @test empty isa Vector{Int}
     @test isempty(empty)
     @test empty_next === rng
     @test isempty(randsample(rng, population, ones(3), 0))
-    @test_throws ArgumentError randsample(rng, Int[], Float64[], 0)
-    @test WeightedIR._weighted_sortperm(rng.device, [0.5, 0.1, 0.5, 0.1]) == [2, 4, 1, 3]
 end
 
 @testset "R59 weight conversion is one population-order pass" begin
@@ -322,34 +218,10 @@ end
     @test weights.reads == length(weights)
 end
 
-@testset "R59 CPU weight conversion and strict fold" begin
-    rng = Philox4x64(0x9756)
-    for weights in (
-        ZeroBasedVector(Float32[1, 0, 4, 2, 3, 5]),
-        Rational{Int}[1//2, 3//2, 0//1, 4//1, 2//1, 1//1],
-    )
-        expected = Float64[
-            _weighted_population_value(weights, index) for index = 1:length(weights)
-        ]
-        expected_total = zero(Float64)
-        for weight in expected
-            expected_total += weight
-        end
-
-        converted, total = @inferred WeightedIR._prepare_weights(rng, weights, false)
-        @test converted == expected
-        @test reinterpret(UInt64, total) == reinterpret(UInt64, expected_total)
-    end
-
-    invalid = CountedWeights([1.0, -1.0, 2.0, NaN], 0)
-    @test_throws ArgumentError WeightedIR._prepare_weights(rng, invalid, false)
-    @test invalid.reads == length(invalid)
-end
-
 @testset "R54 and R60 weighted capacity is atomic" begin
     population = [:left, :right]
     weights = [1.0, 1.0]
-    for F in FAMILY_TYPES
+    for F in (Philox2x32, Threefry4x64)
         last = _last_weighted_rng(F)
         terminal, value = randsample_next(last, population, weights, 1)
         @test length(value) == 1

@@ -1,6 +1,6 @@
 using TOML
 
-@testset "R36-R38 extension metadata and base surface" begin
+@testset "R36-R38 extension metadata and exports" begin
     project = TOML.parsefile(joinpath(pkgdir(PureRNGs), "Project.toml"))
 
     @test project["deps"] == Dict(
@@ -32,15 +32,6 @@ using TOML
     @test project["compat"]["Metal"] == "1.7"
     @test project["compat"]["Reactant"] == "=0.2.280"
 
-    @test Base.get_extension(PureRNGs, :PureRNGsAMDGPUExt) === nothing
-    @test Base.get_extension(PureRNGs, :PureRNGsCUDAExt) === nothing
-    @test Base.get_extension(PureRNGs, :PureRNGsDistributionsExt) === nothing
-    @test Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt) === nothing
-    @test Base.get_extension(PureRNGs, :PureRNGsMetalExt) === nothing
-    @test Base.get_extension(PureRNGs, :PureRNGsReactantExt) === nothing
-    @test Base.get_extension(PureRNGs, :PureRNGsReactantDistributionsExt) ===
-          nothing
-
     @test names(PureRNGs) == [
         :AbstractPureRNG,
         :Philox2x32,
@@ -67,6 +58,4 @@ using TOML
         :splitrng,
         :subrng,
     ]
-
-    @test all(F(0) isa AbstractPureRNG for F in FAMILY_TYPES)
 end

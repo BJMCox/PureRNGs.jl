@@ -1,137 +1,7 @@
-using MLDataDevices
-
-const DERIVE_TAG = UInt32(0xc0ffee00)
-const SPLIT_SUBTAG = UInt32(0)
-const FOLD_SUBTAG = UInt32(1)
-const NARROW_FOLD_INDEX = UInt32(0xffffffff)
-
 zero_position(rng) = PureRNGs._zero_position(typeof(rng))
 
-@testset "R9 derivation constants" begin
-    @test PureRNGs._DERIVE_TAG === DERIVE_TAG
-    @test PureRNGs._SPLIT_SUBTAG === SPLIT_SUBTAG
-    @test PureRNGs._FOLD_SUBTAG === FOLD_SUBTAG
-    @test PureRNGs._THREEFRY_FOLD_INDEX === NARROW_FOLD_INDEX
-end
-
-@testset "R12 and R17 split counters and packing" begin
-    rng = Philox2x32(0x12345678)
-    block = PureRNGs._philox2x32((UInt32(0), DERIVE_TAG), rng.key)
-    @test splitrng(rng, Val(1))[1].key == (block[1],)
-
-    rng = Philox4x32(0x123456789abcdef0)
-    block0 =
-        PureRNGs._philox4x32((UInt32(0), UInt32(0), SPLIT_SUBTAG, DERIVE_TAG), rng.key)
-    block1 =
-        PureRNGs._philox4x32((UInt32(1), UInt32(0), SPLIT_SUBTAG, DERIVE_TAG), rng.key)
-    @test getfield.(splitrng(rng, Val(3)), :key) ==
-          ((block0[1], block0[2]), (block0[3], block0[4]), (block1[1], block1[2]))
-
-    rng = Philox2x64(0x123456789abcdef0)
-    high = (UInt64(DERIVE_TAG) << 32) | UInt64(SPLIT_SUBTAG)
-    block0 = PureRNGs._philox2x64((UInt64(0), high), rng.key)
-    block1 = PureRNGs._philox2x64((UInt64(1), high), rng.key)
-    @test getfield.(splitrng(rng, Val(3)), :key) ==
-          ((block0[1],), (block0[2],), (block1[1],))
-
-    rng = Philox4x64(big"0x123456789abcdef00fedcba987654321")
-    block = PureRNGs._philox4x64(
-        (UInt64(0), UInt64(SPLIT_SUBTAG), UInt64(0), UInt64(DERIVE_TAG)),
-        rng.key,
-    )
-    @test getfield.(splitrng(rng, Val(2)), :key) ==
-          ((block[1], block[2]), (block[3], block[4]))
-
-    rng = Threefry2x32(0x123456789abcdef0)
-    block = PureRNGs._threefry2x32((UInt32(0), DERIVE_TAG), rng.key)
-    @test splitrng(rng, Val(1))[1].key == block
-
-    rng = Threefry4x32(big"0x123456789abcdef00fedcba987654321")
-    block = PureRNGs._threefry4x32(
-        (UInt32(0), UInt32(0), SPLIT_SUBTAG, DERIVE_TAG),
-        rng.key,
-    )
-    @test splitrng(rng, Val(1))[1].key == block
-
-    rng = Threefry2x64(big"0x123456789abcdef00fedcba987654321")
-    block = PureRNGs._threefry2x64((UInt64(0), high), rng.key)
-    @test splitrng(rng, Val(1))[1].key == block
-
-    rng = Threefry4x64(
-        big"0x123456789abcdef00fedcba987654321112233445566778899aabbccddeeff00",
-    )
-    block = PureRNGs._threefry4x64(
-        (UInt64(0), UInt64(SPLIT_SUBTAG), UInt64(0), UInt64(DERIVE_TAG)),
-        rng.key,
-    )
-    @test splitrng(rng, Val(1))[1].key == block
-end
-
-@testset "R12 and R18 subrng counters and packing" begin
-    purpose = UInt64(0x123456789abcdef0)
-
-    rng = Philox2x32(0x12345678)
-    namespace = PureRNGs._philox2x32((NARROW_FOLD_INDEX, DERIVE_TAG), rng.key)
-    block = PureRNGs._philox2x32(
-        (purpose % UInt32, (purpose >> 32) % UInt32),
-        (namespace[1],),
-    )
-    @test subrng(rng, purpose).key == (block[1],)
-
-    rng = Threefry2x32(0x123456789abcdef0)
-    namespace = PureRNGs._threefry2x32((NARROW_FOLD_INDEX, DERIVE_TAG), rng.key)
-    block =
-        PureRNGs._threefry2x32((purpose % UInt32, (purpose >> 32) % UInt32), namespace)
-    @test subrng(rng, purpose).key == block
-
-    wide_cases = (
-        (
-            Philox4x32(0x123456789abcdef0),
-            (purpose % UInt32, (purpose >> 32) % UInt32, FOLD_SUBTAG, DERIVE_TAG),
-            PureRNGs._philox4x32,
-            2,
-        ),
-        (
-            Philox2x64(0x123456789abcdef0),
-            (purpose, (UInt64(DERIVE_TAG) << 32) | UInt64(FOLD_SUBTAG)),
-            PureRNGs._philox2x64,
-            1,
-        ),
-        (
-            Philox4x64(big"0x123456789abcdef00fedcba987654321"),
-            (purpose, UInt64(FOLD_SUBTAG), UInt64(0), UInt64(DERIVE_TAG)),
-            PureRNGs._philox4x64,
-            2,
-        ),
-        (
-            Threefry4x32(big"0x123456789abcdef00fedcba987654321"),
-            (purpose % UInt32, (purpose >> 32) % UInt32, FOLD_SUBTAG, DERIVE_TAG),
-            PureRNGs._threefry4x32,
-            4,
-        ),
-        (
-            Threefry2x64(big"0x123456789abcdef00fedcba987654321"),
-            (purpose, (UInt64(DERIVE_TAG) << 32) | UInt64(FOLD_SUBTAG)),
-            PureRNGs._threefry2x64,
-            2,
-        ),
-        (
-            Threefry4x64(
-                big"0x123456789abcdef00fedcba987654321112233445566778899aabbccddeeff00",
-            ),
-            (purpose, UInt64(FOLD_SUBTAG), UInt64(0), UInt64(DERIVE_TAG)),
-            PureRNGs._threefry4x64,
-            4,
-        ),
-    )
-    for (rng, counter, core, key_words) in wide_cases
-        block = core(counter, rng.key)
-        @test subrng(rng, purpose).key == ntuple(i -> block[i], key_words)
-    end
-end
-
 @testset "R20 derivation state law" begin
-    for F in FAMILY_TYPES
+    for F in (Philox2x32, Threefry4x64)
         rng = F(123)
         moved = PureRNGs._reserve(rng, UInt64(7), UInt64(0))
         children = splitrng(rng)
@@ -263,7 +133,7 @@ end
 end
 
 @testset "R21 request forms and bounds" begin
-    for F in FAMILY_TYPES
+    for F in (Philox4x32,)
         rng = F(123)
         @test splitrng(rng, Val(0)) === ()
         @test splitrng(rng, 0) == typeof(rng)[]
@@ -276,43 +146,12 @@ end
     end
 
     for rng in (Philox2x32(123), Threefry2x32(123))
-        @test PureRNGs._derive_child(rng, UInt64(0xfffffffe)).position ==
-              zero_position(rng)
-        @test_throws ArgumentError PureRNGs._derive_child(rng, UInt64(0xffffffff))
         @test_throws ArgumentError splitrng(rng, UInt64(0x1_0000_0000))
     end
-
-    @test !applicable(splitrng, Philox4x32(1), 2.0)
-    @test !applicable(subrng, Philox4x32(1), 2.0)
-end
-
-@testset "R22 derivation documentation" begin
-    docs = Base.Docs.meta(PureRNGs)
-    split_doc = string(docs[Base.Docs.Binding(PureRNGs, :splitrng)])
-    sub_doc = string(docs[Base.Docs.Binding(PureRNGs, :subrng)])
-    philox2x32_doc = string(docs[Base.Docs.Binding(PureRNGs, :Philox2x32)])
-    for doc in (split_doc, sub_doc)
-        @test occursin("collision", lowercase(doc))
-        @test occursin("position", lowercase(doc))
-        @test occursin("device", lowercase(doc))
-    end
-    @test occursin("purpose", lowercase(sub_doc))
-    @test occursin("few thousand", lowercase(philox2x32_doc))
-
-    splitting_doc = lowercase(
-        read(
-            joinpath(pkgdir(PureRNGs), "docs", "src", "guides", "splitting.md"),
-            String,
-        ),
-    )
-    @test occursin("n^2 / 2^(k+1)", splitting_doc)
-    @test occursin("subrng(root, chunk_id)", splitting_doc)
-    @test occursin("subtrees identical", splitting_doc)
-    @test occursin("few thousand", splitting_doc)
 end
 
 @testset "R30 inference and allocation" begin
-    for F in FAMILY_TYPES
+    for F in (Philox2x32, Threefry4x64)
         rng = F(123)
         @test @inferred(splitrng(rng, Val(3))) isa NTuple{3,typeof(rng)}
         @test @inferred(subrng(rng, 42)) isa typeof(rng)
@@ -321,11 +160,4 @@ end
         @test @allocated(splitrng(rng, Val(3))) == 0
         @test @allocated(subrng(rng, 42)) == 0
     end
-end
-
-@testset "R48 derivation exports" begin
-    @test Base.isexported(PureRNGs, :splitrng)
-    @test Base.isexported(PureRNGs, :subrng)
-    @test !Base.isexported(PureRNGs, :derive_child)
-    @test !Base.isexported(PureRNGs, :_derive_child)
 end

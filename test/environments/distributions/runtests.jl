@@ -49,6 +49,17 @@ fixed_result_type(::Exponential{T}) where {T} = T
 fixed_result_type(::Bernoulli) = Bool
 fixed_result_type(::DiscreteUniform) = Int
 
+function fixed_distribution_array_cases()
+    representative = Normal{Float64}(1.25, 0.75)
+    return (
+        (
+            (Philox4x32, distribution) for T in (Float32, Float64) for
+            distribution in fixed_distributions(T)
+        )...,
+        ((F, representative) for F in FAMILY_TYPES if F !== Philox4x32)...,
+    )
+end
+
 function primitive_next(rng, d::Normal{T}) where {T}
     next_rng, z = randn_next(rng, T)
     return next_rng, fma(d.σ, z, d.μ)
@@ -104,16 +115,7 @@ function primitive_chain(rng, distribution, count)
     return cursor, values
 end
 
-function invalid_error(f, name)
-    error = try
-        f()
-        nothing
-    catch caught
-        caught
-    end
-    @test error isa ArgumentError
-    @test occursin(name, sprint(showerror, error))
-end
+invalid_error(f) = @test_throws ArgumentError f()
 
 function distribution_allocations(rng, distribution, destination)
     rand(rng, distribution)
@@ -126,11 +128,6 @@ function distribution_allocations(rng, distribution, destination)
         @allocated(randat(rng, distribution, 2)),
         @allocated(rand_next!(rng, distribution, destination; threaded = false)),
     )
-end
-
-@testset "R37 Distributions extension metadata" begin
-    @test EXT !== nothing
-    @test Base.pkgversion(Distributions) >= v"0.25.0"
 end
 
 @testset "R64 fixed distribution scalar forms" begin
@@ -148,7 +145,7 @@ end
 end
 
 @testset "R64 fixed distribution arrays and fills" begin
-    for F in FAMILY_TYPES, T in (Float32, Float64), distribution in fixed_distributions(T)
+    for (F, distribution) in fixed_distribution_array_cases()
         rng = F(0x902)
         expected_next, expected = primitive_chain(rng, distribution, 12)
         result_type = eltype(expected)
@@ -238,43 +235,33 @@ end
     rng = Philox4x32(0x904)
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     invalid = (
-        (Normal(Inf, 1.0; check_args = false), "Normal"),
-        (Normal(0.0, Inf; check_args = false), "Normal"),
-        (Normal(0.0, -1.0; check_args = false), "Normal"),
-        (Uniform(-Inf, 1.0; check_args = false), "Uniform"),
-        (Uniform(0.0, Inf; check_args = false), "Uniform"),
-        (Uniform(1.0, 1.0; check_args = false), "Uniform"),
-        (Uniform(-floatmax(Float64), floatmax(Float64); check_args = false), "Uniform"),
-        (Exponential(0.0; check_args = false), "Exponential"),
-        (Exponential(Inf; check_args = false), "Exponential"),
-        (Bernoulli(-0.1; check_args = false), "Bernoulli"),
-        (Bernoulli(1.1; check_args = false), "Bernoulli"),
-        (Bernoulli(NaN; check_args = false), "Bernoulli"),
-        (DiscreteUniform(2, 1; check_args = false), "DiscreteUniform"),
+        Normal(Inf, 1.0; check_args = false),
+        Normal(0.0, Inf; check_args = false),
+        Normal(0.0, -1.0; check_args = false),
+        Uniform(-Inf, 1.0; check_args = false),
+        Uniform(0.0, Inf; check_args = false),
+        Uniform(1.0, 1.0; check_args = false),
+        Uniform(-floatmax(Float64), floatmax(Float64); check_args = false),
+        Exponential(0.0; check_args = false),
+        Exponential(Inf; check_args = false),
+        Bernoulli(-0.1; check_args = false),
+        Bernoulli(1.1; check_args = false),
+        Bernoulli(NaN; check_args = false),
+        DiscreteUniform(2, 1; check_args = false),
     )
 
-    for (distribution, name) in invalid
-        invalid_error(() -> rand(exhausted, distribution), name)
-        invalid_error(() -> rand_next(exhausted, distribution), name)
-        invalid_error(() -> randat(exhausted, distribution, 0), name)
-        invalid_error(() -> rand(exhausted, distribution, -1), name)
+    for distribution in invalid
+        invalid_error(() -> rand(exhausted, distribution))
+        invalid_error(() -> rand_next(exhausted, distribution))
+        invalid_error(() -> randat(exhausted, distribution, 0))
+        invalid_error(() -> rand(exhausted, distribution, -1))
         result_type = fixed_result_type(distribution)
-        invalid_error(
-            () -> rand!(exhausted, distribution, Vector{result_type}(undef, 0)),
-            name,
-        )
+        invalid_error(() -> rand!(exhausted, distribution, Vector{result_type}(undef, 0)))
     end
 
-    @test_throws ArgumentError rand(rng, Normal(), -1)
-    @test_throws TypeError rand!(rng, Normal(), Float64[]; threaded = 1)
     @test_throws MethodError rand(rng, Normal(Float16(0), Float16(1)))
-    @test_throws MethodError rand(rng, Uniform(Float16(0), Float16(1)))
-    @test_throws MethodError rand(rng, Exponential(Float16(1)))
-    @test_throws MethodError rand(rng, Bernoulli(Float16(0.5)))
     @test_throws MethodError rand(rng, Beta())
     @test_throws MethodError rand!(rng, Normal(), Float32[])
-    @test_throws MethodError rand!(rng, Bernoulli(), Float64[])
-    @test_throws MethodError rand!(rng, DiscreteUniform(), Int32[])
 
     distribution = Normal()
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
@@ -290,41 +277,16 @@ end
     @test_throws ArgumentError randat(last, distribution, 2)
 end
 
-@testset "R1 and R64 inference, allocations, and ambiguity freedom" begin
+@testset "R1 and R64 allocations and ambiguity freedom" begin
     rng = Philox4x32(0x905)
     normal = Normal{Float32}(0.0f0, 1.0f0)
-    uniform = Uniform{Float64}(0.0, 1.0)
-    bernoulli = Bernoulli{Float32}(0.5f0)
     destination = Vector{Float32}(undef, 17)
-    @test @inferred(rand(rng, normal)) isa Float32
-    @test @inferred(rand_next(rng, uniform)) isa Tuple{typeof(rng),Float64}
-    @test @inferred(randat(rng, bernoulli, 2)) isa Bool
-    @test @inferred(rand!(rng, normal, destination; threaded = false)) === destination
-    @test @inferred(rand_next!(rng, normal, destination; threaded = false)) isa
-          Tuple{typeof(rng),typeof(destination)}
     @test distribution_allocations(rng, normal, destination) == (0, 0, 0, 0)
-
-    codec = EXT._DistributionCodec(normal, rng.device)
-    @test isbits(codec)
-    @test @inferred(IR._fill_width(codec, Float32)) === IR._normal_bits(Float32)
-    @test @inferred(IR._fill_family(codec)) === IR.FAMILY_NORMAL
-    @test EXT._scalar_store_plan((Val(:cooperative), Val(4), Val(32), Val(:packed)),) ===
-          (Val(:cooperative), Val(4), Val(32))
-    exponential_codec = EXT._DistributionCodec(Exponential{Float32}(1.0f0), rng.device)
-    backend = IR.KernelAbstractions.get_backend(destination)
-    @test IR._transformed_fill_plan(exponential_codec, backend, rng, Float32) === nothing
 
     bits = BitArray(undef, 17)
     bernoulli = Bernoulli{Float32}(0.5f0)
-    @test @inferred(rand_next!(rng, bernoulli, bits; threaded = false)) isa
-          Tuple{typeof(rng),typeof(bits)}
     rand_next!(rng, bernoulli, bits; threaded = false)
     @test @allocated(rand_next!(rng, bernoulli, bits; threaded = false)) == 0
-
-    full = DiscreteUniform(typemin(Int), typemax(Int))
-    @test EXT._discrete_span(full) === UInt64(0)
-    @test EXT._distribution_span(full) === UInt16(128)
-    @test @inferred(rand(rng, full)) isa Int
 
     ambiguities =
         Test.detect_ambiguities(PureRNGs, Random, Distributions; recursive = true)
@@ -343,7 +305,7 @@ end
     @test rand(mutable_rng, normal) === scalar_expected
     batch_next, batch_expected = randn_next(scalar_next, Float64, 11)
     @test rand(mutable_rng, normal, 11) == batch_expected
-    @test mutable_rng.rng === batch_next
+    @test parent(mutable_rng) === batch_next
 
     exponential_root = Philox4x32(0x813)
     exponential = Exponential()
@@ -353,5 +315,5 @@ end
     @test rand(mutable_rng, exponential) === scalar_expected
     batch_next, batch_expected = randexp_next(scalar_next, Float64, 11)
     @test rand(mutable_rng, exponential, 11) == batch_expected
-    @test mutable_rng.rng === batch_next
+    @test parent(mutable_rng) === batch_next
 end

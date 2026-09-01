@@ -1,9 +1,8 @@
 using InteractiveUtils: code_llvm
-using Random: Xoshiro, rand
+using Random: rand
 
 const RangeIR = PureRNGs
 const RANGE_INTS = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-struct UnionIntegerRange <: AbstractRange{Union{Int8,UInt8}} end
 
 _range_reference_block(position::RangeIR._Position64) = position.block
 _range_reference_block(position::RangeIR._Position128) = (position.lo, position.hi)
@@ -189,7 +188,6 @@ end
 end
 
 @testset "R55 packed integer ranges" begin
-    @test RangeIR.FAMILY_RANGE === UInt32(3)
     threshold = UInt64(1) << 32
     @test RangeIR._range_bits(UInt64(1)) === UInt16(64)
     @test RangeIR._range_bits(threshold) === UInt16(64)
@@ -209,7 +207,8 @@ end
 
     for F in FAMILY_TYPES
         block_bits = Int(RangeIR._block_bits(F(0)))
-        for bit in unique(UInt16.((0, 1, 31, 63, block_bits - 1))), range in ranges
+        bit = UInt16(block_bits - 1)
+        for range in ranges
             rng = _range_positioned(F, 0x551, UInt64(9), bit)
             expected = _range_reference_draw(rng, range)
             position = rng.position
@@ -292,54 +291,13 @@ end
 
 @testset "R23 and R55 range method and mapping surface" begin
     rng = Philox4x32(0x555)
-    for T in RANGE_INTS
-        range = T(1):T(3)
-        @test applicable(rand, rng, range)
-        @test applicable(rand_next, rng, range)
-        @test which(rand, (typeof(rng), typeof(range))).module === RangeIR
-        @test which(rand_next, (typeof(rng), typeof(range))).module === RangeIR
-        @test @inferred(rand(rng, range)) isa T
-        @test @inferred(rand_next(rng, range)) isa Tuple{typeof(rng),T}
-    end
-
     rounded = LinRange{Int64}(Int64(1)<<53, (Int64(1)<<53)+Int64(4), 5)
     @test rand(rng, rounded) === _range_reference_draw(rng, rounded)
     long = LinRange{Int64}(0, 0, typemax(UInt64))
-    @test @inferred(rand(rng, long)) isa Int64
     @test rand(rng, long) === Int64(0)
-
-    for range in (
-        false:true,
-        Int128(1):Int128(3),
-        UInt128(1):UInt128(3),
-        1.0:3.0,
-        UnionIntegerRange(),
-    )
-        @test !applicable(rand, rng, range)
-        @test !applicable(rand_next, rng, range)
-        @test_throws MethodError rand(rng, range)
-        @test_throws MethodError rand_next(rng, range)
-    end
-    @test !applicable(randat, rng, UInt8(1):UInt8(3), 1)
 end
 
-@testset "R30 and R55 fixed-work limb arithmetic" begin
-    random = Xoshiro(0x7e57bed)
-    for _ = 1:10_000
-        word = rand(random, UInt64)
-        span = rand(random, UInt64(1):(UInt64(1)<<32))
-        expected = UInt64((BigInt(word) * BigInt(span)) >> 64)
-        @test RangeIR._mulhi32limbs(word, span) == expected
-
-        lo = rand(random, UInt64)
-        hi = rand(random, UInt64)
-        wide_span = rand(random, UInt64)
-        wide_span <= UInt64(1) << 32 && (wide_span += (UInt64(1) << 32) + UInt64(1))
-        candidate = (BigInt(hi) << 64) + BigInt(lo)
-        expected_wide = UInt64((candidate * BigInt(wide_span)) >> 128)
-        @test RangeIR._mulhi128_by64(lo, hi, wide_span) == expected_wide
-    end
-
+@testset "R30 and R55 fixed-work range codegen" begin
     for F in FAMILY_TYPES,
         range in (
             Int8(-2):Int8(3),

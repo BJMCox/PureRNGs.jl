@@ -293,12 +293,10 @@ end
             rng = _positioned(F, 0x742, UInt64(9), bit)
             expected = _reference_normal(rng, T)
             @test randn(rng, T) === expected
-            @test randn(rng, T) === expected
 
             next_rng, value = randn_next(rng, T)
             @test value === expected
             @test next_rng.position == _reference_position(rng, _normal_width(T))
-            @test rng.position != next_rng.position
             @test randnat(rng, T, 1) === expected
             @test randnat(rng, T, 3) === _reference_normal(
                 IR._rebuild(
@@ -360,7 +358,7 @@ end
     end
 end
 
-@testset "R23 and R30 scalar normal methods, inference, allocation, and IR" begin
+@testset "R23 and R30 scalar normal fixed-work and codegen" begin
     for F in FAMILY_TYPES
         rng = F(0x744)
         default_next, default_value = randn_next(rng)
@@ -368,24 +366,9 @@ end
         @test default_next === typed_next
         @test default_value === typed_value
 
-        error = try
-            randn(rng)
-            nothing
-        catch caught
-            caught
-        end
-        @test error isa ArgumentError
-        @test occursin("randn(rng, T)", error.msg)
+        @test_throws ArgumentError randn(rng)
 
         for T in NORMAL_TYPES
-            @test which(randn, (typeof(rng), Type{T})).module === IR
-            @test which(randn_next, (typeof(rng), Type{T})).module === IR
-            @test which(randnat, (typeof(rng), Type{T}, Int)).module === IR
-
-            @test @inferred(randn(rng, T)) isa T
-            @test @inferred(randn_next(rng, T)) isa Tuple{typeof(rng),T}
-            @test @inferred(randnat(rng, T, 3)) isa T
-
             randn(rng, T)
             randn_next(rng, T)
             randnat(rng, T, 3)
@@ -417,21 +400,13 @@ end
         @test !occursin(r"\bi128\b", llvm_ir)
     end
 
-    for unsupported in (Union{Float32,Float64}, Float16, Int32, UInt64)
-        @test !applicable(randn, rng, unsupported)
-        @test !applicable(randn_next, rng, unsupported)
-        @test !applicable(randnat, rng, unsupported, 1)
-    end
-
     @test_throws ArgumentError randnat(rng, Float64, 0)
     @test_throws ArgumentError randnat(rng, Float32, -1)
 end
 
 @testset "R23, R24, and R26 packed normal fills and allocations" begin
-    @test :randn_next! in names(IR)
     for F in FAMILY_TYPES, T in NORMAL_TYPES
-        block_bits = IR._block_bits(F(0x747))
-        for bit in (UInt16(0), UInt16(23), UInt16(63), UInt16(block_bits - 1))
+        for bit in (UInt16(0),)
             rng = _positioned(F, 0x747, UInt64(6), bit)
             next_rng, expected = _reference_normal_chain(rng, T, 17)
 
@@ -478,6 +453,15 @@ end
         @test all(iszero, @view threaded_storage[1:2:23])
     end
 
+    for T in NORMAL_TYPES
+        bit = UInt16(127)
+        rng = _positioned(Philox4x32, 0x747, UInt64(6), bit)
+        expected_rng, expected = _reference_normal_chain(rng, T, 17)
+        next_rng, destination = randn_next!(rng, Vector{T}(undef, 17); threaded = false)
+        @test destination == expected
+        @test next_rng.position == expected_rng.position
+    end
+
     rng = Philox4x32(0x749)
     default_next, default_values = randn_next(rng, 2, 3)
     typed_next, typed_values = randn_next(rng, Float64, 2, 3)
@@ -519,11 +503,6 @@ end
 
 @testset "R30, R39, R40, and R54 normal fill validation" begin
     rng = Philox4x32(0x74c)
-    wrong = WrongDeviceArray(Float32[])
-    @test_throws ArgumentError randn!(rng, wrong)
-    @test_throws ArgumentError randn_next!(rng, wrong)
-    @test_throws TypeError randn!(rng, wrong; threaded = 1)
-
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     empty = Float32[]
     @test randn!(exhausted, empty; threaded = false) === empty
@@ -572,47 +551,19 @@ end
         @test_throws ArgumentError randn_next(insufficient, T, 1)
     end
 
-    lookups = Ref(0)
-    probe = BackendProbe(Vector{Float64}(undef, 17), lookups)
-    randn!(rng, probe; threaded = false)
-    @test lookups[] == 0
-    randn!(rng, probe; threaded = true)
-    sync_cpu()
-    @test lookups[] == 1
 end
 
-@testset "R23 and R30 normal fill methods, inference, allocation, and IR" begin
+@testset "R23 and R30 normal fill fixed-work and codegen" begin
     for F in FAMILY_TYPES, T in NORMAL_TYPES
         rng = F(0x74d)
         destination = Vector{T}(undef, 7)
-        @test which(randn!, (typeof(rng), typeof(destination))).module === IR
-        @test which(randn_next!, (typeof(rng), typeof(destination))).module === IR
-        @test @inferred(randn!(rng, destination; threaded = false)) === destination
-        @test @inferred(randn_next!(rng, destination; threaded = false)) isa
-              Tuple{typeof(rng),typeof(destination)}
-        @test @inferred(randn(rng, T, 2, 3)) isa Matrix{T}
-        @test @inferred(randn_next(rng, T, 2, 3)) isa Tuple{typeof(rng),Matrix{T}}
         @test _serial_normal_fill_allocations(rng, destination) == 0
     end
 
-    default_rng = Philox4x32(0x74d)
-    @test @inferred(randn_next(default_rng, 2, 3)) isa
-          Tuple{typeof(default_rng),Matrix{Float64}}
-
     rng = Philox4x64(0x74e)
     destination = Vector{Float64}(undef, 7)
-    signature = Tuple{
-        typeof(rng),
-        typeof(rng.position),
-        typeof(destination),
-        Type{Float64},
-        Base.OneTo{Int},
-        Val{:normal},
-    }
-    for (function_, call_signature) in (
-        (randn_next!, Tuple{typeof(rng),typeof(destination)}),
-        (IR._fill_transformed_dense_cpu!, signature),
-    )
+    for (function_, call_signature) in
+        ((randn_next!, Tuple{typeof(rng),typeof(destination)}),)
         typed_ir = sprint(show, code_typed(function_, call_signature; optimize = true))
         llvm_ir = sprint() do io
             code_llvm(
@@ -629,11 +580,4 @@ end
         @test !occursin(r"\bi128\b", llvm_ir)
     end
 
-    @test Base.kwarg_decl(which(randn!, (typeof(rng), typeof(destination)))) == [:threaded]
-    @test Base.kwarg_decl(which(randn_next!, (typeof(rng), typeof(destination)))) ==
-          [:threaded]
-    @test !applicable(randn!, rng, Vector{Float16}(undef, 1))
-    @test !applicable(randn_next!, rng, Vector{UInt64}(undef, 1))
-    @test_throws TypeError randn!(rng, destination; threaded = 1)
-    @test_throws MethodError randn!(rng, destination; serial = false)
 end

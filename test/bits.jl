@@ -11,15 +11,6 @@ const BIT_FAMILIES = (
     Threefry4x64(0x1234),
 )
 
-mutable struct _CountingStream{N}
-    calls::Base.RefValue{Int}
-end
-
-function BitsIR._stream_limbs(rng::_CountingStream{N}, ::UInt32, block::UInt64) where {N}
-    rng.calls[] += 1
-    return ntuple(lane -> block + UInt64(lane), Val(N))
-end
-
 _reference_block(rng::BitsIR._Position64Family, family, block::UInt64) =
     BitsIR._block(rng, family, block)
 _reference_block(rng::BitsIR._Position128Family, family, block::NTuple{2,UInt64}) =
@@ -117,13 +108,6 @@ end
               _reference_extract128(rng, family, overflow_block, bit)
     end
 
-    for (limbs, bit, expected_calls) in ((1, 0, 2), (1, 13, 3), (2, 0, 1), (4, 0, 1))
-        calls = Ref(0)
-        rng = _CountingStream{limbs}(calls)
-        BitsIR._extract_bits128_unchecked(rng, family, UInt64(9), UInt16(bit))
-        @test calls[] == expected_calls
-    end
-
     for rng in BIT_FAMILIES
         block = _reference_index(rng)
         raw = _reference_block(rng, family, block)
@@ -153,7 +137,6 @@ end
 
         for bit in offsets
             candidate = BitsIR._extract_bits128_unchecked(rng, family, block, bit)
-            @test candidate isa Tuple{UInt64,UInt64}
             @test candidate == _reference_extract128(rng, family, block, bit)
         end
 

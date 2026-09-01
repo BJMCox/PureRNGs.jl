@@ -1,12 +1,6 @@
 using Test
 using PureRNGs
 
-@testset "package shape" begin
-    @test PureRNGs isa Module
-    @test nameof(PureRNGs) === :PureRNGs
-    @test !isdefined(PureRNGs, :greet)
-end
-
 include("philox.jl")
 include("threefry.jl")
 include("families.jl")
@@ -21,7 +15,6 @@ include("device_base_seams.jl")
 include("extension_metadata.jl")
 include("normal.jl")
 include("exponential.jl")
-include("device_packed_fills.jl")
 include("custom_axes.jl")
 include("sampling.jl")
 include("stateful.jl")

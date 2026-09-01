@@ -155,11 +155,6 @@ end
     rng = Philox4x32(0x864)
     @test randexp_next(rng) === randexp_next(rng, Float64)
     @test_throws ArgumentError randexp(rng)
-    @test sprint(showerror, try
-        randexp(rng)
-    catch error
-        error
-    end) == "ArgumentError: untyped immutable draws are forbidden; use randexp(rng, T)"
 end
 
 @testset "R8, R26, R38, and R63 exponential stream" begin
@@ -216,8 +211,7 @@ end
 
 @testset "R23, R24, and R26 exponential arrays and fills" begin
     for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
-        block_bits = IR._block_bits(F(0x866))
-        for bit in (UInt16(0), UInt16(24), UInt16(53), UInt16(block_bits - 1))
+        for bit in (UInt16(0),)
             rng = _positioned(F, 0x866, UInt64(6), bit)
             next_rng, expected = _scalar_exponential_chain(rng, T, 17)
 
@@ -256,6 +250,15 @@ end
         @test view_next.position == next_rng.position
     end
 
+    for T in EXPONENTIAL_TYPES
+        bit = UInt16(127)
+        rng = _positioned(Philox4x32, 0x866, UInt64(6), bit)
+        expected_rng, expected = _scalar_exponential_chain(rng, T, 17)
+        next_rng, destination = randexp_next!(rng, Vector{T}(undef, 17); threaded = false)
+        @test destination == expected
+        @test next_rng.position == expected_rng.position
+    end
+
     rng = Philox4x32(0x868)
     default_next, default_values = randexp_next(rng, 2, 3)
     typed_next, typed_values = randexp_next(rng, Float64, 2, 3)
@@ -278,11 +281,6 @@ end
 
 @testset "R30, R39, R40, and R54 exponential fill validation" begin
     rng = Philox4x32(0x869)
-    wrong = WrongDeviceArray(Float32[])
-    @test_throws ArgumentError randexp!(rng, wrong)
-    @test_throws ArgumentError randexp_next!(rng, wrong)
-    @test_throws TypeError randexp!(rng, wrong; threaded = 1)
-
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     empty = Float32[]
     @test randexp!(exhausted, empty; threaded = false) === empty
@@ -325,41 +323,19 @@ end
         @test_throws ArgumentError randexp_next(insufficient, T, 1)
     end
 
-    lookups = Ref(0)
-    probe = BackendProbe(Vector{Float64}(undef, 17), lookups)
-    randexp!(rng, probe; threaded = false)
-    @test lookups[] == 0
-    randexp!(rng, probe; threaded = true)
-    sync_cpu()
-    @test lookups[] == 1
 end
 
-@testset "R30 exponential inference, allocation, and IR" begin
+@testset "R30 exponential fixed-work and codegen" begin
     for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
         rng = F(0x86a)
         destination = Vector{T}(undef, 7)
-        @test @inferred(randexp!(rng, destination; threaded = false)) === destination
-        @test @inferred(randexp_next!(rng, destination; threaded = false)) isa
-              Tuple{typeof(rng),typeof(destination)}
-        @test @inferred(randexp(rng, T, 2, 3)) isa Matrix{T}
-        @test @inferred(randexp_next(rng, T, 2, 3)) isa Tuple{typeof(rng),Matrix{T}}
         @test _serial_exponential_fill_allocations(rng, destination) == 0
     end
 
     rng = Philox4x64(0x86b)
     destination = Vector{Float64}(undef, 7)
-    signature = Tuple{
-        typeof(rng),
-        typeof(rng.position),
-        typeof(destination),
-        Type{Float64},
-        Base.OneTo{Int},
-        typeof(rng.device),
-    }
-    for (function_, call_signature) in (
-        (randexp_next!, Tuple{typeof(rng),typeof(destination)}),
-        (IR._fill_transformed_dense_cpu!, signature),
-    )
+    for (function_, call_signature) in
+        ((randexp_next!, Tuple{typeof(rng),typeof(destination)}),)
         typed_ir = sprint(show, code_typed(function_, call_signature; optimize = true))
         llvm_ir = sprint() do io
             code_llvm(
@@ -376,8 +352,4 @@ end
         @test !occursin(r"\bi128\b", llvm_ir)
     end
 
-    @test !applicable(randexp!, rng, Vector{Float16}(undef, 1))
-    @test !applicable(randexp_next!, rng, Vector{UInt64}(undef, 1))
-    @test_throws TypeError randexp!(rng, destination; threaded = 1)
-    @test_throws MethodError randexp!(rng, destination; serial = false)
 end

@@ -6,16 +6,9 @@ using Test
 
 const ROOT = Philox4x32(12345)
 const STANDARD_MEASURES = (StdUniform(), StdNormal(), StdLogistic(), StdExponential())
-const TEST_RECORD = (
-    julia = VERSION,
-    machine = Sys.MACHINE,
-    threads = Threads.nthreads(),
-    executor = haskey(ENV, "KAIMON_GATE_VERSION") ?
-               "KaimonGate $(ENV["KAIMON_GATE_VERSION"])" : "Julia",
-    measurebase = (
-        version = Base.pkgversion(MeasureBase),
-        tree = string(Pkg.dependencies()[Base.PkgId(MeasureBase).uuid].tree_hash),
-    ),
+const MEASUREBASE_IDENTITY = (
+    version = Base.pkgversion(MeasureBase),
+    tree = string(Pkg.dependencies()[Base.PkgId(MeasureBase).uuid].tree_hash),
 )
 
 function primitive_draw(rng, ::Type{T}, ::StdUniform) where {T}
@@ -51,9 +44,8 @@ function check_replay(::Type{T}, measure) where {T}
 end
 
 @testset "R66 MeasureBase environment" begin
-    @info "R66 MeasureBase conformance" record = TEST_RECORD
-    @test TEST_RECORD.measurebase.version == v"0.14.13"
-    @test TEST_RECORD.measurebase.tree == "ebf949d13b40e1c16d42ffecea951b2fb07cb592"
+    @test MEASUREBASE_IDENTITY ==
+          (version = v"0.14.13", tree = "ebf949d13b40e1c16d42ffecea951b2fb07cb592")
 
     @testset "standard measures" begin
         for T in (Float32, Float64), measure in STANDARD_MEASURES
@@ -97,19 +89,6 @@ end
             @test parent(actual_rng) === parent(replay_rng)
             @test parent(actual_rng) === parent(expected_rng)
         end
-    end
-
-    @testset "bridge lifecycle" begin
-        bridge = StatefulRNG(ROOT)
-        rand(bridge, Float64, StdUniform())
-        replay = copy(bridge)
-        @test replay !== bridge
-        @test parent(replay) === parent(bridge)
-        @test rand(replay, Float64, StdNormal()) === rand(bridge, Float64, StdNormal())
-        @test parent(replay) === parent(bridge)
-
-        @test Random.seed!(bridge, 12345) === bridge
-        @test parent(bridge) === ROOT
     end
 
     @testset "loaded-package ambiguities" begin

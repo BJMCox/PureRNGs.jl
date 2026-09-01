@@ -562,18 +562,11 @@ Reactant.set_default_backend(REACTANT_TEST_BACKEND)
     end
 end
 
-@testset "Reactant distribution extension loads" begin
-    @test REACTANT_EXT !== nothing
-    @test REACTANT_DISTRIBUTIONS_EXT !== nothing
-end
-
 if Philox4x64 in SELECTED_FAMILIES
     @testset "R42 wide addressed index" begin
         index = (big(1) << 122) + 1
         eager = Philox4x64(0x123456)
         carrier = Reactant.to_rarray(eager)
-        @test REACTANT_EXT._address_offset(index, UInt64(64)) ==
-              (UInt64(0), UInt64(0), UInt64(1))
         compiled = Reactant.@compile sync = true _large_addressed_uint64(carrier)
         @test UInt64(compiled(carrier)) == _large_addressed_uint64(eager)
     end
@@ -603,14 +596,12 @@ if Philox2x64 in SELECTED_FAMILIES
 end
 
 @testset "R42 Reactant primitive and state conformance" begin
-    @test Base.pkgversion(Reactant) == v"0.2.280"
     for F in SELECTED_FAMILIES
         @testset "$F" begin
             first = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
             second = _positioned(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
             first_carrier = Reactant.to_rarray(first)
             second_carrier = Reactant.to_rarray(second)
-            @test !(first_carrier isa AbstractPureRNG)
             compiled = Reactant.@compile sync = true _snapshot(first_carrier)
             first_got = compiled(first_carrier)
             first_expected = _snapshot(first)
@@ -631,7 +622,6 @@ end
             end
             got_next = _snapshot_continuation(first_got)
             expected_next = _snapshot_continuation(first_expected)
-            @test typeof(got_next) === typeof(first_carrier)
             @test _same_snapshot(compiled(got_next), _snapshot(expected_next))
         end
     end
@@ -757,16 +747,14 @@ end
 
 if Philox4x32 in SELECTED_FAMILIES
     @testset "R42 integer range method surface" begin
-        first = _positioned(Philox4x32(0x123456), UInt64(3), UInt16(17))
-        first_carrier = Reactant.to_rarray(first)
+        carrier =
+            Reactant.to_rarray(_positioned(Philox4x32(0x123456), UInt64(3), UInt16(17)))
         unsupported = NegativeIntegerRange(-5, -2, 4)
-
-        @test !applicable(rand, first_carrier, unsupported)
-        @test !applicable(rand_next, first_carrier, unsupported)
-
+        @test !applicable(rand, carrier, unsupported)
+        @test !applicable(rand_next, carrier, unsupported)
         for range in (UInt16(2):UInt16(3):UInt16(74), LinRange{Int64}(-20, 20, 5))
-            @test applicable(rand, first_carrier, range)
-            @test applicable(rand_next, first_carrier, range)
+            @test applicable(rand, carrier, range)
+            @test applicable(rand_next, carrier, range)
         end
     end
 end

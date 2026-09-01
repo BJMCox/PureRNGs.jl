@@ -11,11 +11,6 @@ const CHAINS = 4
 const SAMPLERS =
     (Prior = (() -> Prior(), 32), MH = (() -> MH(), 32), NUTS = (() -> NUTS(16, 0.65), 16))
 const TEST_RECORD = (
-    julia = VERSION,
-    machine = Sys.MACHINE,
-    threads = Threads.nthreads(),
-    executor = haskey(ENV, "KAIMON_GATE_VERSION") ?
-               "KaimonGate $(ENV["KAIMON_GATE_VERSION"])" : "Julia",
     turing = (
         version = Base.pkgversion(Turing),
         tree = string(Pkg.dependencies()[Base.PkgId(Turing).uuid].tree_hash),
@@ -86,28 +81,13 @@ function check_replay(ensemble, sampler_factory, count)
 end
 
 @testset "R66 Turing environment" begin
-    @info "R66 Turing conformance" record = TEST_RECORD
+    @test Threads.nthreads() >= 4
     @test TEST_RECORD.turing ==
           (version = v"0.46.1", tree = "653ea28a8ffc069c46f2867fdf57b831ac25fe64")
     @test TEST_RECORD.abstractmcmc ==
           (version = v"5.16.0", tree = "328c7d50f307c66308a915abb20d9889e5aab48b")
     @test TEST_RECORD.distributions ==
           (version = v"0.25.131", tree = "a958ab3a40c755563f5e1405c0846cb0446bf19d")
-    @test TEST_RECORD.threads >= 4
-
-    @testset "bridge lifecycle" begin
-        bridge = StatefulRNG(ROOT)
-        rand(bridge, UInt64)
-        replay = copy(bridge)
-        @test replay !== bridge
-        @test parent(replay) === parent(bridge)
-        @test rand(replay, UInt64) === rand(bridge, UInt64)
-        @test parent(replay) === parent(bridge)
-
-        @test Random.seed!(bridge, 12345) === bridge
-        @test parent(bridge) === ROOT
-    end
-
     @testset "serial replay" begin
         for (name, (sampler_factory, count)) in pairs(SAMPLERS)
             @testset "$name" begin

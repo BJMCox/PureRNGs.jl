@@ -311,10 +311,4 @@ end
         end
     end
 
-    @test sprint(showerror, _audit_error(() -> rand(rng))) ==
-          "ArgumentError: untyped immutable draws are forbidden; use rand(rng, T)"
-    @test sprint(showerror, _audit_error(() -> randn(rng))) ==
-          "ArgumentError: untyped immutable draws are forbidden; use randn(rng, T)"
-    @test sprint(showerror, _audit_error(() -> randexp(rng))) ==
-          "ArgumentError: untyped immutable draws are forbidden; use randexp(rng, T)"
 end

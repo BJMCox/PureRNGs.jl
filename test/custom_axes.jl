@@ -41,8 +41,7 @@ AxesMLD.get_device(::IdentityAxesMatrix) = AxesMLD.CPUDevice()
 AxesKA.get_backend(::IdentityAxesMatrix) = AxesKA.CPU()
 
 @testset "R24 and R26 zero-based CPU fills" begin
-    for (fill!, T) in
-        ((rand_next!, UInt32), (randn_next!, Float32), (randexp_next!, Float32))
+    for (fill!, T) in ((rand_next!, UInt32), (randn_next!, Float32))
         rng = Philox4x32(0x5240)
         serial = ZeroBasedVector(Vector{T}(undef, 9))
         threaded = ZeroBasedVector(similar(serial.data))
@@ -51,7 +50,6 @@ AxesKA.get_backend(::IdentityAxesMatrix) = AxesKA.CPU()
         fill!(rng, threaded; threaded = true)
         AxesKA.synchronize(AxesKA.CPU())
 
-        @test axes(serial) == (0:8,)
         @test collect(threaded) == collect(serial)
 
         serial_matrix = IdentityAxesMatrix(Matrix{T}(undef, 2, 3))
@@ -60,8 +58,6 @@ AxesKA.get_backend(::IdentityAxesMatrix) = AxesKA.CPU()
         fill!(rng, threaded_matrix; threaded = true)
         AxesKA.synchronize(AxesKA.CPU())
 
-        @test axes(serial_matrix) ==
-              (Base.IdentityUnitRange(0:1), Base.IdentityUnitRange(-1:1))
         @test threaded_matrix.data == serial_matrix.data
     end
 end

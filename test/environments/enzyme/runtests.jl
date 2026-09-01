@@ -22,16 +22,35 @@ PureRNGs.MLDataDevices.get_device(::CountingVector) =
 PureRNGs.KernelAbstractions.get_backend(::CountingVector) =
     PureRNGs.KernelAbstractions.CPU()
 
-@testset "R37 and R65 Enzyme extension metadata" begin
-    @test Base.pkgversion(Enzyme) >= v"0.13.0"
-    @test Base.pkgversion(Enzyme) < v"0.14.0"
-    @test Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt) !== nothing
+@testset "R65 Enzyme activity boundary" begin
     @test ER.inactive_type(AbstractPureRNG)
-    @test ER.inactive_type(typeof(Philox4x32(0x6500)))
     @test !ER.inactive_type(StatefulRNG)
-    @test !ER.inactive_type(typeof(StatefulRNG(Philox4x32(0x6500))))
 end
 
+@testset "R65 closed rule surface" begin
+    extension = Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt)
+    fill_functions = (
+        Random.rand!,
+        Random.randn!,
+        Random.randexp!,
+        rand_next!,
+        randn_next!,
+        randexp_next!,
+    )
+    for rule in (ER.forward, ER.augmented_primal, ER.reverse)
+        owned = filter(method -> method.module === extension, methods(rule))
+        @test length(owned) == 9
+        for fill_function in fill_functions
+            annotation = Enzyme.Const{typeof(fill_function)}
+            expected = fill_function in (rand_next!, randn_next!, randexp_next!) ? 1 : 2
+            @test count(
+                method -> Base.unwrap_unionall(method.sig).parameters[3] === annotation,
+                owned,
+            ) == expected
+        end
+    end
+    @test count(method -> method.module === extension, methods(ER.inactive_type)) == 1
+end
 
 function stateful_normal_objective!(rng, destination, scale)
     Random.randn!(rng, destination)
@@ -299,34 +318,6 @@ end
     )
     @test destination == zeros(8)
     @test shadow == fill(6.0, 8)
-end
-
-
-@testset "R1 and R65 closed rule surface" begin
-    extension = Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt)
-    rule_functions = (ER.forward, ER.augmented_primal, ER.reverse)
-    fill_functions = (
-        Random.rand!,
-        Random.randn!,
-        Random.randexp!,
-        rand_next!,
-        randn_next!,
-        randexp_next!,
-    )
-    for rule in rule_functions
-        owned = filter(method -> method.module === extension, methods(rule))
-        @test length(owned) == 9
-        for fill_function in fill_functions
-            annotation = Enzyme.Const{typeof(fill_function)}
-            expected = fill_function in (rand_next!, randn_next!, randexp_next!) ? 1 : 2
-            @test count(
-                method -> Base.unwrap_unionall(method.sig).parameters[3] === annotation,
-                owned,
-            ) == expected
-        end
-    end
-    inactive = filter(method -> method.module === extension, methods(ER.inactive_type))
-    @test length(inactive) == 1
 end
 
 

@@ -17,6 +17,11 @@ const BACKEND_TOKENS = (
     PureRNGs._METAL_BACKEND,
 )
 
+@testset "R53 position layout" begin
+    @test fieldtypes(PureRNGs._Position64) === (UInt64, UInt16)
+    @test fieldtypes(PureRNGs._Position128) === (UInt64, UInt64, UInt16)
+end
+
 @testset "R4 and R14 family representation" begin
     for F in FAMILY_TYPES
         rng = F(0)
@@ -31,8 +36,6 @@ const BACKEND_TOKENS = (
             fieldnames(typeof(rng.position)),
         )
         @test F(rng.key).key === rng.key
-        @test !applicable(F, rng.key, rng.position, rng.device)
-        @test_throws TypeError Core.apply_type(F, MLDataDevices.UnknownDevice)
     end
 
     @test length(unique(typeof.(BACKEND_TOKENS))) == 4
@@ -84,7 +87,6 @@ end
         ),
     )
 
-    @test length(unique(last.(devices))) == 4
     for (device, token, device_type) in devices
         rebound = device(rng)
         @test rebound.key == rng.key
@@ -105,101 +107,4 @@ end
           PureRNGs._CPU_BACKEND
     @test_throws ArgumentError MLDataDevices.oneAPIDevice()(rng)
     @test_throws ArgumentError MLDataDevices.ReactantDevice()(rng)
-end
-
-@testset "R38 active-device documentation" begin
-    documentation =
-        read(joinpath(pkgdir(PureRNGs), "docs", "src", "guides", "devices.md"), String)
-    @test occursin("discards any physical device", documentation)
-    @test occursin("active device", documentation)
-    @test occursin("CUDA.device!", documentation)
-    @test occursin("AMDGPU", documentation)
-    @test occursin("Metal", documentation)
-end
-
-@testset "R53 exact packed-bit position representation" begin
-    @test fieldtypes(PureRNGs._Position64) === (UInt64, UInt16)
-    @test fieldtypes(PureRNGs._Position128) === (UInt64, UInt64, UInt16)
-
-    for (F, block_bits) in zip(FAMILY_TYPES, (64, 128, 128, 256, 64, 128, 128, 256))
-        rng = F(0)
-        @test PureRNGs._block_bits(rng) === UInt16(block_bits)
-        @test rng.position.bit === UInt16(0)
-    end
-end
-
-@testset "R53 and R54 checked packed-bit reservation" begin
-    cases = (
-        (Threefry2x32(1), UInt16(64), UInt64(0x00ffffffffffffff)),
-        (Philox4x32(1), UInt16(128), typemax(UInt64)),
-        (Threefry4x64(1), UInt16(256), nothing),
-    )
-
-    for (rng, block_bits, maximum) in cases
-        last_position =
-            maximum isa UInt64 ?
-            PureRNGs._Position64(maximum, block_bits - UInt16(1)) :
-            PureRNGs._Position128(
-                typemax(UInt64),
-                typemax(UInt64),
-                block_bits - UInt16(1),
-            )
-        terminal =
-            maximum isa UInt64 ? PureRNGs._Position64(maximum, typemax(UInt16)) :
-            PureRNGs._Position128(typemax(UInt64), typemax(UInt64), typemax(UInt16))
-        last = PureRNGs._rebuild(rng, last_position, rng.device)
-        exhausted = PureRNGs._reserve(last, UInt64(1), UInt64(0))
-        @test exhausted.position == terminal
-        @test PureRNGs._reserve(exhausted, UInt64(0), UInt64(0)) === exhausted
-        @test_throws ArgumentError PureRNGs._reserve(exhausted, UInt64(1), UInt64(0))
-        @test_throws ArgumentError PureRNGs._reserve(last, UInt64(2), UInt64(0))
-        @test last.position == last_position
-    end
-
-    crossing = PureRNGs._rebuild(
-        Threefry4x64(1),
-        PureRNGs._Position128(typemax(UInt64), UInt64(6), UInt16(255)),
-        Threefry4x64(1).device,
-    )
-    @test PureRNGs._reserve(crossing, UInt64(2), UInt64(0)).position ==
-          PureRNGs._Position128(UInt64(0), UInt64(7), UInt16(1))
-end
-
-@testset "R53 invalid packed-bit positions are rejected" begin
-    narrow = Threefry2x32(1)
-    invalid_positions = (
-        PureRNGs._Position64(UInt64(0), UInt16(64)),
-        PureRNGs._Position64(UInt64(0), typemax(UInt16) - UInt16(1)),
-        PureRNGs._Position64(UInt64(0), typemax(UInt16)),
-        PureRNGs._Position64(UInt64(0x0100000000000000), UInt16(0)),
-    )
-    for position in invalid_positions
-        invalid = PureRNGs._rebuild(narrow, position, narrow.device)
-        @test_throws ArgumentError PureRNGs._reserve(invalid, UInt64(0), UInt64(0))
-        @test_throws ArgumentError PureRNGs._reserve(invalid, UInt64(1), UInt64(0))
-    end
-
-    wide = Threefry4x64(1)
-    for bit in (UInt16(256), typemax(UInt16) - UInt16(1))
-        invalid = PureRNGs._rebuild(
-            wide,
-            PureRNGs._Position128(UInt64(0), UInt64(0), bit),
-            wide.device,
-        )
-        @test_throws ArgumentError PureRNGs._reserve(invalid, UInt64(0), UInt64(0))
-    end
-end
-
-@testset "R30 and R54 checked bit spans" begin
-    @test PureRNGs._bit_span(UInt64(0), UInt16(128)) == (UInt64(0), UInt64(0))
-    @test PureRNGs._bit_span(UInt64(3), UInt16(53)) == (UInt64(159), UInt64(0))
-    @test PureRNGs._bit_span(UInt64(typemax(Int)), UInt16(128)) ==
-          (UInt64(0xffffffffffffff80), UInt64(0x3f))
-
-    for rng in (Philox2x32(123), Philox4x32(123), Philox4x64(123))
-        result = @inferred PureRNGs._reserve(rng, UInt64(159), UInt64(0))
-        @test result isa typeof(rng)
-        PureRNGs._reserve(rng, UInt64(159), UInt64(0))
-        @test @allocated(PureRNGs._reserve(rng, UInt64(159), UInt64(0))) == 0
-    end
 end

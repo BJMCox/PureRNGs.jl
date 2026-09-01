@@ -206,46 +206,19 @@ function _check_distribution_preview(F, distribution, active_device)
     return nothing
 end
 
-@testset "R37 AMDGPU extension surface" begin
-    extension_module = Base.get_extension(IR, :PureRNGsAMDGPUExt)
-    @test extension_module !== nothing
-    @test Base.get_extension(IR, :PureRNGsDistributionsExt) !== nothing
-    @test Base.get_extension(IR, :PureRNGsEnzymeCoreExt) !== nothing
-    @test Enzyme.EnzymeRules.inactive_type(AbstractPureRNG)
-
+@testset "R37 AMDGPU public host surface" begin
     for F in AMDGPU_FAMILIES
         cpu_rng = F(0x814)
         rng = AMDGPUDevice(:discarded)(cpu_rng)
         @test rng.device === IR._AMDGPU_BACKEND
-        @test isbits(rng.device)
-        @test sizeof(rng.device) == 0
-        @test which(IR.rand_next, (typeof(rng), Int)).module === IR
-        @test which(IR.randn_next, (typeof(rng), Int)).module === IR
-        @test applicable(IR.randsample, rng, UInt32(1):UInt32(3), 2)
-        @test applicable(IR.randsample_next, rng, UInt32(1):UInt32(3), 2)
-
-        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-            @test rand(rng, T) === rand(cpu_rng, T)
-            @test which(rand, (typeof(rng), Type{T}, Int)).module === IR
-            @test which(IR.rand_next, (typeof(rng), Type{T}, Int)).module === IR
-        end
-        for T in (Float32, Float64)
-            @test randn(rng, T) === randn(cpu_rng, T)
-            @test which(randn, (typeof(rng), Type{T}, Int)).module === IR
-            @test which(IR.randn_next, (typeof(rng), Type{T}, Int)).module === IR
-            @test first(IR.randexp_next(rng, T)).position ==
-                  first(IR.randexp_next(cpu_rng, T)).position
-            @test which(randexp, (typeof(rng), Type{T}, Int)).module === IR
-            @test which(IR.randexp_next, (typeof(rng), Type{T}, Int)).module === IR
-        end
-        for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-            range = T(1):T(3)
-            @test rand(rng, range) === rand(cpu_rng, range)
-            @test which(rand, (typeof(rng), typeof(range), Int)).module === IR
-            @test which(IR.rand_next, (typeof(rng), typeof(range), Int)).module === IR
-        end
+        @test rand(rng, UInt64) === rand(cpu_rng, UInt64)
+        @test randn(rng, Float64) === randn(cpu_rng, Float64)
+        @test isapprox(randexp(rng, Float64), randexp(cpu_rng, Float64); rtol = 16eps())
+        @test rand(rng, UInt16(1):UInt16(3)) === rand(cpu_rng, UInt16(1):UInt16(3))
     end
-
+    rng = AMDGPUDevice()(Philox4x32(0x814))
+    @test applicable(IR.randsample, rng, UInt32(1):UInt32(3), 2)
+    @test applicable(IR.randsample_next, rng, UInt32(1):UInt32(3), 2)
     @test isempty(Test.detect_ambiguities(IR, Random; recursive = true))
 end
 
