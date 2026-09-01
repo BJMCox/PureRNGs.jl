@@ -299,7 +299,14 @@ end
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
 
-@inline IR._weighted_sortperm(::IR._CUDABackend, _thresholds) = nothing
+# CUDA's allocating `sortperm` stages ordinal indices from the host. Initialize
+# those indices on-device; `sortperm!` treats thresholds as read-only keys.
+@inline function IR._weighted_sortperm(::IR._CUDABackend, thresholds)
+    order = similar(thresholds, Int)
+    order .= eachindex(order)
+    sortperm!(order, thresholds; initialized = true)
+    return order
+end
 
 KernelAbstractions.@kernel function _prepare_weights_cuda_fold_kernel!(
     source,
@@ -371,10 +378,11 @@ KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
     population,
     cumulative,
     thresholds,
+    order,
     destination,
 )
     index = KernelAbstractions.@index(Global, Linear)
-    threshold = @inbounds thresholds[index]
+    threshold = @inbounds thresholds[order[index]]
     lower = 1
     upper = length(cumulative)
     @inbounds while lower < upper
@@ -385,7 +393,7 @@ KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
             lower = middle + 1
         end
     end
-    @inbounds destination[index] = IR._population_value(population, UInt64(lower))
+    @inbounds destination[order[index]] = IR._population_value(population, UInt64(lower))
 end
 
 @inline function IR._launch_weighted_scan!(
@@ -394,7 +402,7 @@ end
     population,
     _weights,
     thresholds,
-    _order,
+    order,
     cumulative,
     destination,
 )
@@ -402,6 +410,7 @@ end
         population,
         cumulative,
         thresholds,
+        order,
         destination;
         ndrange = length(destination),
     )
