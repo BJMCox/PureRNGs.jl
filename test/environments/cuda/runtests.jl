@@ -1539,25 +1539,38 @@ end
     ) == Int32[10]
 
     scan_destination = CUDA.CuArray{Int32}(undef, 1)
-    scan_weights = CUDA.CuArray(Float64[0x1p53, 1.0, 1.0, 2.0])
+    scan_weights_host = Float64[0x1p53, fill(1.0, 1023)..., 2.0]
+    scan_expected = similar(scan_weights_host)
+    scan_total = 0.0
+    for index in eachindex(scan_weights_host)
+        scan_total += scan_weights_host[index]
+        scan_expected[index] = scan_total
+    end
+    scan_weights = CUDA.CuArray(scan_weights_host)
+    scan_population = CUDA.CuArray(Int32.(1:length(scan_weights_host)))
     _, _, scan_cumulative = IR._prepare_weight_scan(range_rng, scan_weights, false)
-    @test reinterpret.(UInt64, Array(scan_cumulative)) == UInt64[
-        0x4340000000000000,
-        0x4340000000000000,
-        0x4340000000000000,
-        0x4340000000000001,
-    ]
+    @test reinterpret.(UInt64, Array(scan_cumulative)) ==
+          reinterpret.(UInt64, scan_expected)
     IR._launch_weighted_scan!(
         range_rng.device,
         IR._fill_backend(scan_destination),
-        CUDA.CuArray(Int32[10, 20, 30, 40]),
+        scan_population,
         scan_weights,
         CUDA.CuArray(Float64[0x1p53]),
         CUDA.CuArray([1]),
         scan_cumulative,
         scan_destination,
     )
-    @test Array(scan_destination) == Int32[40]
+    @test Array(scan_destination) == Int32[1025]
+
+    invalid_scan_weights = copy(scan_weights_host)
+    invalid_scan_weights[end] = NaN
+    @test_throws ArgumentError randsample(
+        range_rng,
+        scan_population,
+        CUDA.CuArray(invalid_scan_weights),
+        1,
+    )
 
     wrong_weights = copy(cpu_weights)
     error = try
