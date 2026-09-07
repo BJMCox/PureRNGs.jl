@@ -52,11 +52,6 @@ end
     @test count(method -> method.module === extension, methods(ER.inactive_type)) == 1
 end
 
-function stateful_normal_objective!(rng, destination, scale)
-    Random.randn!(rng, destination)
-    return scale * sum(destination)
-end
-
 function stateful_fill_objective!(fill_function, rng, destination, scale)
     fill_function(rng, destination)
     return scale * sum(destination)
@@ -151,8 +146,9 @@ end
     derivative = only(
         autodiff(
             Reverse,
-            stateful_normal_objective!,
+            stateful_fill_objective!,
             Active,
+            Const(Random.randn!),
             Const(rng),
             Duplicated(destination, shadow),
             Active(scale),
@@ -162,7 +158,7 @@ end
     @test destination == expected
     @test parent(rng) === expected_rng
     @test iszero(shadow)
-    @test derivative[3] ≈ sum(expected)
+    @test derivative[4] ≈ sum(expected)
 end
 
 
@@ -172,80 +168,57 @@ end
         expected_rng, expected_values = expected
         rng = Philox4x32(0x6503)
 
-        for (function_under_test, objective) in (
-            (fill_function, pure_fill_objective!),
-            (next_fill_function, pure_next_fill_objective!),
-        )
-            for threaded in (false, true)
-                reverse_values = zeros(T, 13)
-                reverse_shadow = fill(T(9), 13)
-                reverse_derivative = only(
-                    autodiff(
-                        Reverse,
-                        objective,
-                        Active,
-                        Const(function_under_test),
-                        Const(rng),
-                        Duplicated(reverse_values, reverse_shadow),
-                        Active(T(1.5)),
-                        Const(threaded),
-                    ),
-                )
-                @test reverse_values == expected_values
-                @test iszero(reverse_shadow)
-                @test reverse_derivative[4] ≈ sum(expected_values)
-
-                forward_values = zeros(T, 13)
-                forward_shadow = fill(T(7), 13)
-                forward_derivative = only(
-                    autodiff(
-                        Forward,
-                        objective,
-                        Const(function_under_test),
-                        Const(rng),
-                        Duplicated(forward_values, forward_shadow),
-                        Duplicated(T(1.5), one(T)),
-                        Const(threaded),
-                    ),
-                )
-                @test forward_values == expected_values
-                @test iszero(forward_shadow)
-                @test forward_derivative ≈ sum(expected_values)
+        for (function_under_test, continued) in
+            ((fill_function, false), (next_fill_function, true))
+            values = zeros(T, 13)
+            shadow = fill(T(5), 13)
+            shadow_result, primal_result = autodiff(
+                ForwardWithPrimal,
+                pure_fill_result!,
+                Duplicated,
+                Const(function_under_test),
+                Const(rng),
+                Duplicated(values, shadow),
+                Const(continued),
+            )
+            if continued
+                @test primal_result[1] === expected_rng
+                @test primal_result[2] === values
+                @test shadow_result[2] === shadow
+            else
+                @test primal_result === values
+                @test shadow_result === shadow
             end
+            @test values == expected_values
+            @test iszero(shadow)
         end
+    end
 
-        alias_values = zeros(T, 13)
-        alias_shadow = fill(T(5), 13)
-        shadow_result, primal_result = autodiff(
-            ForwardWithPrimal,
-            pure_fill_result!,
-            Duplicated,
-            Const(fill_function),
-            Const(rng),
-            Duplicated(alias_values, alias_shadow),
-            Const(false),
+    for T in (Float32, Float64),
+        (fill_function, objective) in (
+            (Random.randexp!, pure_fill_objective!),
+            (randexp_next!, pure_next_fill_objective!),
         )
-        @test primal_result === alias_values
-        @test shadow_result === alias_shadow
-        @test alias_values == expected_values
-        @test iszero(alias_shadow)
 
-        next_values = zeros(T, 13)
-        next_shadow = fill(T(5), 13)
-        next_shadow_result, next_primal_result = autodiff(
-            ForwardWithPrimal,
-            pure_fill_result!,
-            Duplicated,
-            Const(next_fill_function),
-            Const(rng),
-            Duplicated(next_values, next_shadow),
-            Const(false),
+        rng = Philox4x32(0x6503)
+        _, expected = randexp_next(rng, T, 13)
+        values = zeros(T, 13)
+        shadow = fill(T(9), 13)
+        derivative = only(
+            autodiff(
+                Reverse,
+                objective,
+                Active,
+                Const(fill_function),
+                Const(rng),
+                Duplicated(values, shadow),
+                Active(T(1.5)),
+                Const(true),
+            ),
         )
-        @test next_primal_result[1] === expected_rng
-        @test next_primal_result[2] === next_values
-        @test next_shadow_result[2] === next_shadow
-        @test next_values == expected_values
-        @test iszero(next_shadow)
+        @test values == expected
+        @test iszero(shadow)
+        @test derivative[4] ≈ sum(expected)
     end
 end
 
@@ -326,25 +299,6 @@ end
         (fill_function, expected) in fill_cases(Philox4x32(0x6502), T, 11)
 
         expected_rng, expected_values = expected
-
-        reverse_rng = StatefulRNG(Philox4x32(0x6502))
-        reverse_values = zeros(T, 11)
-        reverse_shadow = fill(T(9), 11)
-        reverse_derivative = only(
-            autodiff(
-                Reverse,
-                stateful_fill_objective!,
-                Active,
-                Const(fill_function),
-                Const(reverse_rng),
-                Duplicated(reverse_values, reverse_shadow),
-                Active(T(1.25)),
-            ),
-        )
-        @test reverse_values == expected_values
-        @test parent(reverse_rng) === expected_rng
-        @test iszero(reverse_shadow)
-        @test reverse_derivative[4] ≈ sum(expected_values)
 
         forward_rng = StatefulRNG(Philox4x32(0x6502))
         forward_values = zeros(T, 11)

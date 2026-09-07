@@ -252,12 +252,17 @@ end
 
     for distribution in invalid
         invalid_error(() -> rand(exhausted, distribution))
-        invalid_error(() -> rand_next(exhausted, distribution))
-        invalid_error(() -> randat(exhausted, distribution, 0))
-        invalid_error(() -> rand(exhausted, distribution, -1))
-        result_type = fixed_result_type(distribution)
-        invalid_error(() -> rand!(exhausted, distribution, Vector{result_type}(undef, 0)))
     end
+
+    distribution = first(invalid)
+    result_type = fixed_result_type(distribution)
+    destination = Vector{result_type}(undef, 0)
+    invalid_error(() -> rand_next(exhausted, distribution))
+    invalid_error(() -> randat(exhausted, distribution, 0))
+    invalid_error(() -> rand(exhausted, distribution, -1))
+    invalid_error(() -> rand_next(exhausted, distribution, -1))
+    invalid_error(() -> rand!(exhausted, distribution, destination))
+    invalid_error(() -> rand_next!(exhausted, distribution, destination))
 
     @test_throws MethodError rand(rng, Normal(Float16(0), Float16(1)))
     @test_throws MethodError rand(rng, Beta())

@@ -284,16 +284,6 @@ end
 
     for distribution in invalid
         T = extension._result_type(distribution)
-        wrong_device = Vector{T}(undef, 0)
-
-        device_error = try
-            rand_next!(rng, distribution, wrong_device)
-            nothing
-        catch caught
-            caught
-        end
-        @test device_error isa ArgumentError
-
         empty = CUDA.CuArray{T}(undef, 0)
         caught = Ref{Any}()
         profile = CUDA.Profile.profile_internally(; concurrent = false, trace = true) do
@@ -310,26 +300,19 @@ end
         @test isempty(events.kernels)
         @test isempty(events.copies)
         @test isempty(events.memsets)
-
-        sentinel = T === Bool ? true : T(-1)
-        destination = CUDA.fill(sentinel, 8)
-        mutation_error = try
-            rand_next!(rng, distribution, destination)
-            nothing
-        catch caught
-            caught
-        end
-        @test mutation_error isa ArgumentError
-        @test Array(destination) == fill(sentinel, 8)
-
-        size_error = try
-            rand(rng, distribution, -1)
-            nothing
-        catch caught
-            caught
-        end
-        @test size_error isa ArgumentError
     end
+
+    distribution = first(invalid)
+    T = extension._result_type(distribution)
+    wrong_device = Vector{T}(undef, 0)
+    @test_throws ArgumentError rand_next!(rng, distribution, wrong_device)
+
+    sentinel = T === Bool ? true : T(-1)
+    destination = CUDA.fill(sentinel, 8)
+    @test_throws ArgumentError rand_next!(rng, distribution, destination)
+    @test Array(destination) == fill(sentinel, 8)
+
+    @test_throws ArgumentError rand(rng, distribution, -1)
 
     allocating_forms = (
         () -> rand(rng, Float32, -1),

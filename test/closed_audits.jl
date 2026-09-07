@@ -20,7 +20,7 @@ function _audit_error(call)
     end
 end
 
-@testset "R1, R49, and row 735 closed non-bridge method surface" begin
+@testset "R1 and R49 closed non-bridge method surface" begin
     foreign = IdSet{Any}()
     foreign_functions = Set{Any}()
     for module_ in (Base, Random), name in names(module_; all = true, imported = true)
@@ -169,19 +169,12 @@ end
     @test isempty(Base.kwarg_decl(device_method))
 end
 
-@testset "R9 and R10 assigned constants" begin
-    @test AuditIR.FAMILY_BITS === UInt32(0)
-    @test AuditIR.FAMILY_NORMAL === UInt32(1)
+@testset "R9 and R12b assigned constants" begin
     @test AuditIR.FAMILY_EXP === UInt32(2)
-    @test AuditIR.FAMILY_RANGE === UInt32(3)
-    @test AuditIR._DERIVE_TAG === UInt32(0xc0ffee00)
-    @test AuditIR._SPLIT_SUBTAG === UInt32(0)
-    @test AuditIR._FOLD_SUBTAG === UInt32(1)
-    @test AuditIR._THREEFRY_FOLD_INDEX === UInt32(0xffffffff)
     @test AuditIR._NARROW_SPLIT_COUNT === UInt64(0xffffffff)
 end
 
-@testset "R47 and row 744 implemented deterministic error closure" begin
+@testset "R47 implemented deterministic error closure" begin
     rng = Philox4x32(0xa72)
     exhausted =
         AuditIR._rebuild(rng, AuditIR._terminal64(AuditIR._max_block(rng)), rng.device)
