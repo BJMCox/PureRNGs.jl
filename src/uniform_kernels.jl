@@ -43,6 +43,7 @@ KernelAbstractions.@kernel function _fill_cooperative_kernel!(
     rng,
     destination,
     ::Type{T},
+    ::Type{D},
     ::Val{W},
     block_width::Val{B},
     ::Val{O},
@@ -51,7 +52,8 @@ KernelAbstractions.@kernel function _fill_cooperative_kernel!(
     ::Val{S},
     family::UInt32,
     codec,
-) where {T,W,B,O,L,P,S}
+) where {T,D,W,B,O,L,P,S}
+    destination = reinterpret(D, vec(destination))
     group = @index(Group, Linear)
     lane = @index(Local, Linear)
     shared = @localmem UInt64 (
@@ -255,16 +257,18 @@ end
     codec,
     plan,
     stream_aligned::Val{S},
-) where {T,S}
+    ::Type{D} = eltype(destination),
+) where {T,S,D}
     outputs, workgroup = plan[2], plan[3]
     outputs_per_store = _outputs_per_store(plan)
     output_count = _fill_group_size(outputs)
     workgroup_size = _fill_group_size(workgroup)
-    groups = cld(_fill_group_size(outputs_per_store) * length(destination), output_count)
+    groups = cld(length(destination), output_count)
     _fill_cooperative_kernel!(backend)(
         rng,
         destination,
         T,
+        D,
         Val(_fill_width(codec, T)),
         Val(Int(_block_bits(rng))),
         outputs,

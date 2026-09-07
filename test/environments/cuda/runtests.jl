@@ -21,6 +21,14 @@ const FAMILIES = (
 const UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 const NORMAL_TYPES = (Float32, Float64)
 const RANGE_TYPES = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
+const PACKED_INTEGER_CASES = (
+    (Philox2x64, UInt32, 1 << 20),
+    (Philox2x64, UInt64, 1 << 20),
+    (Philox4x64, UInt32, 4096),
+    (Philox4x64, UInt64, 4096),
+    (Threefry4x64, UInt32, 8192),
+    (Threefry4x64, UInt64, 4096),
+)
 
 mutable struct DeviceAgnosticWeights{T} <: AbstractVector{T}
     values::Vector{T}
@@ -382,6 +390,20 @@ function _check_public_packed_fill(
     return allocated_next
 end
 
+function _check_public_packed_addresses(rng, ::Type{T}, count) where {T}
+    destination = CUDA.CuArray{T}(undef, count)
+    next_rng, returned = rand_next!(rng, destination)
+    @test returned === destination
+
+    values = Array(destination)
+    indices = (1, 2, count ÷ 2, count)
+    @test values[collect(indices)] == map(index -> randat(rng, T, index), collect(indices))
+
+    bits_lo, bits_hi = IR._bit_span(UInt64(count), IR._draw_bits(T))
+    @test next_rng.position == IR._reserve(rng, bits_lo, bits_hi).position
+    return next_rng
+end
+
 function _check_cooperative_kernel_code(
     backend,
     rng,
@@ -391,6 +413,7 @@ function _check_cooperative_kernel_code(
     stream_aligned;
     check_store::Bool,
     codec = Val(:uniform),
+    storage_type = eltype(packed),
 ) where {T}
     kernel = IR._fill_cooperative_kernel!(backend)
     workgroup = IR._fill_group_size(plan[3])
@@ -399,6 +422,7 @@ function _check_cooperative_kernel_code(
         rng,
         packed,
         T,
+        storage_type,
         Val(IR._draw_bits(T)),
         block_width,
         plan[2],
@@ -416,6 +440,7 @@ function _check_cooperative_kernel_code(
             rng,
             packed,
             T,
+            storage_type,
             Val(IR._draw_bits(T)),
             block_width,
             plan[2],
@@ -437,6 +462,7 @@ function _check_cooperative_kernel_code(
                 rng,
                 packed,
                 T,
+                storage_type,
                 Val(IR._draw_bits(T)),
                 block_width,
                 plan[2],
@@ -484,6 +510,7 @@ function _cuda_profile_events(profile)
         eachindex(profile.device.name),
     )
     kernels = filter(index -> !ismissing(profile.device.grid[index]), window)
+    kernel_names = profile.device.name[kernels]
     memory = filter(index -> !ismissing(profile.device.size[index]), window)
     copies = filter(index -> startswith(profile.device.name[index], "[copy "), memory)
     memsets = filter(index -> startswith(profile.device.name[index], "[set "), memory)
@@ -494,7 +521,7 @@ function _cuda_profile_events(profile)
     host_to_device = filter(index -> source_is_host(profile.device.name[index]), copies)
     device_to_host =
         filter(index -> destination_is_host(profile.device.name[index]), copies)
-    return (; kernels, copies, memsets, host_to_device, device_to_host)
+    return (; kernels, kernel_names, copies, memsets, host_to_device, device_to_host)
 end
 
 _device_kernel_events(call) = length(_device_events(call).kernels)
@@ -540,6 +567,13 @@ device = MLD.CUDADevice(primary)
             _check_public_packed_fill(terminal_rng, Bool, block_bits, rand_next, rand_next!)
         @test terminal.position == _terminal(rng)
     end
+
+    rng = device(Philox4x32(0x788))
+    destination = CUDA.CuArray{Bool}(undef, 4096)
+    events = _device_events(() -> rand_next!(rng, destination))
+    @test !isempty(events.kernels)
+    @test isempty(events.host_to_device)
+    @test isempty(events.device_to_host)
 end
 
 @testset "CUDA Philox4x32 Float32 vector stores preserve the dense stream" begin
@@ -620,7 +654,7 @@ end
             packed_count = 8outputs_per_store
             packed_next, packed_expected =
                 _chain(rng, current -> rand_next(current, T), packed_count, T)
-            matrix = CUDA.CuArray{T}(undef, outputs_per_store, 8)
+            matrix = CUDA.CuArray{T}(undef, 1, packed_count)
             matrix_next, returned_matrix = rand_next!(rng, matrix)
             @test returned_matrix === matrix
             @test vec(Array(matrix)) == packed_expected
@@ -653,15 +687,15 @@ end
 end
 
 @testset "CUDA natural 128-bit stores preserve the stream" begin
-    count = 4096
+    count = 4080
 
     for (F, T) in NATURAL_128_TYPES
         rng = device(F(0x784))
         outputs_per_pack = 16 ÷ sizeof(T)
         expected_next, expected = _chain(rng, current -> rand_next(current, T), count, T)
 
-        allocated_next, allocated = rand_next(rng, T, 64, 64)
-        @test Array(allocated) == reshape(expected, 64, 64)
+        allocated_next, allocated = rand_next(rng, T, 3, 1360)
+        @test Array(allocated) == reshape(expected, 3, 1360)
         @test allocated_next.position == expected_next.position
 
         positioned = _positioned_at_bit(rng, UInt64(9), UInt16(0))
@@ -777,11 +811,82 @@ end
     end
 end
 
-@testset "aligned public integer fills preserve packed results" begin
-    for F in FAMILIES, T in (UInt32, UInt64)
-        rng = _positioned_at_bit(device(F(0x784)), UInt64(7), UInt16(0))
-        _check_public_packed_fill(rng, T, 9, rand_next, rand_next!)
+@testset "packed integer stores preserve the dense stream" begin
+    extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
+    for (F, T, count) in PACKED_INTEGER_CASES
+        rng = device(F(0x784))
+        @test extension_module._packed_integer_min_length(rng, T) == count
+
+        _check_public_packed_addresses(rng, T, count)
+        positioned = _positioned_at_bit(rng, UInt64(7), UInt16(5))
+        _check_public_packed_addresses(positioned, T, count)
     end
+
+    for (unsigned, signed, count) in ((UInt32, Int32, 8192), (UInt64, Int64, 4096))
+        rng = device(Threefry4x64(0x785))
+        unsigned_values = CUDA.CuArray{unsigned}(undef, count)
+        signed_values = CUDA.CuArray{signed}(undef, count)
+        unsigned_next, _ = rand_next!(rng, unsigned_values)
+        signed_next, _ = rand_next!(rng, signed_values)
+        @test Array(signed_values) == reinterpret(signed, Array(unsigned_values))
+        @test signed_next.position == unsigned_next.position
+    end
+
+    for (T, count) in ((UInt32, 8192), (UInt64, 4096))
+        rng = device(Threefry4x64(0x786))
+        outputs_per_store = 16 ÷ sizeof(T)
+        expected_next, expected = _chain(rng, current -> rand_next(current, T), count, T)
+
+        dims = T === UInt32 ? (2, count ÷ 2) : (1, count)
+        matrix = CUDA.CuArray{T}(undef, dims)
+        matrix_next, returned = rand_next!(rng, matrix)
+        @test returned === matrix
+        @test vec(Array(matrix)) == expected
+        @test matrix_next.position == expected_next.position
+
+        fallback_count = count
+        fallback_next, fallback_expected =
+            _chain(rng, current -> rand_next(current, T), fallback_count, T)
+        storage = CUDA.CuArray{T}(undef, fallback_count + 1)
+        offset = @view storage[2:end]
+        offset_next, returned_offset = rand_next!(rng, offset)
+        @test returned_offset === offset
+        @test Array(offset) == fallback_expected
+        @test offset_next.position == fallback_next.position
+
+        strided_storage = CUDA.CuArray{T}(undef, 2fallback_count)
+        strided = @view strided_storage[1:2:end]
+        strided_next, returned_strided = rand_next!(rng, strided)
+        @test returned_strided === strided
+        @test Array(strided) == fallback_expected
+        @test strided_next.position == fallback_next.position
+
+        last_pack_rng = _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
+        unchanged = CUDA.fill(typemax(T), 2outputs_per_store)
+        @test_throws ArgumentError rand_next!(last_pack_rng, unchanged)
+        @test Array(unchanged) == fill(typemax(T), 2outputs_per_store)
+
+        terminal = _check_public_packed_fill(
+            last_pack_rng,
+            T,
+            outputs_per_store,
+            rand_next,
+            rand_next!,
+        )
+        @test terminal.position == _terminal(rng)
+    end
+
+    rng = device(Philox4x64(0x787))
+    below = CUDA.CuArray{UInt32}(undef, 4092)
+    destination = CUDA.CuArray{UInt32}(undef, 4096)
+    below_events = _device_events(() -> rand_next!(rng, below))
+    events = _device_events(() -> rand_next!(rng, destination))
+    @test occursin("uniform_fill_grouped_kernel", only(below_events.kernel_names))
+    @test occursin("fill_cooperative_kernel", only(events.kernel_names))
+    @test length(events.kernels) == 1
+    @test isempty(events.memsets)
+    @test isempty(events.host_to_device)
+    @test isempty(events.device_to_host)
 end
 
 @testset "Threefry4x32 aligned 64-bit fills use natural 128-bit packs" begin
@@ -952,13 +1057,12 @@ end
     kernel = extension_module._natural128_packed_kernel!(backend)
     for (F, T) in NATURAL_128_TYPES
         packed_rng = device(F(0x785))
-        packed = reinterpret(
-            extension_module._CUDANatural128Pack{T},
-            CUDA.CuArray{T}(undef, 1024),
-        )
+        destination = CUDA.CuArray{T}(undef, 1024)
+        storage_type = extension_module._CUDANatural128Pack{T}
         packed_typed = IR.KernelAbstractions.@ka_code_typed kernel(
             packed_rng,
-            packed,
+            destination,
+            storage_type,
             ndrange = extension_module._CUDA_FILL_THREADS,
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
@@ -966,7 +1070,8 @@ end
         packed_llvm_text = sprint() do io
             CUDA.@device_code_llvm io = io kernel(
                 packed_rng,
-                packed;
+                destination,
+                storage_type;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -977,7 +1082,8 @@ end
         packed_sass = sprint() do io
             CUDA.@device_code_sass io = io kernel(
                 packed_rng,
-                packed;
+                destination,
+                storage_type;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -989,10 +1095,12 @@ end
     for F in FAMILIES
         bool_rng = device(F(0x787))
         plan = IR._device_uniform_fill_plan(backend, bool_rng, Bool)
+        expected = F === Philox4x32 ? Val(:cooperative) : Val(:bool_blocks)
+        @test plan[1] === expected
         plan[1] === Val(:bool_blocks) || continue
         packs_per_block = plan[2]
         packed = reinterpret(
-            NTuple{16,VecElement{Bool}},
+            extension_module._CUDA_B8X16,
             CUDA.CuArray{Bool}(undef, Int(IR._block_bits(bool_rng))),
         )
         bool_typed = IR.KernelAbstractions.@ka_code_typed bool_kernel(
@@ -1029,19 +1137,17 @@ end
 
     packed_rng = device(Philox4x32(0x785))
     float_plan = IR._device_uniform_fill_plan(backend, packed_rng, Float32)
-    float_packed = reinterpret(
-        extension_module._CUDA_F32X4,
-        CUDA.CuArray{Float32}(undef, IR._fill_group_size(float_plan[2])),
-    )
+    float_destination = CUDA.CuArray{Float32}(undef, IR._fill_group_size(float_plan[2]))
     for stream_aligned in (Val(false), Val(true))
         _check_cooperative_kernel_code(
             backend,
             packed_rng,
-            float_packed,
+            float_destination,
             Float32,
             float_plan,
             stream_aligned,
             check_store = stream_aligned === Val(true),
+            storage_type = extension_module._CUDA_F32X4,
         )
     end
 
@@ -1050,38 +1156,50 @@ end
         for T in (Float32, Float64)
             rng = device(F(0x788))
             plan = IR._device_uniform_fill_plan(backend, rng, T)
-            packed = reinterpret(
-                extension_module._packed_float_type(T),
-                CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2])),
-            )
+            destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
             _check_cooperative_kernel_code(
                 backend,
                 rng,
-                packed,
+                destination,
                 T,
                 plan,
                 Val(false),
                 check_store = true,
+                storage_type = extension_module._packed_type(T),
             )
         end
+    end
+
+    for T in (UInt32, UInt64)
+        rng = device(Threefry4x64(0x789))
+        plan = IR._device_uniform_fill_plan(backend, rng, T)
+        destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
+        _check_cooperative_kernel_code(
+            backend,
+            rng,
+            destination,
+            T,
+            plan,
+            Val(false),
+            check_store = true,
+            storage_type = extension_module._packed_type(T),
+        )
     end
 
     for T in (Float32, Float64)
         rng = device(Threefry4x32(0x788))
         plan = IR._device_normal_fill_plan(backend, rng, T)
-        packed = reinterpret(
-            extension_module._packed_float_type(T),
-            CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2])),
-        )
+        destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
         _check_cooperative_kernel_code(
             backend,
             rng,
-            packed,
+            destination,
             T,
             plan,
             Val(false),
             check_store = true,
             codec = Val(:normal),
+            storage_type = extension_module._packed_type(T),
         )
     end
 

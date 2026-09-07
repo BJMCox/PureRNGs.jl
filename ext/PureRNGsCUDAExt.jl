@@ -8,27 +8,36 @@ const IR = PureRNGs
 const _CUDAFamily = IR._BackendFamily{IR._CUDABackend}
 const _CUDAPhilox4x32 = IR.Philox4x32{IR._CUDABackend}
 const _CUDAThreefry4x32 = IR.Threefry4x32{IR._CUDABackend}
+const _CUDAPhilox2x64 = IR.Philox2x64{IR._CUDABackend}
+const _CUDAPhilox4x64 = IR.Philox4x64{IR._CUDABackend}
+const _CUDAThreefry4x64 = IR.Threefry4x64{IR._CUDABackend}
 const _CUDANatural128 = Union{_CUDAPhilox4x32,_CUDAThreefry4x32}
-const _CUDANonPhilox4x32 = Union{
+const _CUDANonNatural128 = Union{
     IR.Philox2x32{IR._CUDABackend},
     IR.Philox2x64{IR._CUDABackend},
     IR.Philox4x64{IR._CUDABackend},
     IR.Threefry2x32{IR._CUDABackend},
-    IR.Threefry4x32{IR._CUDABackend},
     IR.Threefry2x64{IR._CUDABackend},
     IR.Threefry4x64{IR._CUDABackend},
 }
+const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32}
+# A100 trials retain only families where cooperative stores beat grouped fills.
+const _CUDAPackedIntegerFamily = Union{_CUDAPhilox2x64,_CUDAPhilox4x64,_CUDAThreefry4x64}
 const _CUDA_FILL_THREADS = 256
 const _CUDA_WEIGHT_FOLD_LANES = 1024
 # Large-fill benchmarks select this multiple of the device thread-capacity block count.
 const _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER = 128
 const _CUDA_U32X4 = NTuple{4,VecElement{UInt32}}
+const _CUDA_I32X4 = NTuple{4,VecElement{Int32}}
+const _CUDA_U64X2 = NTuple{2,VecElement{UInt64}}
+const _CUDA_I64X2 = NTuple{2,VecElement{Int64}}
 const _CUDA_F32X4 = NTuple{4,VecElement{Float32}}
 const _CUDA_F64X2 = NTuple{2,VecElement{Float64}}
 const _CUDA_B8X16 = NTuple{16,VecElement{Bool}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
 # Mapped codecs using this path must share the uniform-width fallback contract.
-const _CUDAPackedFloatCodec =
+const _CUDAPackedValue = Union{IR._UniformInteger,Float32,Float64}
+const _CUDAPackedCodec =
     Union{Val{:uniform},Val{:normal},IR._CUDABackend,IR._MappedFillCodec}
 
 @inline _bool_packs_per_block(rng) = Val(Int(IR._block_bits(rng)) ÷ 16)
@@ -55,13 +64,26 @@ end
     ::Type{Float32},
 ) = (Val(:cooperative), IR._cooperative_uniform_fill(rng, Float32)..., Val(4))
 
-@inline _packed_float_plan(::Type{Float32}) = (Val(2048), Val(32), Val(4))
-@inline _packed_float_plan(::Type{Float64}) = (Val(1024), Val(64), Val(2))
+@inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt32,Int32,Float32}} =
+    (Val(2048), Val(32), Val(4))
+@inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt64,Int64,Float64}} =
+    (Val(1024), Val(64), Val(2))
+@inline _packed_integer_plan(::Type{T}) where {T<:Union{UInt32,Int32}} =
+    _packed_16byte_plan(T)
+# A100 trials favor twice the output tile for 64-bit integer stores.
+@inline _packed_integer_plan(::Type{T}) where {T<:Union{UInt64,Int64}} =
+    (Val(2048), Val(64), Val(2))
 @inline IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
     ::Type{T},
-) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_float_plan(T)...)
+) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
+
+@inline IR._device_uniform_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAPackedIntegerFamily,
+    ::Type{T},
+) where {T<:IR._UniformInteger} = (Val(:cooperative), _packed_integer_plan(T)...)
 
 @inline function IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
@@ -74,17 +96,31 @@ end
     return (Val(:grouped), IR._device_uniform_fill_group(rng, T))
 end
 
-@inline _packed_float_layout(destination, ::Type{T}, ::Val{P}) where {T,P} =
-    iszero(length(destination) % P) &&
+@inline _dense_16byte_aligned(destination, ::Type{T}) where {T} =
     destination isa CUDA.DenseCuArray{T} &&
     iszero(UInt(pointer(destination)) & UInt(_CUDA_FILL_ALIGNMENT - 1))
 
-@inline _packed_float_type(::Type{Float32}) = _CUDA_F32X4
-@inline _packed_float_type(::Type{Float64}) = _CUDA_F64X2
+@inline _packed_16byte_layout(destination, ::Type{T}, ::Val{P}) where {T,P} =
+    iszero(length(destination) % P) && _dense_16byte_aligned(destination, T)
 
-@inline _packed_float_fallback_group(rng, ::Type{T}, ::Val{:normal}) where {T} =
+@inline _packed_type(::Type{Float32}) = _CUDA_F32X4
+@inline _packed_type(::Type{Float64}) = _CUDA_F64X2
+@inline _packed_type(::Type{UInt32}) = _CUDA_U32X4
+@inline _packed_type(::Type{Int32}) = _CUDA_I32X4
+@inline _packed_type(::Type{UInt64}) = _CUDA_U64X2
+@inline _packed_type(::Type{Int64}) = _CUDA_I64X2
+
+@inline _packed_integer_min_length(::_CUDAPhilox2x64, ::Type{<:IR._UniformInteger}) =
+    1 << 20
+@inline _packed_integer_min_length(::_CUDAPhilox4x64, ::Type{<:IR._UniformInteger}) = 4096
+@inline _packed_integer_min_length(::_CUDAThreefry4x64, ::Type{<:Union{UInt32,Int32}}) =
+    8192
+@inline _packed_integer_min_length(::_CUDAThreefry4x64, ::Type{<:Union{UInt64,Int64}}) =
+    4096
+
+@inline _packed_fallback_group(rng, ::Type{T}, ::Val{:normal}) where {T} =
     IR._device_normal_fill_group(T)
-@inline _packed_float_fallback_group(
+@inline _packed_fallback_group(
     rng,
     ::Type{T},
     ::Union{Val{:uniform},IR._CUDABackend,IR._MappedFillCodec},
@@ -92,25 +128,35 @@ end
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
-    rng::_CUDANonPhilox4x32,
+    rng::_CUDAFamily,
     destination,
     ::Type{T},
-    codec::_CUDAPackedFloatCodec,
+    codec::_CUDAPackedCodec,
     plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{P}},
-) where {T<:Union{Float32,Float64},O,L,P}
-    if !_packed_float_layout(destination, T, plan[4])
+) where {T<:_CUDAPackedValue,O,L,P}
+    below_integer_crossover =
+        T <: IR._UniformInteger && length(destination) < _packed_integer_min_length(rng, T)
+    if below_integer_crossover || !_packed_16byte_layout(destination, T, plan[4])
         return IR._launch_device_fill!(
             backend,
             rng,
             destination,
             T,
             codec,
-            (Val(:grouped), _packed_float_fallback_group(rng, T, codec)),
+            (Val(:grouped), _packed_fallback_group(rng, T, codec)),
         )
     end
 
-    packed = reinterpret(_packed_float_type(T), vec(destination))
-    IR._launch_cooperative_fill!(backend, rng, packed, T, codec, plan, Val(false))
+    IR._launch_cooperative_fill!(
+        backend,
+        rng,
+        destination,
+        T,
+        codec,
+        plan,
+        Val(false),
+        _packed_type(T),
+    )
     return destination
 end
 
@@ -119,10 +165,10 @@ end
     rng::_CUDAPhilox4x32,
     destination,
     ::Type{Float32},
-    codec::_CUDAPackedFloatCodec,
+    codec::_CUDAPackedCodec,
     plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{4}},
 ) where {O,L}
-    if !_packed_float_layout(destination, Float32, plan[4])
+    if !_packed_16byte_layout(destination, Float32, plan[4])
         return IR._launch_device_fill!(
             backend,
             rng,
@@ -133,9 +179,17 @@ end
         )
     end
 
-    packed = reinterpret(_CUDA_F32X4, vec(destination))
     stream_aligned = Val(_stream_aligned_philox4x32_f32_fill(rng, destination, plan[2]))
-    IR._launch_cooperative_fill!(backend, rng, packed, Float32, codec, plan, stream_aligned)
+    IR._launch_cooperative_fill!(
+        backend,
+        rng,
+        destination,
+        Float32,
+        codec,
+        plan,
+        stream_aligned,
+        _CUDA_F32X4,
+    )
     return destination
 end
 
@@ -159,7 +213,12 @@ end
 @inline _natural128_packed(limbs, ::Type{_CUDANatural128Pack{T}}) where {T} =
     _CUDANatural128Pack{T}(_natural128_packed(limbs, T))
 
-KernelAbstractions.@kernel function _natural128_packed_kernel!(rng, destination)
+KernelAbstractions.@kernel function _natural128_packed_kernel!(
+    rng,
+    destination,
+    ::Type{D},
+) where {D}
+    destination = reinterpret(D, vec(destination))
     index = KernelAbstractions.@index(Global, Linear)
     stride = KernelAbstractions.@ndrange()[1]
     while index <= length(destination)
@@ -186,8 +245,7 @@ end
 @inline _aligned_bool_block_fill(rng, destination) =
     iszero(rng.position.bit) &&
     iszero(length(destination) % Int(IR._block_bits(rng))) &&
-    destination isa CUDA.DenseCuArray{Bool} &&
-    iszero(UInt(pointer(destination)) & UInt(_CUDA_FILL_ALIGNMENT - 1))
+    _dense_16byte_aligned(destination, Bool)
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
@@ -224,8 +282,7 @@ end
 @inline function _aligned_natural128_fill(rng, destination, ::Type{T}) where {T}
     return iszero(rng.position.bit) &&
            iszero(length(destination) % (_CUDA_FILL_ALIGNMENT ÷ sizeof(T))) &&
-           destination isa CUDA.DenseCuArray{T} &&
-           iszero(UInt(pointer(destination)) & UInt(_CUDA_FILL_ALIGNMENT - 1))
+           _dense_16byte_aligned(destination, T)
 end
 
 @inline _stream_aligned_philox4x32_f32_fill(rng, destination, outputs) =
@@ -250,11 +307,12 @@ end
         )
     end
 
-    packed = reinterpret(_CUDANatural128Pack{T}, vec(destination))
-    blocks = _cuda_packed_blocks(length(packed))
+    storage_type = _CUDANatural128Pack{T}
+    blocks = _cuda_packed_blocks(length(destination) ÷ (_CUDA_FILL_ALIGNMENT ÷ sizeof(T)))
     _natural128_packed_kernel!(backend)(
         rng,
-        packed;
+        destination,
+        storage_type;
         ndrange = blocks * _CUDA_FILL_THREADS,
         workgroupsize = _CUDA_FILL_THREADS,
     )
@@ -275,7 +333,7 @@ end
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
     ::Type{T},
-) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_float_plan(T)...)
+) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
 @inline function IR._transformed_fill_plan(
     ::IR._CUDABackend,
