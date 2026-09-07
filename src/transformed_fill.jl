@@ -280,5 +280,5 @@ end
 ) where {T}
     _check_serviceability(rng, T)
     destination = _allocate_draw_array(rng.device, T, dims)
-    return _rand_transformed_next_fill!(rng, destination, true, codec)
+    return _fill_transformed_prevalidated!(rng, destination, true, codec)
 end

@@ -2,7 +2,7 @@
     _check_serviceability(rng, T)
     destination = _allocate_draw_array(rng.device, T, dims)
     threaded = length(destination) > _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS
-    return _rand_next_fill!(rng, destination, threaded)
+    return _fill_uniform_prevalidated!(rng, destination, threaded)
 end
 
 @inline function _rand_next_uniform_array(
@@ -12,7 +12,7 @@ end
 ) where {T}
     _check_serviceability(rng, T)
     destination = _allocate_draw_array(rng.device, T, dims)
-    return _rand_next_fill!(rng, destination, true)
+    return _fill_uniform_prevalidated!(rng, destination, true)
 end
 
 @inline function rand_next(rng::_ScalarUniformFamily, dim1::Integer, dims::Integer...)

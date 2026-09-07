@@ -26,13 +26,11 @@ function _launch_uniform!(
     return destination
 end
 
-@inline function _rand_next_fill!(
+@inline function _fill_uniform_prevalidated!(
     rng::_ScalarUniformFamily,
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
-    _check_fill_device(rng, destination)
-    _check_serviceability(rng, T)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _draw_bits(T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
     isempty(destination) && return next_rng, destination
@@ -43,6 +41,16 @@ end
     backend = _fill_backend(destination)
     _launch_uniform!(backend, rng, destination, T)
     return next_rng, destination
+end
+
+@inline function _rand_next_fill!(
+    rng::_ScalarUniformFamily,
+    destination::AbstractArray{T},
+    threaded::Bool,
+) where {T}
+    _check_fill_device(rng, destination)
+    _check_serviceability(rng, T)
+    return _fill_uniform_prevalidated!(rng, destination, threaded)
 end
 
 for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)

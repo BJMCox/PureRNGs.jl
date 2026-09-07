@@ -4,6 +4,8 @@ const _THREEFRY4X32_ROTATIONS =
     ((10, 26), (11, 21), (13, 27), (23, 5), (6, 20), (17, 11), (25, 10), (18, 20))
 const _THREEFRY4X64_ROTATIONS =
     ((14, 16), (52, 57), (23, 40), (5, 37), (25, 33), (46, 12), (58, 22), (32, 32))
+const _THREEFRY_PARITY32 = UInt32(0x1bd11bda)
+const _THREEFRY_PARITY64 = UInt64(0x1bd11bdaa9fc1a22)
 
 @inline function _threefry2x(
     counter::NTuple{2,T},
@@ -82,7 +84,7 @@ end
     counter,
     key,
     _THREEFRY2X32_ROTATIONS,
-    _core_constant(counter[1], 0x1BD11BDA),
+    _core_constant(counter[1], _THREEFRY_PARITY32),
 )
 
 @inline _threefry4x32(counter::NTuple{4,UInt32}, key::NTuple{4,UInt32}) =
@@ -93,7 +95,7 @@ end
     counter,
     key,
     _THREEFRY4X32_ROTATIONS,
-    _core_constant(counter[1], 0x1BD11BDA),
+    _core_constant(counter[1], _THREEFRY_PARITY32),
 )
 
 @inline _threefry2x64(counter::NTuple{2,UInt64}, key::NTuple{2,UInt64}) =
@@ -104,7 +106,7 @@ end
     counter,
     key,
     _THREEFRY2X64_ROTATIONS,
-    _core_constant(counter[1], 0x1BD11BDAA9FC1A22),
+    _core_constant(counter[1], _THREEFRY_PARITY64),
 )
 
 @inline _threefry4x64(counter::NTuple{4,UInt64}, key::NTuple{4,UInt64}) =
@@ -115,5 +117,5 @@ end
     counter,
     key,
     _THREEFRY4X64_ROTATIONS,
-    _core_constant(counter[1], 0x1BD11BDAA9FC1A22),
+    _core_constant(counter[1], _THREEFRY_PARITY64),
 )

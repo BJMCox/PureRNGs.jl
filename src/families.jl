@@ -226,12 +226,10 @@ end
 
 function _seed_key(::Type{T}, ::Val{N}, seed::Integer) where {T<:Unsigned,N}
     seed < 0 && throw(ArgumentError("seed must be non-negative"))
-    value = BigInt(seed)
     bits = 8 * sizeof(T)
-    value < (big(1) << (bits * N)) ||
-        throw(ArgumentError("seed exceeds the family key width"))
-    mask = BigInt(typemax(T))
-    return ntuple(i -> T((value >> (bits * (i - 1))) & mask), Val(N))
+    value = seed isa Base.BitInteger ? unsigned(seed) : BigInt(seed)
+    iszero(value >> (bits * N)) || throw(ArgumentError("seed exceeds the family key width"))
+    return ntuple(i -> (value >> (bits * (i - 1))) % T, Val(N))
 end
 
 Philox2x32(seed::Integer) = Philox2x32(_seed_key(UInt32, Val(1), seed))

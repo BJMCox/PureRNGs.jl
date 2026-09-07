@@ -3,6 +3,8 @@ const _SPLIT_SUBTAG = UInt32(0)
 const _FOLD_SUBTAG = UInt32(1)
 const _THREEFRY_FOLD_INDEX = UInt32(0xffffffff)
 const _NARROW_SPLIT_COUNT = UInt64(0xffffffff)
+const _SPLIT_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_SPLIT_SUBTAG)
+const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 
 for F in _FAMILY_SYMBOLS
     @eval @inline _derived_rng(rng::$F{D}, key) where {D} =
@@ -52,15 +54,13 @@ end
 
 @inline function _derive_key(::Type{<:Philox2x64}, key, index::UInt64)
     block_index, group = divrem(index, UInt64(2))
-    tag = (UInt64(_DERIVE_TAG) << 32) | UInt64(_SPLIT_SUBTAG)
-    counter = (_core_constant(key[1], block_index), _core_constant(key[1], tag))
+    counter = (_core_constant(key[1], block_index), _core_constant(key[1], _SPLIT_TAG64))
     block = _philox2x64(counter, key)
     return (block[Int(group)+1],)
 end
 
 @inline function _derive_key(::Type{<:Threefry2x64}, key, index::UInt64)
-    tag = (UInt64(_DERIVE_TAG) << 32) | UInt64(_SPLIT_SUBTAG)
-    counter = (_core_constant(key[1], index), _core_constant(key[1], tag))
+    counter = (_core_constant(key[1], index), _core_constant(key[1], _SPLIT_TAG64))
     return _threefry2x64(counter, key)
 end
 
@@ -177,15 +177,13 @@ end
 end
 
 @inline function _subrng_key(::Type{<:Philox2x64}, key, purpose)
-    tag = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
-    counter = (_core_from_value(key[1], purpose), _core_constant(key[1], tag))
+    counter = (_core_from_value(key[1], purpose), _core_constant(key[1], _FOLD_TAG64))
     block = _philox2x64(counter, key)
     return (block[1],)
 end
 
 @inline function _subrng_key(::Type{<:Threefry2x64}, key, purpose)
-    tag = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
-    counter = (_core_from_value(key[1], purpose), _core_constant(key[1], tag))
+    counter = (_core_from_value(key[1], purpose), _core_constant(key[1], _FOLD_TAG64))
     return _threefry2x64(counter, key)
 end
 
