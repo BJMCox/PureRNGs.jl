@@ -60,9 +60,11 @@ rng = Philox4x32(1234) |> device
 rng, values = randexp_next(rng, Float32, 1_000_000)
 ```
 
-The same workflow applies to supported AMDGPU and Metal devices. Backend-specific
-fast paths are selected automatically. Device-bound allocation and generation
-stay on the device.
+This device-allocating workflow is fully supported on CUDA. AMDGPU is a preview
+backend whose test failures do not block releases. Metal support is experimental
+and limited to a smaller device-executing surface; see
+[Device binding](docs/src/guides/devices.md) for the exact backend tiers and
+Metal exclusions.
 
 ## Weighted sampling
 
