@@ -34,4 +34,6 @@ The package is under development. Install this checkout with `Pkg.develop(path="
 
 For benchmarks, open [benchmark/throughput.jl](benchmark/throughput.jl) in a Julia session and choose the device there.
 
+Portions of the code in this package were generated with the assistance of LLMs.
+
 [Documentation](https://bjmcox.github.io/PureRNGs.jl/) · [Development](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Apache 2.0 license](LICENSE)
