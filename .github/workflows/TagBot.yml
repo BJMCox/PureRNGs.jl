@@ -1,0 +1,16 @@
+name: TagBot
+
+# Keep release automation manual until the maintainer enables it.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  TagBot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: JuliaRegistries/TagBot@cded32665b34ca0496d3ac10a67d08ddfc726963 # v1.25.11
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

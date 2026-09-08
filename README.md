@@ -1,5 +1,9 @@
 # PureRNGs.jl
 
+[![Checks: manual](https://img.shields.io/badge/checks-manual-lightgrey.svg)](.github/workflows/CI.yml)
+[![Docs](https://img.shields.io/badge/docs-source-blue.svg)](docs/src/index.md)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Counter-based random numbers for Julia, with explicit state and CPU/GPU array generation.
 
 ```julia
@@ -30,19 +34,4 @@ The package is under development. Install this checkout with `Pkg.develop(path="
 
 For benchmarks, open [benchmark/throughput.jl](benchmark/throughput.jl) in a Julia session and choose the device there.
 
-## Build the documentation
-
-From the repository root, run these commands in Julia:
-
-```julia
-using Pkg
-Pkg.activate(".")
-Pkg.instantiate()
-Pkg.activate("docs")
-Pkg.instantiate()
-include("docs/make.jl")
-```
-
-Open `docs/build/index.html`. The build runs CPU examples and checks exported docstrings and links.
-
-Licensed under Apache-2.0.
+[Documentation](docs/src/index.md) · [Development](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Apache 2.0 license](LICENSE)
