@@ -70,8 +70,8 @@ Preserve benchmark results outside Git.
 
 ## Automation
 
-CPU test CI remains manual, with only a `workflow_dispatch` trigger.
-Do not run it or enable automatic test runs without maintainer approval.
+CPU tests run automatically on pull requests, pushes to `main`, and version tags.
+Manual dispatch remains available. New PR runs cancel older runs for the same PR.
 
 The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded execution,
 Linux/macOS/Windows.

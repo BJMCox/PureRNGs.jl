@@ -1,6 +1,6 @@
 # PureRNGs.jl
 
-[![Checks: manual](https://img.shields.io/badge/checks-manual-lightgrey.svg)](.github/workflows/CI.yml)
+[![CI](https://github.com/BJMCox/PureRNGs.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/BJMCox/PureRNGs.jl/actions/workflows/CI.yml)
 [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://bjmcox.github.io/PureRNGs.jl/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
