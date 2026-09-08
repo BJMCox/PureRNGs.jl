@@ -16,6 +16,7 @@ makedocs(
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", "false") == "true",
         repolink = "https://github.com/BJMCox/PureRNGs.jl",
+        canonical = "https://bjmcox.github.io/PureRNGs.jl/",
     ),
     pages = [
         "Home" => "index.md",

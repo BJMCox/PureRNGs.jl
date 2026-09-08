@@ -1,15 +1,11 @@
 name: CI
 
-# No automatic runs. Keep CPU CI and publication under maintainer control.
+# CPU tests remain manual. Docs deploy through Docs.yml.
 on:
   workflow_dispatch:
     inputs:
       upload_coverage:
         description: Upload coverage to Codecov after repository setup
-        type: boolean
-        default: false
-      deploy_docs:
-        description: Deploy docs after GitHub Pages setup (main only)
         type: boolean
         default: false
 
@@ -64,48 +60,3 @@ jobs:
           files: lcov.info
           disable_search: true
           fail_ci_if_error: true
-
-  docs:
-    name: Documentation and doctests
-    runs-on: ubuntu-latest
-    env:
-      JULIA_NUM_THREADS: '4'
-    steps:
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: '1'
-      - uses: julia-actions/cache@v3
-      - name: Install package environment
-        run: julia --project -e 'using Pkg; Pkg.instantiate()'
-      - name: Install documentation environment
-        run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
-      - name: Build documentation
-        run: julia --project=docs docs/make.jl
-      - uses: actions/upload-artifact@v7
-        with:
-          name: documentation
-          path: docs/build
-          if-no-files-found: error
-      - uses: actions/upload-pages-artifact@v4
-        if: inputs.deploy_docs && github.ref == 'refs/heads/main'
-        with:
-          path: docs/build
-
-  deploy-docs:
-    name: Deploy documentation
-    if: inputs.deploy_docs && github.ref == 'refs/heads/main'
-    needs: [test, docs]
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    concurrency:
-      group: github-pages
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/deploy-pages@v4
-        id: deployment

@@ -68,22 +68,24 @@ Compare the same workload and hardware against the exact base revision.
 Separate allocation, fills, kernel-local draws, and device transfers.
 Preserve benchmark results outside Git.
 
-## Manual automation
+## Automation
 
-Automatic CI remains disabled. The workflows have only `workflow_dispatch` triggers.
-Do not run them or add push, pull-request, or tag triggers without maintainer approval.
+CPU test CI remains manual, with only a `workflow_dispatch` trigger.
+Do not run it or enable automatic test runs without maintainer approval.
 
 The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded execution,
-Linux/macOS/Windows, and strict documentation builds.
-It retains the built docs as a `documentation` artifact.
+Linux/macOS/Windows.
 
 The current Julia/Linux job collects source coverage and retains `lcov.info` as a `coverage` artifact.
 Its optional Codecov upload uses GitHub OIDC and requires repository setup in Codecov.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
-The optional Pages job requires GitHub Pages configuration and deployment approval.
-It runs only from `main`, after successful tests and docs.
-Until hosting is configured, README links point to the documentation source.
+Documentation builds automatically when docs, source, extensions, the package project,
+or the docs workflow change on `main`. It also supports manual dispatch.
+The strict build runs examples and doctests, then retains a `documentation` artifact.
+Successful builds on `main` deploy to
+[GitHub Pages](https://bjmcox.github.io/PureRNGs.jl/).
+Docs deployment does not run or wait for the package test matrix.
 
 TagBot is also manual-only. Do not dispatch it before release approval.
 

@@ -1,7 +1,7 @@
 # PureRNGs.jl
 
 [![Checks: manual](https://img.shields.io/badge/checks-manual-lightgrey.svg)](.github/workflows/CI.yml)
-[![Docs](https://img.shields.io/badge/docs-source-blue.svg)](docs/src/index.md)
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://bjmcox.github.io/PureRNGs.jl/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 Counter-based random numbers for Julia, with explicit state and CPU/GPU array generation.
@@ -27,11 +27,11 @@ rng, values = rand_next(rng, Float32, 1_000_000) # CuArray
 
 Eight Philox and Threefry families support primitive draws, integer ranges, sampling with replacement, and purpose-based key derivation. Optional extensions cover Distributions, Enzyme, and Reactant.
 
-Start with the [documentation](docs/src/index.md) and [getting started](docs/src/getting-started.md).
+Start with the [documentation](https://bjmcox.github.io/PureRNGs.jl/) and [getting started](docs/src/getting-started.md).
 See [device support](docs/src/manual/devices.md) before choosing a backend.
 
 The package is under development. Install this checkout with `Pkg.develop(path="/path/to/PureRNGs.jl")`.
 
 For benchmarks, open [benchmark/throughput.jl](benchmark/throughput.jl) in a Julia session and choose the device there.
 
-[Documentation](docs/src/index.md) · [Development](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Apache 2.0 license](LICENSE)
+[Documentation](https://bjmcox.github.io/PureRNGs.jl/) · [Development](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) · [Apache 2.0 license](LICENSE)
