@@ -76,7 +76,8 @@ Manual dispatch remains available. New PR runs cancel older runs for the same PR
 The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded execution,
 Linux/macOS/Windows.
 
-The current Julia/Linux job collects source coverage and retains `lcov.info` as a `coverage` artifact.
+The current Julia/Linux job runs the core, Distributions, and Enzyme suites and merges their
+source and extension coverage into `lcov.info`, retained as a `coverage` artifact.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
