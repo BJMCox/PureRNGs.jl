@@ -150,14 +150,15 @@ end
     end
 end
 
+# Specialize the measurement so Julia 1.10 does not box heterogeneous loop results.
+derive_allocations(rng) = (@allocated(splitrng(rng, Val(3))), @allocated(subrng(rng, 42)))
+
 @testset "R30 inference and allocation" begin
     for F in (Philox2x32, Threefry4x64)
         rng = F(123)
         @test @inferred(splitrng(rng, Val(3))) isa NTuple{3,typeof(rng)}
         @test @inferred(subrng(rng, 42)) isa typeof(rng)
-        splitrng(rng, Val(3))
-        subrng(rng, 42)
-        @test @allocated(splitrng(rng, Val(3))) == 0
-        @test @allocated(subrng(rng, 42)) == 0
+        derive_allocations(rng)
+        @test derive_allocations(rng) == (0, 0)
     end
 end

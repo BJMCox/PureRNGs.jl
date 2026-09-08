@@ -21,7 +21,7 @@ function _audit_error(call)
 end
 
 @testset "R1 and R49 closed non-bridge method surface" begin
-    foreign = IdSet{Any}()
+    foreign = Base.IdSet{Any}()
     foreign_functions = Set{Any}()
     for module_ in (Base, Random), name in names(module_; all = true, imported = true)
         isdefined(module_, name) || continue
@@ -164,8 +164,12 @@ end
     cpu = AuditIR.MLDataDevices.CPUDevice()
     device_method = which(cpu, Tuple{R})
     @test device_method.module === AuditIR
-    @test Set(method for method in methods(cpu) if method.module === AuditIR) ==
-          Set((device_method,))
+    # Julia 1.10 also lists the shadowed AbstractDevice fallback.
+    @test Set(
+        method for method in methods(cpu) if method.module === AuditIR &&
+            Base.unwrap_unionall(method.sig).parameters[1] <:
+            AuditIR.MLDataDevices.CPUDevice
+    ) == Set((device_method,))
     @test isempty(Base.kwarg_decl(device_method))
 end
 

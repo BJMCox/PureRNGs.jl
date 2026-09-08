@@ -1,5 +1,10 @@
 const BitsIR = PureRNGs
 
+bits_allocations(rng, family, block) = (
+    @allocated(BitsIR._extract_bits_unchecked(rng, family, block, UInt16(31), Val(64))),
+    @allocated(BitsIR._extract_bits128_unchecked(rng, family, block, UInt16(63))),
+)
+
 const BIT_FAMILIES = (
     Philox2x32(0x1234),
     Philox4x32(0x1234),
@@ -144,14 +149,8 @@ end
             BitsIR._extract_bits128_unchecked(rng, family, block, UInt16(63))
         ) isa Tuple{UInt64,UInt64}
 
-        BitsIR._extract_bits_unchecked(rng, family, block, UInt16(31), Val(64))
-        BitsIR._extract_bits128_unchecked(rng, family, block, UInt16(63))
-        @test @allocated(
-            BitsIR._extract_bits_unchecked(rng, family, block, UInt16(31), Val(64))
-        ) == 0
-        @test @allocated(
-            BitsIR._extract_bits128_unchecked(rng, family, block, UInt16(63))
-        ) == 0
+        bits_allocations(rng, family, block)
+        @test bits_allocations(rng, family, block) == (0, 0)
 
         index_type = typeof(block)
         scalar_ir = sprint(

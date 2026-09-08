@@ -143,6 +143,9 @@ function _positioned(F, seed, block::UInt64, bit::UInt16)
     return IR._rebuild(base, position, base.device)
 end
 
+uniform_allocations(rng, ::Type{T}) where {T} =
+    (@allocated(rand(rng, T)), @allocated(rand_next(rng, T)), @allocated(randat(rng, T, 3)))
+
 function _serial_fill_allocations(rng, destination)
     rand_next!(rng, destination; threaded = false)
     return @allocated rand_next!(rng, destination; threaded = false)
@@ -520,13 +523,9 @@ end
 
         for T in PURE_UNIFORM_TYPES
             destination = Vector{T}(undef, 7)
-            rand(rng, T)
-            rand_next(rng, T)
-            randat(rng, T, 3)
+            uniform_allocations(rng, T)
             rand_next!(rng, destination; threaded = false)
-            @test @allocated(rand(rng, T)) == 0
-            @test @allocated(rand_next(rng, T)) == 0
-            @test @allocated(randat(rng, T, 3)) == 0
+            @test uniform_allocations(rng, T) == (0, 0, 0)
             @test _serial_fill_allocations(rng, destination) == 0
         end
     end

@@ -1,6 +1,9 @@
 using InteractiveUtils: code_llvm
 using Random: rand
 
+integer_allocations(rng, range) =
+    (@allocated(rand(rng, range)), @allocated(rand_next(rng, range)))
+
 const RangeIR = PureRNGs
 const RANGE_INTS = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
 
@@ -307,10 +310,8 @@ end
         )
 
         rng = F(0x556)
-        rand(rng, range)
-        rand_next(rng, range)
-        @test @allocated(rand(rng, range)) == 0
-        @test @allocated(rand_next(rng, range)) == 0
+        integer_allocations(rng, range)
+        @test integer_allocations(rng, range) == (0, 0)
     end
 
     rng = Philox4x64(0x557)

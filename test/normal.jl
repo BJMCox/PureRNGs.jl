@@ -149,6 +149,12 @@ function _reference_normal_chain(rng, ::Type{T}, count::Int) where {T}
     return cursor, values
 end
 
+normal_allocations(rng, ::Type{T}) where {T} = (
+    @allocated(randn(rng, T)),
+    @allocated(randn_next(rng, T)),
+    @allocated(randnat(rng, T, 3)),
+)
+
 function _serial_normal_fill_allocations(rng, destination)
     randn_next!(rng, destination; threaded = false)
     return @allocated randn_next!(rng, destination; threaded = false)
@@ -369,12 +375,8 @@ end
         @test_throws ArgumentError randn(rng)
 
         for T in NORMAL_TYPES
-            randn(rng, T)
-            randn_next(rng, T)
-            randnat(rng, T, 3)
-            @test @allocated(randn(rng, T)) == 0
-            @test @allocated(randn_next(rng, T)) == 0
-            @test @allocated(randnat(rng, T, 3)) == 0
+            normal_allocations(rng, T)
+            @test normal_allocations(rng, T) == (0, 0, 0)
         end
     end
 
