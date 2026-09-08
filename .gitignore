@@ -1,4 +1,6 @@
 Manifest.toml
+*.cov
+lcov.info
 EXECUTION.md
 .worktrees/
 .superpowers/
