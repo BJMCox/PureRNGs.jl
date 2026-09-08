@@ -13,21 +13,28 @@ makedocs(
     linkcheck = true,
     checkdocs = :exports,
     warnonly = false,
-    format = Documenter.HTML(prettyurls = get(ENV, "CI", "false") == "true"),
+    format = Documenter.HTML(
+        prettyurls = get(ENV, "CI", "false") == "true",
+        repolink = "https://github.com/BJMCox/PureRNGs.jl",
+    ),
     pages = [
         "Home" => "index.md",
-        "Tutorials" => [
-            "Immutable workflows" => "tutorials/immutable-workflows.md",
-            "Splitting and devices" => "tutorials/splitting-and-devices.md",
-            "Sampling" => "tutorials/sampling.md",
-            "Stateful interoperability" => "tutorials/stateful-interop.md",
+        "Getting started" => "getting-started.md",
+        "Manual" => [
+            "Generators and streams" => "manual/generators.md",
+            "Arrays and performance" => "manual/arrays.md",
+            "Sampling" => "manual/sampling.md",
+            "Devices" => "manual/devices.md",
+            "Reproducibility" => "manual/reproducibility.md",
         ],
-        "Guides" => [
-            "Device binding" => "guides/devices.md",
-            "Enzyme" => "guides/enzyme.md",
-            "Fixed distributions" => "guides/fixed-distributions.md",
-            "Splitting keys" => "guides/splitting.md",
-            "Reproducibility" => "guides/reproducibility.md",
+        "Tutorials" => [
+            "Parallel jobs" => "tutorials/parallel.md",
+            "GPU kernels" => "tutorials/cuda.md",
+        ],
+        "Integrations" => [
+            "Random" => "integrations/random.md",
+            "Distributions" => "integrations/distributions.md",
+            "Enzyme and Reactant" => "integrations/compilation.md",
         ],
         "API reference" => "api.md",
     ],

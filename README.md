@@ -1,125 +1,48 @@
 # PureRNGs.jl
 
-PureRNGs provides counter-based random number generators for reproducible
-CPU and accelerator code. Each continuing draw returns the advanced generator
-with its result. Array allocation, device placement, and fast fill paths follow
-the generator, with fast defaults and no required tuning.
-
-## Quick start
-
-`Philox4x32` is the recommended default for general use:
+Counter-based random numbers for Julia, with explicit state and CPU/GPU array generation.
 
 ```julia
-using PureRNGs
-using Random
+using PureRNGs, Random
 
-rng = Philox4x32(1234)
-rng, values = rand_next(rng, Float32, 1_000_000)
+rng = Philox4x32(123456)
+rng, values = rand_next(rng, Float32, 1_000)
+rng, more = rand_next(rng, Float32, 1_000)
 ```
 
-`rand_next` returns `(next_rng, value)`. Pass `next_rng` to the next sequential
-draw:
+Continuation draws return a new generator. The original stays unchanged. Bulk draws use the same stream as chained scalar draws.
+
+Bind a generator to a GPU with MLDataDevices:
 
 ```julia
-rng = Philox4x32(1234)
-rng, uniform = rand_next(rng, Float64)
-rng, normal = randn_next(rng, Float64)
-rng, signed = rand_next(rng, Int64)
-rng, exponential = randexp_next(rng, Float64)
+using CUDA, MLDataDevices
+
+rng = Philox4x32(123456) |> CUDADevice()
+rng, values = rand_next(rng, Float32, 1_000_000) # CuArray
 ```
 
-Keeping an older generator is useful when you want to repeat a draw. Reusing it
-by accident repeats the same stream position.
+Eight Philox and Threefry families support primitive draws, integer ranges, sampling with replacement, and purpose-based key derivation. Optional extensions cover Distributions, Enzyme, and Reactant.
 
-Every package-owned draw uses a fixed, input-determined bit span. Generated
-values never trigger rejection or retry, so the next state depends only on the
-requested operation.
+Start with the [documentation](docs/src/index.md) and [getting started](docs/src/getting-started.md).
+See [device support](docs/src/manual/devices.md) before choosing a backend.
 
-For an existing array, use `rand_next!`. CPU fills use the fast threaded path by
-default:
+The package is under development. Install this checkout with `Pkg.develop(path="/path/to/PureRNGs.jl")`.
+
+For benchmarks, open [benchmark/throughput.jl](benchmark/throughput.jl) in a Julia session and choose the device there.
+
+## Build the documentation
+
+From the repository root, run these commands in Julia:
 
 ```julia
-destination = Vector{Float32}(undef, 1_000_000)
-rng, destination = randexp_next!(rng, destination)
+using Pkg
+Pkg.activate(".")
+Pkg.instantiate()
+Pkg.activate("docs")
+Pkg.instantiate()
+include("docs/make.jl")
 ```
 
-`threaded=false` is available as optional advanced CPU control. It is not needed
-for normal use.
+Open `docs/build/index.html`. The build runs CPU examples and checks exported docstrings and links.
 
-## Allocate on a device
-
-Bind the generator to an MLDataDevices device before drawing. Allocating draws
-then create their result directly on that device:
-
-```julia
-using CUDA
-using MLDataDevices
-
-device = MLDataDevices.CUDADevice()
-rng = Philox4x32(1234) |> device
-rng, values = randexp_next(rng, Float32, 1_000_000)
-```
-
-This device-allocating workflow is fully supported on CUDA. AMDGPU is a preview
-backend whose test failures do not block releases. Metal support is experimental
-and limited to a smaller device-executing surface; see
-[Device binding](docs/src/guides/devices.md) for the exact backend tiers and
-Metal exclusions.
-
-## Weighted sampling
-
-Pass weights as a plain vector. No wrapper type or preparation step is required:
-
-```julia
-rng = Philox4x32(1234)
-population = ["red", "green", "blue"]
-weights = [1.0, 2.0, 7.0]
-
-rng, samples = randsample_next(rng, population, weights, 1_000)
-```
-
-## Fixed distributions
-
-Loading Distributions.jl adds direct methods for a small, fixed set of common
-distributions:
-
-```julia
-using Distributions
-
-rng = Philox4x32(1234)
-rng, values = rand_next(rng, Normal(1.0, 2.0), 1_000)
-```
-
-These methods also have pure, addressed, and destination forms. They consume
-one fixed primitive per result and never call an upstream sampler.
-
-## Stateful interoperability
-
-Use `StatefulRNG` when an existing host-side API requires a mutable
-`Random.AbstractRNG`:
-
-```julia
-using Random
-
-mutable_rng = StatefulRNG(Philox4x32(1234))
-values = rand(mutable_rng, Float64, 1_000)
-```
-
-The bridge advances its held immutable generator after each draw.
-
-## Automatic differentiation
-
-Loading Enzyme activates rules for uniform, normal, and exponential fills.
-Immutable generators remain constant inputs while Enzyme differentiates code
-around the generated values. See [Enzyme](docs/src/guides/enzyme.md) for the
-supported fill surface and a complete example.
-
-## Learn more
-
-- [Immutable workflows](docs/src/tutorials/immutable-workflows.md)
-- [Splitting and devices](docs/src/tutorials/splitting-and-devices.md)
-- [Sampling](docs/src/tutorials/sampling.md)
-- [Stateful interoperability](docs/src/tutorials/stateful-interop.md)
-- [Fixed distributions](docs/src/guides/fixed-distributions.md)
-- [Enzyme](docs/src/guides/enzyme.md)
-- [API reference](docs/src/api.md)
+Licensed under Apache-2.0.

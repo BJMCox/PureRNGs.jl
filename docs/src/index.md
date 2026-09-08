@@ -1,35 +1,35 @@
 # PureRNGs.jl
 
-PureRNGs.jl provides counter-based random generators whose state is an
-immutable value. A draw can return the advanced generator with its result, so
-random state stays explicit and easy to split across independent work.
+PureRNGs provides counter-based random numbers with explicit state. Generate arrays on a CPU or GPU, or draw inside your own kernels.
 
-```jldoctest
-julia> using PureRNGs
+```@example home
+using PureRNGs, Random
 
-julia> rng = Philox4x32(123);
-
-julia> next_rng, value = rand_next(rng, Float64);
-
-julia> 0.0 <= value < 1.0
-true
-
-julia> rng == next_rng
-false
+rng = Philox4x32(123456)
+next_rng, values = rand_next(rng, Float32, 4)
+@assert values == rand(rng, Float32, 4)
+values
 ```
 
-Use `rand_next`, `randn_next`, and `randexp_next` when later draws must continue
-from the returned state. Use `rand`, `randn`, and `randexp` when only the value
-matters. Both forms leave the input generator unchanged.
+The draw leaves `rng` unchanged. Use `next_rng` to continue the stream.
 
-Derive generators for independent roles with [`subrng`](@ref), or derive an
-ordered group with [`splitrng`](@ref). Use [`StatefulRNG`](@ref) only when an API
-requires `Random.AbstractRNG`.
+## Start here
 
-Start with [Immutable workflows](tutorials/immutable-workflows.md), then read
-[Splitting and devices](tutorials/splitting-and-devices.md) and
-[Sampling](tutorials/sampling.md). The guides cover
-[fixed distributions](guides/fixed-distributions.md),
-[Enzyme](guides/enzyme.md), and the exact reproducibility contract.
+Read [Getting started](@ref) for the basic workflow.
+Then choose a task:
 
-See the [API reference](@ref) for the exported interface.
+- [Arrays and performance](@ref): fill buffers and control CPU threading.
+- [Sampling](@ref): draw from integer ranges or weighted populations.
+- [Parallel jobs](@ref): assign stable streams to independent work.
+- [GPU kernels](@ref): generate numbers where the computation runs.
+
+## Understand the contract
+
+[Generators and streams](@ref) explains keys, positions, and splitting.
+[Reproducibility](@ref) separates stream guarantees from floating-point differences.
+[Devices](@ref) lists backend support and placement rules.
+
+[Random interoperability](@ref), [Distributions](@ref), and [Differentiation and compilation](@ref) cover optional integrations.
+The [API reference](@ref) lists exported functions.
+
+PureRNGs is not a cryptographic random-number generator.
