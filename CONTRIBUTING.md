@@ -77,7 +77,8 @@ The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded 
 Linux/macOS/Windows.
 
 The current Julia/Linux job collects source coverage and retains `lcov.info` as a `coverage` artifact.
-Its optional Codecov upload uses GitHub OIDC and requires repository setup in Codecov.
+Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
+The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
 Documentation builds automatically when docs, source, extensions, the package project,
@@ -87,7 +88,9 @@ Successful builds on `main` deploy to
 [GitHub Pages](https://bjmcox.github.io/PureRNGs.jl/).
 Docs deployment does not run or wait for the package test matrix.
 
-TagBot is also manual-only. Do not dispatch it before release approval.
+TagBot responds automatically to JuliaTagBot's registry notifications and also supports manual dispatch.
+It creates tags and releases for registered versions. It does not register the package.
+Registration still requires maintainer approval.
 
 ## Before the first release
 

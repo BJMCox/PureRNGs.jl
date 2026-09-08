@@ -3,11 +3,6 @@ name: CI
 # CPU tests remain manual. Docs deploy through Docs.yml.
 on:
   workflow_dispatch:
-    inputs:
-      upload_coverage:
-        description: Upload coverage to Codecov after repository setup
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -54,7 +49,7 @@ jobs:
           path: lcov.info
           if-no-files-found: error
       - uses: codecov/codecov-action@v7
-        if: inputs.upload_coverage && matrix.julia == '1' && matrix.os == 'ubuntu-latest'
+        if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
         with:
           use_oidc: true
           files: lcov.info

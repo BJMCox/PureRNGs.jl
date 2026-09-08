@@ -1,7 +1,8 @@
 name: TagBot
 
-# Keep release automation manual until the maintainer enables it.
 on:
+  issue_comment:
+    types: [created]
   workflow_dispatch:
 
 permissions:
@@ -9,6 +10,7 @@ permissions:
 
 jobs:
   TagBot:
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'JuliaTagBot'
     runs-on: ubuntu-latest
     steps:
       - uses: JuliaRegistries/TagBot@cded32665b34ca0496d3ac10a67d08ddfc726963 # v1.25.11
