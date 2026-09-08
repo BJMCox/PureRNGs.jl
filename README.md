@@ -23,6 +23,8 @@ rng = Philox4x32(123456) |> CUDADevice()
 rng, values = rand_next(rng, Float32, 1_000_000) # CuArray
 ```
 
+Coverage reflects CPU CI only. GPU tests run separately and are not included because hosted CI has no GPU runner.
+
 Portions of the code in this package were generated with the assistance of LLMs.
 
 [Documentation](https://bjmcox.github.io/PureRNGs.jl/) · [Apache 2.0 license](LICENSE)
