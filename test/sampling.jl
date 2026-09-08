@@ -164,6 +164,17 @@ end
     @test next_rng == expected_next
 end
 
+@testset "R58 parallel unweighted samples preserve the scalar stream" begin
+    rng = Philox4x32(0x906)
+    for population in (Int32[2, 7, 19], UInt64(0):(UInt64(1)<<32))
+        expected_next, expected = _chained_unweighted(rng, population, 8193)
+        next_rng, values = randsample_next(rng, population, 8193)
+        sync_cpu()
+        @test values == expected
+        @test next_rng === expected_next
+    end
+end
+
 @testset "R60 validation and atomic preflight" begin
     rng = Philox4x32(0x904)
     empty = Int32[]
