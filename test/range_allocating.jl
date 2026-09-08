@@ -58,7 +58,7 @@ end
 
         rng = _range_positioned(F, 0x65b1, UInt64(11), UInt16(61))
         width = RangeAllocIR._range_bits(length(range) % UInt64)
-        count = Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width)) + 3
+        count = 3 * Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width)) + 3
         expected_next, expected = _chained_range(rng, range, count)
         next_rng, values = rand_next(rng, range, count)
         sync_cpu()
@@ -74,7 +74,7 @@ end
     width = RangeAllocIR._range_bits(length(range) % UInt64)
     chunk_elements = Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width))
 
-    count = chunk_elements + 3
+    count = 3chunk_elements + 3
     expected_next, expected = _chained_range(rng, range, count)
     next_rng, values = rand_next(rng, range, count)
     sync_cpu()

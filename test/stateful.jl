@@ -170,10 +170,10 @@ end
     position = StatefulIR._Position64(StatefulIR._max_block(root), UInt16(0))
     near_last = StatefulIR._rebuild(root, position, root.device)
     expected_rng, expected = rand_next(near_last, range, 2)
-    destination = fill(UInt16(0xdead), 3)
+    destination = fill(UInt16(0xdead), 5)
     mutable_rng = StatefulRNG(near_last)
     @test_throws ArgumentError rand!(mutable_rng, destination, range)
-    @test destination == [expected..., UInt16(0xdead)]
+    @test destination == [expected..., fill(UInt16(0xdead), 3)...]
     @test parent(mutable_rng) === expected_rng
 
     insufficient = StatefulIR._reserve(
