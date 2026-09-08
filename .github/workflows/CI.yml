@@ -51,6 +51,15 @@ jobs:
               'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); include(ARGS[1])' \
               "test/environments/$suite/runtests.jl"
           done
+      - name: Test Reactant CPU with coverage
+        if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
+        env:
+          PURERNGS_REACTANT_BACKEND: cpu
+        run: |
+          julia --startup-file=no --check-bounds=yes --code-coverage=user \
+            --project=test/environments/reactant -e \
+            'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); include(popfirst!(ARGS))' \
+            test/environments/reactant/test/runtests.jl Philox4x32 Threefry4x64
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
         with:

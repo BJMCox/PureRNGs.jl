@@ -78,6 +78,8 @@ Linux/macOS/Windows.
 
 The current Julia/Linux job runs the core, Distributions, and Enzyme suites and merges their
 source and extension coverage into `lcov.info`, retained as a `coverage` artifact.
+It also includes the Reactant CPU suite for Philox4x32 and Threefry4x64.
+Full-family Reactant and GPU validation remain separate release gates.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
