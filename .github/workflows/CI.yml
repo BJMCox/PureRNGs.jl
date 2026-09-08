@@ -42,24 +42,6 @@ jobs:
       - uses: julia-actions/julia-runtest@v1
         with:
           coverage: ${{ matrix.julia == '1' && matrix.os == 'ubuntu-latest' }}
-      - name: Test CPU extensions with coverage
-        if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
-        run: |
-          for suite in distributions enzyme; do
-            julia --startup-file=no --check-bounds=yes --code-coverage=user \
-              --project="test/environments/$suite" -e \
-              'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); include(ARGS[1])' \
-              "test/environments/$suite/runtests.jl"
-          done
-      - name: Test Reactant CPU with coverage
-        if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
-        env:
-          PURERNGS_REACTANT_BACKEND: cpu
-        run: |
-          julia --startup-file=no --check-bounds=yes --code-coverage=user \
-            --project=test/environments/reactant -e \
-            'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); include(popfirst!(ARGS))' \
-            test/environments/reactant/test/runtests.jl Philox4x32 Threefry4x64
       - uses: julia-actions/julia-processcoverage@v1
         if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
         with:
@@ -67,11 +49,54 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
         with:
-          name: coverage
+          name: coverage-core
           path: lcov.info
           if-no-files-found: error
       - uses: codecov/codecov-action@v7
         if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
+        with:
+          use_oidc: true
+          files: lcov.info
+          disable_search: true
+          fail_ci_if_error: true
+
+  extensions:
+    name: Extension / ${{ matrix.suite }} / CPU
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {suite: distributions, entry: runtests.jl, args: ''}
+          - {suite: enzyme, entry: runtests.jl, args: ''}
+          - {suite: reactant, entry: test/runtests.jl, args: 'Philox4x32 Threefry4x64'}
+    env:
+      JULIA_NUM_THREADS: '4'
+      PURERNGS_REACTANT_BACKEND: cpu
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Test extension with coverage
+        run: |
+          julia --startup-file=no --check-bounds=yes --code-coverage=user \
+            --project=test/environments/${{ matrix.suite }} -e \
+            'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); include(popfirst!(ARGS))' \
+            test/environments/${{ matrix.suite }}/${{ matrix.entry }} ${{ matrix.args }}
+      - uses: julia-actions/julia-processcoverage@v1
+        with:
+          directories: src,ext
+      - uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.suite }}
+          path: lcov.info
+          if-no-files-found: error
+      - uses: codecov/codecov-action@v7
         with:
           use_oidc: true
           files: lcov.info

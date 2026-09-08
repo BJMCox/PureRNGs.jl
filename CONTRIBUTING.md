@@ -76,9 +76,10 @@ Manual dispatch remains available. New PR runs cancel older runs for the same PR
 The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded execution,
 Linux/macOS/Windows.
 
-The current Julia/Linux job runs the core, Distributions, and Enzyme suites and merges their
-source and extension coverage into `lcov.info`, retained as a `coverage` artifact.
-It also includes the Reactant CPU suite for Philox4x32 and Threefry4x64.
+The current Julia/Linux core job and independent Distributions, Enzyme, and Reactant CPU jobs
+each upload source and extension coverage to Codecov, which merges their reports.
+Each job retains its `lcov.info` in a separate `coverage-*` artifact.
+The Reactant job tests Philox4x32 and Threefry4x64.
 Full-family Reactant and GPU validation remain separate release gates.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
