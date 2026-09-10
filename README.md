@@ -8,6 +8,10 @@
 Counter-based random numbers for Julia, with explicit state and CPU/GPU array generation.
 Eight Philox and Threefry families support uniform, normal, and exponential draws, integer ranges, weighted sampling, and key splitting.
 
+Like [Random123.jl](https://github.com/JuliaRandom/Random123.jl), this package implements the Random123 Philox and Threefry algorithms.
+PureRNGs does not depend on Random123.jl. Its focus is immutable state, explicit stream continuation, and CPU/GPU generation through one interface.
+See [Choosing an RNG](https://bjmcox.github.io/PureRNGs.jl/integrations/random/#Choosing-an-RNG) for the interface differences.
+
 ```julia
 using PureRNGs, Random
 

@@ -2,14 +2,21 @@
 
 ## Install
 
-The package is under development. For a local checkout, run:
+Use Julia 1.10 or later. Once the package is registered in General, install it by name:
 
 ```julia
 using Pkg
-Pkg.develop(path="/path/to/PureRNGs.jl")
+Pkg.add("PureRNGs")
 ```
 
-Use Julia 1.10 or later. Load `Random` for Julia's standard sampling function names.
+While registration is pending, or to use the development version, install from the repository:
+
+```julia
+using Pkg
+Pkg.add(url="https://github.com/BJMCox/PureRNGs.jl")
+```
+
+Load `Random` for Julia's standard sampling function names.
 
 ## Continue a stream
 

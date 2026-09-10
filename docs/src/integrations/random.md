@@ -1,5 +1,17 @@
 # Random interoperability
 
+## Choosing an RNG
+
+| Interface | State and draws | Main use |
+|:----------|:----------------|:---------|
+| Julia's [`Random.Xoshiro`](https://docs.julialang.org/en/v1/stdlib/Random/#Random.Xoshiro) | `rand(rng, ...)` updates a mutable RNG. | General-purpose CPU sampling through Julia's standard interface. |
+| [Random123.jl](https://github.com/JuliaRandom/Random123.jl) | Mutable Philox/Threefry RNGs support `rand` and `set_counter!`. Stateless `philox` and `threefry` functions also expose the core algorithms. | Counter-based generators through the standard RNG interface or direct key/counter calls. |
+| PureRNGs.jl | `rand_next(rng, ...)` returns the next immutable state and the result. `rand(rng, ...)` leaves the state unchanged. | Explicit stream ownership and CPU/GPU array or kernel generation. |
+
+PureRNGs implements the same Philox and Threefry core algorithms independently, without a dependency on Random123.jl.
+The packages do not promise identical streams from the same seed: seed handling, counter layout, and conversion to sampled values are separate contracts.
+Use `StatefulRNG` when a consumer needs a mutable `AbstractRNG`, as shown below.
+
 ## Wrap state for existing Julia code
 
 ```@example bridge
