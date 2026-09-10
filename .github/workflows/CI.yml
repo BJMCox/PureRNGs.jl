@@ -70,9 +70,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suite: distributions, entry: runtests.jl, args: ''}
-          - {suite: enzyme, entry: runtests.jl, args: ''}
-          - {suite: reactant, entry: test/runtests.jl, args: 'Philox4x32 Threefry4x64'}
+          - {suite: distributions, entry: runtests.jl, args: '', julia: '1'}
+          # Enzyme 0.13 asserts VERSION < 1.13 in its compiler, so this suite stays on 1.12.
+          - {suite: enzyme, entry: runtests.jl, args: '', julia: '1.12'}
+          - {suite: reactant, entry: test/runtests.jl, args: 'Philox4x32 Threefry4x64', julia: '1'}
     env:
       JULIA_NUM_THREADS: '4'
       PURERNGS_REACTANT_BACKEND: cpu
@@ -80,7 +81,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
+          version: ${{ matrix.julia }}
       - uses: julia-actions/cache@v3
       - name: Test extension with coverage
         run: |
