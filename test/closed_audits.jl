@@ -3,7 +3,7 @@ using Random
 const AuditIR = PureRNGs
 
 _audit_methods(f) = [method for method in methods(f) if method.module === AuditIR]
-function _immutable_audit_methods(function_)
+function _pure_audit_methods(function_)
     return filter(_audit_methods(function_)) do method
         signature = Base.unwrap_unionall(method.sig)
         length(signature.parameters) >= 2 || return false
@@ -124,19 +124,19 @@ end
     for function_ in owned_functions
         methods_ =
             function_ in (rand, rand!, randn, randn!, randexp, randexp!) ?
-            _immutable_audit_methods(function_) : _audit_methods(function_)
+            _pure_audit_methods(function_) : _audit_methods(function_)
         @test Set(methods_) == required[function_]
     end
     @test all(
         Base.unwrap_unionall(method.sig).parameters[2] <: AuditIR.AbstractPureRNG for
         function_ in (rand, rand!, randn, randn!, randexp, randexp!) for
-        method in _immutable_audit_methods(function_)
+        method in _pure_audit_methods(function_)
     )
     @test all(
         Base.kwarg_decl(method) == [:threaded] for
         function_ in (rand!, rand_next!, randn!, randn_next!, randexp!, randexp_next!) for
         method in (
-            function_ in (rand!, randn!, randexp!) ? _immutable_audit_methods(function_) :
+            function_ in (rand!, randn!, randexp!) ? _pure_audit_methods(function_) :
             _audit_methods(function_)
         )
     )
@@ -156,7 +156,7 @@ end
             randsample,
             randsample_next,
         ) for method in (
-            function_ in (rand, randn, randexp) ? _immutable_audit_methods(function_) :
+            function_ in (rand, randn, randexp) ? _pure_audit_methods(function_) :
             _audit_methods(function_)
         )
     )

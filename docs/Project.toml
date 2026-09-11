@@ -1,5 +1,6 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+PureRNGs = "2ccaadc3-3d9a-45d4-a2ec-95a2424790b7"
 
 [compat]
 Documenter = "1"

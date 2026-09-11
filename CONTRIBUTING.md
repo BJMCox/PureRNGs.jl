@@ -85,16 +85,10 @@ Every successful coverage run uploads to Codecov using GitHub OIDC, without an o
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
-Documentation builds automatically when docs, source, extensions, the package project,
-or the docs workflow change on `main`. It also supports manual dispatch.
-The strict build runs examples and doctests, then retains a `documentation` artifact.
-Successful builds on `main` deploy to
-[GitHub Pages](https://bjmcox.github.io/PureRNGs.jl/).
-Docs deployment does not run or wait for the package test matrix.
-
-TagBot responds automatically to JuliaTagBot's registry notifications and also supports manual dispatch.
-It creates tags and releases for registered versions. It does not register the package.
-Registration still requires maintainer approval.
+Automatic CI and documentation runs are disabled while the repository is private.
+Both workflows support manual dispatch only.
+TagBot is removed. The package is not registered and must not be registered
+while the repository is private.
 
 ## Before the first release
 

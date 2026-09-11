@@ -117,11 +117,11 @@ function _distribution_kernel!(values, state, rng, distribution)
     return nothing
 end
 
-function _immutable_fill_result!(fill_function, rng, destination)
+function _pure_fill_result!(fill_function, rng, destination)
     return fill_function(rng, destination; threaded = true)
 end
 
-function _immutable_fill_objective!(fill_function, rng, destination, scale)
+function _pure_fill_objective!(fill_function, rng, destination, scale)
     result = fill_function(rng, destination; threaded = true)
     values = result isa Tuple ? result[2] : result
     return scale * sum(values)
@@ -353,7 +353,7 @@ if AMDGPU.functional()
                 shadow = AMDGPU.fill(T(4), 17)
                 shadow_result, primal_result = autodiff(
                     ForwardWithPrimal,
-                    _immutable_fill_result!,
+                    _pure_fill_result!,
                     Duplicated,
                     Const(function_under_test),
                     Const(rng),
@@ -379,7 +379,7 @@ if AMDGPU.functional()
             reverse_derivative = only(
                 autodiff(
                     Reverse,
-                    _immutable_fill_objective!,
+                    _pure_fill_objective!,
                     Active,
                     Const(next_fill_function),
                     Const(rng),
@@ -397,7 +397,7 @@ if AMDGPU.functional()
             batched_derivative = only(
                 autodiff(
                     Forward,
-                    _immutable_fill_objective!,
+                    _pure_fill_objective!,
                     Const(next_fill_function),
                     Const(rng),
                     BatchDuplicated(batched_values, (shadow_one, shadow_two)),

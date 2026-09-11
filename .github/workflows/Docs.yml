@@ -1,14 +1,7 @@
 name: Documentation
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'docs/**'
-      - 'src/**'
-      - 'ext/**'
-      - 'Project.toml'
-      - '.github/workflows/Docs.yml'
+  # Automatic runs are disabled while the repository is private. Trigger manually if needed.
   workflow_dispatch:
 
 permissions:

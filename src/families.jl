@@ -1,7 +1,7 @@
 """
     AbstractPureRNG
 
-The sole abstract supertype of PureRNGs' immutable generators. It supports
+The sole abstract supertype of PureRNGs' generators. It supports
 dispatch and inspection only; the eight package families are the complete
 supported direct subtype set.
 """
