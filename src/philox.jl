@@ -59,25 +59,39 @@ end
     )
 end
 
-@inline function _philox2x32_impl(ctr, key)
-    for round = 1:10
-        ctr = _philox2x32_round(ctr, key)
-        round == 10 || (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),))
-    end
-    return ctr
-end
+# Round counts follow Random123: ten rounds by default, and the reduced counts
+# that still pass BigCrush for the round-reduced generators. Every round except
+# the last bumps the key by the Weyl constants.
+const _PHILOX_DEFAULT_ROUNDS = 10
 
+@inline _philox2x32_bump(key) = (_core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),)
 @inline _philox4x32_bump(key) = (
     _core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),
     _core_add(key[2], _core_constant(key[2], _PHILOX_W32_1)),
 )
+@inline _philox2x64_bump(key) = (_core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),)
+@inline _philox4x64_bump(key) = (
+    _core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),
+    _core_add(key[2], _core_constant(key[2], _PHILOX_W64_1)),
+)
 
-@inline function _philox4x32_impl(ctr, key)
-    for round = 1:10
-        ctr = _philox4x32_round(ctr, key)
-        round == 10 || (key = _philox4x32_bump(key))
+for (core, round, bump) in (
+    (:_philox2x32, :_philox2x32_round, :_philox2x32_bump),
+    (:_philox4x32, :_philox4x32_round, :_philox4x32_bump),
+    (:_philox2x64, :_philox2x64_round, :_philox2x64_bump),
+    (:_philox4x64, :_philox4x64_round, :_philox4x64_bump),
+)
+    @eval begin
+        @inline function $core(ctr::NTuple{N,T}, key::NTuple{K,T}, ::Val{R}) where {N,K,T,R}
+            for r = 1:R
+                ctr = $round(ctr, key)
+                r == R || (key = $bump(key))
+            end
+            return ctr
+        end
+        @inline $core(ctr::NTuple{N,T}, key::NTuple{K,T}) where {N,K,T} =
+            $core(ctr, key, Val(_PHILOX_DEFAULT_ROUNDS))
     end
-    return ctr
 end
 
 @inline function _philox4x32_blocks4(
@@ -86,51 +100,14 @@ end
     c::NTuple{4,UInt32},
     d::NTuple{4,UInt32},
     key::NTuple{2,UInt32},
-)
-    Base.Cartesian.@nexprs 10 i -> begin
+    ::Val{R},
+) where {R}
+    Base.Cartesian.@nexprs 10 i -> if i <= R
         a = _philox4x32_round(a, key)
         b = _philox4x32_round(b, key)
         c = _philox4x32_round(c, key)
         d = _philox4x32_round(d, key)
-        i < 10 && (key = _philox4x32_bump(key))
+        i < R && (key = _philox4x32_bump(key))
     end
     return a, b, c, d
 end
-
-@inline function _philox2x64_impl(ctr, key)
-    for round = 1:10
-        ctr = _philox2x64_round(ctr, key)
-        round == 10 || (key = (_core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),))
-    end
-    return ctr
-end
-
-@inline function _philox4x64_impl(ctr, key)
-    for round = 1:10
-        ctr = _philox4x64_round(ctr, key)
-        round == 10 || (
-            key = (
-                _core_add(key[1], _core_constant(key[1], _PHILOX_W64_0)),
-                _core_add(key[2], _core_constant(key[2], _PHILOX_W64_1)),
-            )
-        )
-    end
-    return ctr
-end
-
-@inline _philox2x32(ctr::NTuple{2,UInt32}, key::NTuple{1,UInt32}) =
-    _philox2x32_impl(ctr, key)
-@inline _philox2x32(ctr::NTuple{2,T}, key::NTuple{1,T}) where {T<:_CoreWord{32}} =
-    _philox2x32_impl(ctr, key)
-@inline _philox4x32(ctr::NTuple{4,UInt32}, key::NTuple{2,UInt32}) =
-    _philox4x32_impl(ctr, key)
-@inline _philox4x32(ctr::NTuple{4,T}, key::NTuple{2,T}) where {T<:_CoreWord{32}} =
-    _philox4x32_impl(ctr, key)
-@inline _philox2x64(ctr::NTuple{2,UInt64}, key::NTuple{1,UInt64}) =
-    _philox2x64_impl(ctr, key)
-@inline _philox2x64(ctr::NTuple{2,T}, key::NTuple{1,T}) where {T<:_CoreWord{64}} =
-    _philox2x64_impl(ctr, key)
-@inline _philox4x64(ctr::NTuple{4,UInt64}, key::NTuple{2,UInt64}) =
-    _philox4x64_impl(ctr, key)
-@inline _philox4x64(ctr::NTuple{4,T}, key::NTuple{2,T}) where {T<:_CoreWord{64}} =
-    _philox4x64_impl(ctr, key)

@@ -12,13 +12,13 @@ function _launch_uniform!(
     chunk_elements = _dense_fill_chunk_elements(T)
     workitems = cld(length(destination), chunk_elements)
     if workitems < _CPU_FILL_MIN_WORKITEMS
-        _uniform_fill_dense_serial_kernel!(backend)(rng, destination, T; ndrange = 1)
+        _uniform_fill_dense_serial_kernel!(backend)(rng, destination, Val(T); ndrange = 1)
         return destination
     end
     _uniform_fill_dense_kernel!(backend)(
         rng,
         destination,
-        T,
+        Val(T),
         chunk_elements;
         ndrange = workitems,
         workgroupsize = 1,
@@ -27,24 +27,24 @@ function _launch_uniform!(
 end
 
 @inline function _fill_uniform_prevalidated!(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _draw_bits(T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
-    isempty(destination) && return next_rng, destination
+    isempty(destination) && return destination, next_rng
     if !threaded && rng.device isa _CPUBackend
         _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
-        return next_rng, destination
+        return destination, next_rng
     end
     backend = _fill_backend(destination)
     _launch_uniform!(backend, rng, destination, T)
-    return next_rng, destination
+    return destination, next_rng
 end
 
 @inline function _rand_next_fill!(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
@@ -56,16 +56,16 @@ end
 for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
         @inline function Random.rand!(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
             threaded::Bool = true,
         )
-            _, result = _rand_next_fill!(rng, destination, threaded)
+            result, _ = _rand_next_fill!(rng, destination, threaded)
             return result
         end
 
         @inline function rand_next!(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
             threaded::Bool = true,
         )
@@ -75,7 +75,7 @@ for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 end
 
 @doc """
-    rand_next!(rng, destination; threaded=true) -> (next_rng, destination)
+    rand_next!(rng, destination; threaded=true) -> (destination, next_rng)
 
 Fill `destination` from `rng` and return the advanced immutable generator with
 the same destination. The destination element type must be `Bool`, `UInt32`,
@@ -97,7 +97,7 @@ end
 end
 
 @inline function _addressed_rng_device(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     width::UInt16,
     i::_AddressIndex64,
 )
@@ -112,12 +112,12 @@ end
     return _rebuild(rng, position, rng.device)
 end
 
-@inline _addressed_rng(rng::_Position64Family, width::UInt16, i::_AddressIndex64) =
+@inline _addressed_rng(rng::_Position64Generators, width::UInt16, i::_AddressIndex64) =
     _addressed_rng_device(rng, width, i)
-@inline _addressed_rng(rng::_Position128Family, width::UInt16, i::_AddressIndex64) =
+@inline _addressed_rng(rng::_Position128Generators, width::UInt16, i::_AddressIndex64) =
     _addressed_rng_device(rng, width, i)
 
-@noinline function _addressed_rng(rng::_Position64Family, width::UInt16, i::Integer)
+@noinline function _addressed_rng(rng::_Position64Generators, width::UInt16, i::Integer)
     i < 1 && _invalid_address_index()
     _, valid = _try_advance(rng, UInt64(0), UInt64(0))
     valid || _address_capacity_error()
@@ -131,7 +131,7 @@ end
     return _rebuild(rng, _Position64(UInt64(block), UInt16(bit)), rng.device)
 end
 
-@noinline function _addressed_rng(rng::_Position128Family, width::UInt16, i::Integer)
+@noinline function _addressed_rng(rng::_Position128Generators, width::UInt16, i::Integer)
     i < 1 && _invalid_address_index()
     _, valid = _try_advance(rng, UInt64(0), UInt64(0))
     valid || _address_capacity_error()
@@ -151,7 +151,7 @@ end
 
 for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
-        @inline randat(rng::_ScalarUniformFamily, ::Type{$T}, i::Integer) =
+        @inline randat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
             _draw_unchecked(_addressed_rng(rng, _draw_bits($T), i), $T)
     end
 end
@@ -164,5 +164,5 @@ Return the `i`th uniform draw at or after the current position of `rng`, where
 `UInt64`, `Int64`, `Float32`, and `Float64`.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
-positive or the addressed draw exceeds the family's counter capacity.
+positive or the addressed draw exceeds the generator's counter capacity.
 """ randat

@@ -5,7 +5,7 @@ import PureRNGs
 import KernelAbstractions
 
 const IR = PureRNGs
-const _CUDAFamily = IR._BackendFamily{IR._CUDABackend}
+const _CUDAGenerators = IR._BackendGenerators{IR._CUDABackend}
 const _CUDAPhilox4x32 = IR.Philox4x32{IR._CUDABackend}
 const _CUDAThreefry4x32 = IR.Threefry4x32{IR._CUDABackend}
 const _CUDAPhilox2x64 = IR.Philox2x64{IR._CUDABackend}
@@ -19,10 +19,12 @@ const _CUDANonNatural128 = Union{
     IR.Threefry2x32{IR._CUDABackend},
     IR.Threefry2x64{IR._CUDABackend},
     IR.Threefry4x64{IR._CUDABackend},
+    IR.ChaCha{IR._CUDABackend},
 }
 const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32}
-# A100 trials retain only families where cooperative stores beat grouped fills.
-const _CUDAPackedIntegerFamily = Union{_CUDAPhilox2x64,_CUDAPhilox4x64,_CUDAThreefry4x64}
+# A100 trials retain only generators where cooperative stores beat grouped fills.
+const _CUDAPackedIntegerGenerators =
+    Union{_CUDAPhilox2x64,_CUDAPhilox4x64,_CUDAThreefry4x64}
 const _CUDA_FILL_THREADS = 256
 const _CUDA_WEIGHT_FOLD_LANES = 1024
 # Large-fill benchmarks select this multiple of the device thread-capacity block count.
@@ -81,13 +83,13 @@ end
 
 @inline IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
-    ::_CUDAPackedIntegerFamily,
+    ::_CUDAPackedIntegerGenerators,
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:cooperative), _packed_integer_plan(T)...)
 
 @inline function IR._device_uniform_fill_plan(
     ::CUDA.CUDABackend,
-    rng::_CUDAFamily,
+    rng::_CUDAGenerators,
     ::Type{T},
 ) where {T}
     cooperative = IR._cooperative_uniform_fill(rng, T)
@@ -128,7 +130,7 @@ end
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
-    rng::_CUDAFamily,
+    rng::_CUDAGenerators,
     destination,
     ::Type{T},
     codec::_CUDAPackedCodec,
@@ -193,39 +195,41 @@ end
     return destination
 end
 
-@inline _natural128_packed(limbs, ::Type{UInt32}) = (
-    VecElement((limbs[1] >> 32) % UInt32),
-    VecElement(limbs[1] % UInt32),
-    VecElement((limbs[2] >> 32) % UInt32),
-    VecElement(limbs[2] % UInt32),
+@inline _natural128_packed(block_words, ::Type{UInt32}) = (
+    VecElement((block_words[1] >> 32) % UInt32),
+    VecElement(block_words[1] % UInt32),
+    VecElement((block_words[2] >> 32) % UInt32),
+    VecElement(block_words[2] % UInt32),
 )
 
-@inline _natural128_packed(limbs, ::Type{UInt64}) = (
-    VecElement(limbs[1] % UInt32),
-    VecElement((limbs[1] >> 32) % UInt32),
-    VecElement(limbs[2] % UInt32),
-    VecElement((limbs[2] >> 32) % UInt32),
+@inline _natural128_packed(block_words, ::Type{UInt64}) = (
+    VecElement(block_words[1] % UInt32),
+    VecElement((block_words[1] >> 32) % UInt32),
+    VecElement(block_words[2] % UInt32),
+    VecElement((block_words[2] >> 32) % UInt32),
 )
 
-@inline _natural128_packed(limbs, ::Type{Int32}) = _natural128_packed(limbs, UInt32)
-@inline _natural128_packed(limbs, ::Type{Int64}) = _natural128_packed(limbs, UInt64)
+@inline _natural128_packed(block_words, ::Type{Int32}) =
+    _natural128_packed(block_words, UInt32)
+@inline _natural128_packed(block_words, ::Type{Int64}) =
+    _natural128_packed(block_words, UInt64)
 
-@inline _natural128_packed(limbs, ::Type{_CUDANatural128Pack{T}}) where {T} =
-    _CUDANatural128Pack{T}(_natural128_packed(limbs, T))
+@inline _natural128_packed(block_words, ::Type{_CUDANatural128Pack{T}}) where {T} =
+    _CUDANatural128Pack{T}(_natural128_packed(block_words, T))
 
 KernelAbstractions.@kernel function _natural128_packed_kernel!(
     rng,
     destination,
-    ::Type{D},
+    ::Val{D},
 ) where {D}
     destination = reinterpret(D, vec(destination))
     index = KernelAbstractions.@index(Global, Linear)
     stride = KernelAbstractions.@ndrange()[1]
     while index <= length(destination)
-        limbs =
-            IR._stream_limbs(rng, IR.FAMILY_BITS, rng.position.block + UInt64(index - 1))
+        block_words =
+            IR._block_words(rng, rng.position.block + UInt64(index - 1))
         # VecElement lanes follow the result type's little-endian memory order.
-        @inbounds destination[index] = _natural128_packed(limbs, eltype(destination))
+        @inbounds destination[index] = _natural128_packed(block_words, eltype(destination))
         index += stride
     end
 end
@@ -249,7 +253,7 @@ end
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
-    rng::_CUDAFamily,
+    rng::_CUDAGenerators,
     destination,
     ::Type{Bool},
     codec::Val{:uniform},
@@ -312,7 +316,7 @@ end
     _natural128_packed_kernel!(backend)(
         rng,
         destination,
-        storage_type;
+        Val(storage_type);
         ndrange = blocks * _CUDA_FILL_THREADS,
         workgroupsize = _CUDA_FILL_THREADS,
     )
@@ -321,7 +325,7 @@ end
 
 @inline function IR._device_normal_fill_plan(
     ::CUDA.CUDABackend,
-    rng::_CUDAFamily,
+    rng::_CUDAGenerators,
     ::Type{T},
 ) where {T}
     cooperative = IR._cooperative_normal_fill(rng, T)
@@ -338,7 +342,7 @@ end
 @inline function IR._transformed_fill_plan(
     ::IR._CUDABackend,
     backend::CUDA.CUDABackend,
-    rng::_CUDAFamily,
+    rng::_CUDAGenerators,
     ::Type{T},
 ) where {T<:Union{Float32,Float64}}
     return IR._device_uniform_fill_plan(backend, rng, T)
@@ -346,7 +350,7 @@ end
 
 @inline function IR._device_range_fill_plan(
     ::CUDA.CUDABackend,
-    rng::_CUDAFamily,
+    rng::_CUDAGenerators,
     span::UInt64,
 )
     return IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
@@ -414,7 +418,7 @@ KernelAbstractions.@kernel function _prepare_weights_cuda_fold_kernel!(
     end
 end
 
-function IR._prepare_weight_scan(rng::_CUDAFamily, weights, agnostic::Bool)
+function IR._prepare_weight_scan(rng::_CUDAGenerators, weights, agnostic::Bool)
     source =
         agnostic ? IR._transfer_weights(rng.device, IR._collect_weights(weights)) : weights
     cumulative = IR._allocate_array(rng.device, Float64, (length(source),))

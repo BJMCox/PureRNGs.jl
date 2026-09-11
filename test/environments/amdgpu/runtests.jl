@@ -7,7 +7,7 @@ using Random
 using Test
 
 const IR = PureRNGs
-const AMDGPU_FAMILIES = (
+const AMDGPU_GENERATORS = (
     Philox2x32,
     Philox4x32,
     Philox2x64,
@@ -16,6 +16,7 @@ const AMDGPU_FAMILIES = (
     Threefry4x32,
     Threefry2x64,
     Threefry4x64,
+    ChaCha,
 )
 function _fixed_distributions(::Type{T}) where {T}
     return (
@@ -36,7 +37,6 @@ _result_type(::DiscreteUniform) = Int
 @inline function _exponential_raw(rng, ::Type{Float32})
     return IR._extract_bits_unchecked(
         rng,
-        IR.FAMILY_EXP,
         IR._position_block(rng.position),
         rng.position.bit,
         Val(24),
@@ -46,7 +46,6 @@ end
 @inline function _exponential_raw(rng, ::Type{Float64})
     return IR._extract_bits_unchecked(
         rng,
-        IR.FAMILY_EXP,
         IR._position_block(rng.position),
         rng.position.bit,
         Val(53),
@@ -68,10 +67,10 @@ end
 
 function _signed_exponential_kernel!(signed32, signed64, exp32, exp64, raw, states, rng)
     if AMDGPU.workitemIdx().x == 1
-        next_signed32, continued_signed32 = rand_next(rng, Int32)
-        next_signed64, continued_signed64 = rand_next(rng, Int64)
-        next_exp32, continued_exp32 = randexp_next(rng, Float32)
-        next_exp64, continued_exp64 = randexp_next(rng, Float64)
+        continued_signed32, next_signed32 = rand_next(rng, Int32)
+        continued_signed64, next_signed64 = rand_next(rng, Int64)
+        continued_exp32, next_exp32 = randexp_next(rng, Float32)
+        continued_exp64, next_exp64 = randexp_next(rng, Float64)
         @inbounds begin
             signed32[1] = rand(rng, Int32)
             signed32[2] = continued_signed32
@@ -104,7 +103,7 @@ end
 
 function _distribution_kernel!(values, state, rng, distribution)
     if AMDGPU.workitemIdx().x == 1
-        next_rng, continued = rand_next(rng, distribution)
+        continued, next_rng = rand_next(rng, distribution)
         @inbounds begin
             values[1] = rand(rng, distribution)
             values[2] = continued
@@ -182,10 +181,10 @@ function _check_distribution_preview(F, distribution, active_device)
     )
 
     values = rand(rng, distribution, 5)
-    next_rng, continued = rand_next(rng, distribution, 5)
+    continued, next_rng = rand_next(rng, distribution, 5)
     destination = similar(continued)
-    fill_next, returned = rand_next!(rng, distribution, destination)
-    scalar_next, _ = rand_next(rng, distribution)
+    returned, fill_next = rand_next!(rng, distribution, destination)
+    _, scalar_next = rand_next(rng, distribution)
     host_values = Array(values)
     @test values isa AMDGPU.ROCArray{T,1}
     @test continued isa AMDGPU.ROCArray{T,1}
@@ -199,7 +198,7 @@ function _check_distribution_preview(F, distribution, active_device)
     @test next_rng.position == fill_next.position
 
     if distribution isa Union{Uniform,Bernoulli,DiscreteUniform}
-        expected_next, expected = rand_next(cpu_rng, distribution, 5)
+        expected, expected_next = rand_next(cpu_rng, distribution, 5)
         @test host_values == expected
         @test next_rng.position == expected_next.position
     end
@@ -207,7 +206,7 @@ function _check_distribution_preview(F, distribution, active_device)
 end
 
 @testset "R37 AMDGPU public host surface" begin
-    for F in AMDGPU_FAMILIES
+    for F in AMDGPU_GENERATORS
         cpu_rng = F(0x814)
         rng = AMDGPUDevice(:discarded)(cpu_rng)
         @test rng.device === IR._AMDGPU_BACKEND
@@ -228,13 +227,13 @@ if AMDGPU.functional()
     @info "AMDGPU preview software identity" identity = _software_identity()
 
     @testset "R39 AMDGPU allocation smoke" begin
-        for F in AMDGPU_FAMILIES,
+        for F in AMDGPU_GENERATORS,
             T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 
             cpu_rng = F(0x815)
             rng = AMDGPUDevice()(cpu_rng)
-            next_rng, values = IR.rand_next(rng, T, 17)
-            expected_next, expected = IR.rand_next(cpu_rng, T, 17)
+            values, next_rng = IR.rand_next(rng, T, 17)
+            expected, expected_next = IR.rand_next(cpu_rng, T, 17)
             @test values isa AMDGPU.ROCArray{T,1}
             @test Array(values) == expected
             @test next_rng.position == expected_next.position
@@ -244,16 +243,16 @@ if AMDGPU.functional()
         rng = AMDGPUDevice()(cpu_rng)
         population = Int32[11, 12, 13, 14]
         weights = Float64[1, 0, 4, 2]
-        next_rng, values =
+        values, next_rng =
             randsample_next(rng, AMDGPU.ROCArray(population), AMDGPU.ROCArray(weights), 9)
-        expected_next, expected = randsample_next(cpu_rng, population, weights, 9)
+        expected, expected_next = randsample_next(cpu_rng, population, weights, 9)
         @test values isa AMDGPU.ROCArray{Int32,1}
         @test Array(values) == expected
         @test next_rng.position == expected_next.position
     end
 
     @testset "R25, R30, R43, and R63 AMDGPU signed and exponential probes" begin
-        for F in AMDGPU_FAMILIES
+        for F in AMDGPU_GENERATORS
             cpu_rng = F(0x816)
             rng = AMDGPUDevice()(cpu_rng)
             signed32 = AMDGPU.ROCArray{Int32}(undef, 4)
@@ -275,7 +274,7 @@ if AMDGPU.functional()
 
             for (T, values) in ((Int32, signed32), (Int64, signed64))
                 U = unsigned(T)
-                next_unsigned, continued_unsigned = rand_next(cpu_rng, U)
+                continued_unsigned, next_unsigned = rand_next(cpu_rng, U)
                 expected = T[
                     reinterpret(T, rand(cpu_rng, U)),
                     reinterpret(T, continued_unsigned),
@@ -283,8 +282,8 @@ if AMDGPU.functional()
                     reinterpret(T, randat(cpu_rng, U, 1)),
                 ]
                 @test Array(values) == expected
-                next_rng, allocated = rand_next(rng, T, 17)
-                expected_next, expected_allocated = rand_next(cpu_rng, T, 17)
+                allocated, next_rng = rand_next(rng, T, 17)
+                expected_allocated, expected_next = rand_next(cpu_rng, T, 17)
                 @test allocated isa AMDGPU.ROCArray{T,1}
                 @test _device_id(allocated) == active_device
                 @test Array(allocated) == expected_allocated
@@ -298,7 +297,7 @@ if AMDGPU.functional()
                 (6, randexp_next, Float32),
                 (9, randexp_next, Float64),
             )
-                next_rng, _ = draw(rng, T)
+                _, next_rng = draw(rng, T)
                 @test Tuple(host_states[(offset+1):(offset+3)]) ==
                       _position_words(next_rng.position)
             end
@@ -309,11 +308,11 @@ if AMDGPU.functional()
             ]
             for (T, kernel_values) in ((Float32, exp32), (Float64, exp64))
                 values = randexp(rng, T, 2)
-                next_rng, continued = randexp_next(rng, T, 17)
-                repeated_next, repeated = randexp_next(rng, T, 17)
-                expected_next, _ = randexp_next(cpu_rng, T, 17)
+                continued, next_rng = randexp_next(rng, T, 17)
+                repeated, repeated_next = randexp_next(rng, T, 17)
+                _, expected_next = randexp_next(cpu_rng, T, 17)
                 destination = similar(continued)
-                fill_next, returned = randexp_next!(rng, destination)
+                returned, fill_next = randexp_next!(rng, destination)
                 first_two = Array(values)
                 @test Array(kernel_values) ==
                       [first_two[1], first_two[1], first_two[1], first_two[2], first_two[2]]
@@ -332,7 +331,7 @@ if AMDGPU.functional()
     end
 
     @testset "R43 and R64 AMDGPU fixed-distribution probes" begin
-        for F in AMDGPU_FAMILIES, distribution in _fixed_distributions(Float32)
+        for F in AMDGPU_GENERATORS, distribution in _fixed_distributions(Float32)
             _check_distribution_preview(F, distribution, active_device)
         end
         for distribution in _fixed_distributions(Float64)
@@ -345,7 +344,7 @@ if AMDGPU.functional()
             (fill_function, next_fill_function, next_draw) in _enzyme_cases()
 
             rng = AMDGPUDevice()(Philox4x32(0x818))
-            expected_rng, expected_values = next_draw(rng, T, 17)
+            expected_values, expected_rng = next_draw(rng, T, 17)
             expected_host = Array(expected_values)
 
             for function_under_test in (fill_function, next_fill_function)
@@ -414,13 +413,13 @@ if AMDGPU.functional()
     end
 
     @testset "R56-R58 AMDGPU unweighted sampling smoke" begin
-        for F in AMDGPU_FAMILIES
+        for F in AMDGPU_GENERATORS
             cpu_rng = F(0x91b)
             rng = AMDGPUDevice()(cpu_rng)
             host_population = collect(Int32(-5):Int32(17))
             population = AMDGPU.ROCArray(host_population)
-            next_rng, values = IR.randsample_next(rng, population, 17)
-            expected_next, expected = IR.randsample_next(cpu_rng, host_population, 17)
+            values, next_rng = IR.randsample_next(rng, population, 17)
+            expected, expected_next = IR.randsample_next(cpu_rng, host_population, 17)
             @test values isa AMDGPU.ROCArray{Int32,1}
             @test Array(values) == expected
             @test next_rng.position == expected_next.position

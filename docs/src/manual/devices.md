@@ -9,7 +9,7 @@ using PureRNGs, Random
 using CUDA, MLDataDevices
 
 rng = Philox4x32(123456) |> CUDADevice()
-rng, values = rand_next(rng, Float32, 1_000_000)
+values, rng = rand_next(rng, Float32, 1_000_000)
 @assert values isa CuArray
 ```
 
@@ -46,7 +46,7 @@ Use allocating draws, fills, or [GPU kernels](@ref) to generate values on the de
 | AMDGPU | Preview | Backend extension, not a required release gate |
 | Metal | Experimental | Restricted primitive draws and fills |
 
-Metal device execution supports 32-bit families with `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, and `Float32` results.
+Metal device execution supports 32-bit generators with `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, and `Float32` results.
 Normal and exponential results must be `Float32`.
 
 Metal excludes allocating ranges, population sampling, and distribution fills.

@@ -5,7 +5,7 @@ using Test
 
 const IR = PureRNGs
 const EXT = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
-const FAMILY_TYPES = (
+const GENERATOR_TYPES = (
     Philox2x32,
     Philox4x32,
     Philox2x64,
@@ -14,6 +14,7 @@ const FAMILY_TYPES = (
     Threefry4x32,
     Threefry2x64,
     Threefry4x64,
+    ChaCha,
 )
 
 mutable struct TaskWriteProbe{T,A<:AbstractVector{T}} <: AbstractVector{T}
@@ -56,30 +57,30 @@ function fixed_distribution_array_cases()
             (Philox4x32, distribution) for T in (Float32, Float64) for
             distribution in fixed_distributions(T)
         )...,
-        ((F, representative) for F in FAMILY_TYPES if F !== Philox4x32)...,
+        ((F, representative) for F in GENERATOR_TYPES if F !== Philox4x32)...,
     )
 end
 
 function primitive_next(rng, d::Normal{T}) where {T}
-    next_rng, z = randn_next(rng, T)
-    return next_rng, fma(d.σ, z, d.μ)
+    z, next_rng = randn_next(rng, T)
+    return fma(d.σ, z, d.μ), next_rng
 end
 
 function primitive_next(rng, d::Uniform{T}) where {T}
-    next_rng, u = rand_next(rng, T)
+    u, next_rng = rand_next(rng, T)
     width = d.b - d.a
     scaled = width * u
-    return next_rng, d.a + scaled
+    return d.a + scaled, next_rng
 end
 
 function primitive_next(rng, d::Exponential{T}) where {T}
-    next_rng, x = randexp_next(rng, T)
-    return next_rng, d.θ * x
+    x, next_rng = randexp_next(rng, T)
+    return d.θ * x, next_rng
 end
 
 function primitive_next(rng, d::Bernoulli{T}) where {T}
-    next_rng, u = rand_next(rng, T)
-    return next_rng, u < d.p
+    u, next_rng = rand_next(rng, T)
+    return u < d.p, next_rng
 end
 
 primitive_next(rng, d::DiscreteUniform) = rand_next(rng, d.a:d.b)
@@ -110,7 +111,7 @@ function primitive_chain(rng, distribution, count)
     values = Vector{fixed_result_type(distribution)}(undef, count)
     cursor = rng
     for index in eachindex(values)
-        cursor, values[index] = primitive_next(cursor, distribution)
+        values[index], cursor = primitive_next(cursor, distribution)
     end
     return cursor, values
 end
@@ -131,12 +132,15 @@ function distribution_allocations(rng, distribution, destination)
 end
 
 @testset "R64 fixed distribution scalar forms" begin
-    for F in FAMILY_TYPES, T in (Float32, Float64), distribution in fixed_distributions(T)
+    for F in GENERATOR_TYPES,
+        T in (Float32, Float64),
+        distribution in fixed_distributions(T)
+
         rng = F(0x901)
-        expected_next, expected = primitive_next(rng, distribution)
+        expected, expected_next = primitive_next(rng, distribution)
 
         @test rand(rng, distribution) === expected
-        actual_next, actual = rand_next(rng, distribution)
+        actual, actual_next = rand_next(rng, distribution)
         @test actual === expected
         @test actual_next === expected_next
         @test randat(rng, distribution, 4) === primitive_at(rng, distribution, 4)
@@ -155,7 +159,7 @@ end
         @test eltype(allocated) === result_type
         @test vec(allocated) == expected
 
-        allocated_next, continued = rand_next(rng, distribution, 3, 4)
+        continued, allocated_next = rand_next(rng, distribution, 3, 4)
         @test continued == allocated
         @test allocated_next === expected_next
 
@@ -166,14 +170,14 @@ end
         @test rand!(rng, distribution, threaded; threaded = true) === threaded
         @test threaded == expected
 
-        filled_next, returned = rand_next!(rng, distribution, serial; threaded = false)
+        returned, filled_next = rand_next!(rng, distribution, serial; threaded = false)
         @test returned === serial
         @test serial == expected
         @test filled_next === expected_next
 
         storage = fill(zero(result_type), 24)
         destination = @view storage[2:2:24]
-        view_next, view_result =
+        view_result, view_next =
             rand_next!(rng, distribution, destination; threaded = false)
         @test view_result === destination
         @test collect(destination) == expected
@@ -188,7 +192,7 @@ end
     expected_next, expected = primitive_chain(rng, distribution, 131)
     for threaded in (false, true)
         destination = BitArray(undef, length(expected))
-        actual_next, returned =
+        returned, actual_next =
             rand_next!(rng, distribution, destination; threaded = threaded)
         @test returned === destination
         @test destination == expected
@@ -198,7 +202,7 @@ end
     caller = current_task()
     normal = Normal{Float64}(0.25, 1.5)
     probe = TaskWriteProbe(Vector{Float64}(undef, 37))
-    actual_next, returned = rand_next!(rng, normal, probe; threaded = false)
+    returned, actual_next = rand_next!(rng, normal, probe; threaded = false)
     expected_next, expected = primitive_chain(rng, normal, length(probe))
     @test returned === probe
     @test probe.data == expected
@@ -221,11 +225,11 @@ end
         exhausted = IR._reserve(last, UInt64(width), UInt64(0))
         empty = similar(destination, 0)
         @test rand!(exhausted, distribution, empty) === empty
-        empty_next, returned = rand_next!(exhausted, distribution, empty)
+        returned, empty_next = rand_next!(exhausted, distribution, empty)
         @test returned === empty
         @test empty_next === exhausted
         @test isempty(rand(exhausted, distribution, 0))
-        allocated_next, allocated = rand_next(exhausted, distribution, 0)
+        allocated, allocated_next = rand_next(exhausted, distribution, 0)
         @test isempty(allocated)
         @test allocated_next === exhausted
     end
@@ -304,21 +308,21 @@ end
 @testset "R34 Distributions StatefulRNG smoke" begin
     normal_root = Philox4x32(0x812)
     normal = Normal()
-    scalar_next, scalar_expected = randn_next(normal_root, Float64)
+    scalar_expected, scalar_next = randn_next(normal_root, Float64)
     mutable_rng = StatefulRNG(normal_root)
 
     @test rand(mutable_rng, normal) === scalar_expected
-    batch_next, batch_expected = randn_next(scalar_next, Float64, 11)
+    batch_expected, batch_next = randn_next(scalar_next, Float64, 11)
     @test rand(mutable_rng, normal, 11) == batch_expected
     @test parent(mutable_rng) === batch_next
 
     exponential_root = Philox4x32(0x813)
     exponential = Exponential()
-    scalar_next, scalar_expected = randexp_next(exponential_root, Float64)
+    scalar_expected, scalar_next = randexp_next(exponential_root, Float64)
     mutable_rng = StatefulRNG(exponential_root)
 
     @test rand(mutable_rng, exponential) === scalar_expected
-    batch_next, batch_expected = randexp_next(scalar_next, Float64, 11)
+    batch_expected, batch_next = randexp_next(scalar_next, Float64, 11)
     @test rand(mutable_rng, exponential, 11) == batch_expected
     @test parent(mutable_rng) === batch_next
 end

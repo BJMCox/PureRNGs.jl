@@ -22,6 +22,24 @@ end
     ) == (0xd16cfe09, 0x94fdcceb, 0x5001e420, 0x24126ea1)
 end
 
+@testset "Philox4x32-7 KAT" begin
+    @test PureRNGs._philox4x32(
+        (0x00000000, 0x00000000, 0x00000000, 0x00000000),
+        (0x00000000, 0x00000000),
+        Val(7),
+    ) == (0x5f6fb709, 0x0d893f64, 0x4f121f81, 0x4f730a48)
+    @test PureRNGs._philox4x32(
+        (0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff),
+        (0xffffffff, 0xffffffff),
+        Val(7),
+    ) == (0x5207ddc2, 0x45165e59, 0x4d8ee751, 0x8c52f662)
+    @test PureRNGs._philox4x32(
+        (0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344),
+        (0xa4093822, 0x299f31d0),
+        Val(7),
+    ) == (0x4dfccaba, 0x190a87f0, 0xc47362ba, 0xb6b5242a)
+end
+
 @testset "Philox2x64-10 KAT" begin
     @test PureRNGs._philox2x64(
         (0x0000000000000000, 0x0000000000000000),

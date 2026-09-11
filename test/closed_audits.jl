@@ -174,7 +174,6 @@ end
 end
 
 @testset "R9 and R12b assigned constants" begin
-    @test AuditIR.FAMILY_EXP === UInt32(2)
     @test AuditIR._NARROW_SPLIT_COUNT === UInt64(0xffffffff)
 end
 

@@ -8,7 +8,7 @@ using Test
 
 const IR = PureRNGs
 const MLD = MLDataDevices
-const FAMILIES = (
+const GENERATORS = (
     Philox2x32,
     Philox4x32,
     Philox2x64,
@@ -17,6 +17,7 @@ const FAMILIES = (
     Threefry4x32,
     Threefry2x64,
     Threefry4x64,
+    ChaCha,
 )
 const UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 const NORMAL_TYPES = (Float32, Float64)
@@ -52,7 +53,7 @@ _range(::Type{T}) where {T<:Unsigned} = T(2):T(3):T(74)
 function _chain(rng, draw, count::Int, ::Type{T}) where {T}
     values = Vector{T}(undef, count)
     for index in eachindex(values)
-        rng, values[index] = draw(rng)
+        values[index], rng = draw(rng)
     end
     return rng, values
 end
@@ -80,7 +81,7 @@ function _check_array_draw(
     @test isequal(Array(draw(gpu_rng, argument, 7)), Array(values)[1:7])
     @test isequal(vec(Array(draw(gpu_rng, argument, 3, 5))), Array(values)[1:15])
 
-    next_gpu, continued = next_draw(gpu_rng, argument, 19)
+    continued, next_gpu = next_draw(gpu_rng, argument, 19)
     next_scalar, scalar_values = _chain(gpu_rng, rng -> next_draw(rng, argument), 19, T)
     @test continued isa CUDA.CuArray{T,1}
     @test _device_id(continued) == CUDA.deviceid(primary)
@@ -93,18 +94,18 @@ function _check_array_draw(
         destination = similar(values)
         @test fill(gpu_rng, destination) === destination
         @test isequal(Array(destination), Array(values))
-        fill_next, returned = next_fill(gpu_rng, destination)
+        returned, fill_next = next_fill(gpu_rng, destination)
         @test returned === destination
         @test fill_next.position == next_gpu.position
         @test fill_next.device == gpu_rng.device
         serial = similar(values)
-        serial_next, _ = next_fill(gpu_rng, serial; threaded = false)
+        _, serial_next = next_fill(gpu_rng, serial; threaded = false)
         @test isequal(Array(serial), Array(values))
         @test serial_next.position == next_gpu.position
         @test serial_next.device == gpu_rng.device
     end
 
-    empty_next, empty = next_draw(gpu_rng, argument, 0)
+    empty, empty_next = next_draw(gpu_rng, argument, 0)
     @test empty isa CUDA.CuArray{T,1}
     @test isempty(empty)
     @test empty_next.position == gpu_rng.position
@@ -112,8 +113,8 @@ function _check_array_draw(
 end
 
 function _check_array_continuation(rng, argument, next_draw)
-    matrix_next, matrix = next_draw(rng, argument, 2, 3)
-    vector_next, vector = next_draw(rng, argument, 6)
+    matrix, matrix_next = next_draw(rng, argument, 2, 3)
+    vector, vector_next = next_draw(rng, argument, 6)
 
     @test size(matrix) == (2, 3)
     @test isequal(vec(Array(matrix)), Array(vector))
@@ -137,7 +138,6 @@ end
 @inline function _exponential_raw(rng, ::Type{Float32})
     return IR._extract_bits_unchecked(
         rng,
-        IR.FAMILY_EXP,
         IR._position_block(rng.position),
         rng.position.bit,
         Val(24),
@@ -147,7 +147,6 @@ end
 @inline function _exponential_raw(rng, ::Type{Float64})
     return IR._extract_bits_unchecked(
         rng,
-        IR.FAMILY_EXP,
         IR._position_block(rng.position),
         rng.position.bit,
         Val(53),
@@ -157,7 +156,7 @@ end
 function _exponential_api_kernel!(values, raw, lattice, rng)
     if CUDA.threadIdx().x == 1
         T = eltype(values)
-        next_rng, continued = randexp_next(rng, T)
+        continued, next_rng = randexp_next(rng, T)
         k = _exponential_raw(rng, T)
         u, v = IR._exponential_lattice(T, k)
         @inbounds begin
@@ -176,13 +175,13 @@ end
 
 function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, signed64, rng)
     if CUDA.threadIdx().x == 1
-        next_uniform, continued_uniform = rand_next(rng, UInt32)
-        next_signed32, continued_signed32 = rand_next(rng, Int32)
-        next_signed64, continued_signed64 = rand_next(rng, Int64)
-        next_normal32, continued_normal32 = randn_next(rng, Float32)
-        next_normal64, continued_normal64 = randn_next(rng, Float64)
+        continued_uniform, next_uniform = rand_next(rng, UInt32)
+        continued_signed32, next_signed32 = rand_next(rng, Int32)
+        continued_signed64, next_signed64 = rand_next(rng, Int64)
+        continued_normal32, next_normal32 = randn_next(rng, Float32)
+        continued_normal64, next_normal64 = randn_next(rng, Float64)
         range = UInt64(0):UInt64(1):(UInt64(1)<<40)
-        next_range, continued_range = rand_next(rng, range)
+        continued_range, next_range = rand_next(rng, range)
         child = subrng(rng, UInt64(0x71))
         children = splitrng(rng, Val(2))
         @inbounds begin
@@ -217,7 +216,7 @@ end
 
 function _k64_range_kernel!(destination, rng)
     if CUDA.threadIdx().x == 1
-        next_rng, value = rand_next(rng, K64_RANGE)
+        value, next_rng = rand_next(rng, K64_RANGE)
         @inbounds begin
             destination[1] = value
             destination[2] = rand(next_rng, K64_RANGE)
@@ -283,8 +282,8 @@ function _last_draw_rng(rng, width::UInt16)
     return IR._rebuild(rng, position, rng.device)
 end
 
-_terminal(rng::IR._Position64Family) = IR._terminal64(IR._max_block(rng))
-_terminal(::IR._Position128Family) = IR._terminal128()
+_terminal(rng::IR._Position64Generators) = IR._terminal64(IR._max_block(rng))
+_terminal(::IR._Position128Generators) = IR._terminal128()
 
 function _positioned_at_bit(rng, block::UInt64, bit::UInt16)
     position = if rng.position isa IR._Position64
@@ -364,7 +363,7 @@ function _check_public_packed_fill(
     addressed_normal::Bool = false,
 ) where {T}
     expected_next, scalar_values = _chain(rng, current -> next_draw(current, T), count, T)
-    allocated_next, allocated = next_draw(rng, T, count)
+    allocated, allocated_next = next_draw(rng, T, count)
     expected = if addressed_normal
         addressed = similar(allocated)
         threads = min(count, 256)
@@ -377,7 +376,7 @@ function _check_public_packed_fill(
         scalar_values
     end
     destination = similar(allocated)
-    filled_next, _ = next_fill(rng, destination)
+    _, filled_next = next_fill(rng, destination)
     @test isequal(
         (
             Array(allocated),
@@ -392,7 +391,7 @@ end
 
 function _check_public_packed_addresses(rng, ::Type{T}, count) where {T}
     destination = CUDA.CuArray{T}(undef, count)
-    next_rng, returned = rand_next!(rng, destination)
+    returned, next_rng = rand_next!(rng, destination)
     @test returned === destination
 
     values = Array(destination)
@@ -416,20 +415,20 @@ function _check_cooperative_kernel_code(
     storage_type = eltype(packed),
 ) where {T}
     kernel = IR._fill_cooperative_kernel!(backend)
+    outputs_per_store = IR._outputs_per_store(plan)
     workgroup = IR._fill_group_size(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
     typed = IR.KernelAbstractions.@ka_code_typed kernel(
         rng,
         packed,
-        T,
-        storage_type,
+        Val(T),
+        Val(storage_type),
         Val(IR._draw_bits(T)),
         block_width,
         plan[2],
         plan[3],
-        plan[4],
+        outputs_per_store,
         stream_aligned,
-        IR._fill_family(codec),
         codec,
         ndrange = workgroup,
         workgroupsize = workgroup,
@@ -439,15 +438,14 @@ function _check_cooperative_kernel_code(
         CUDA.@device_code_llvm io = io kernel(
             rng,
             packed,
-            T,
-            storage_type,
+            Val(T),
+            Val(storage_type),
             Val(IR._draw_bits(T)),
             block_width,
             plan[2],
             plan[3],
-            plan[4],
+            outputs_per_store,
             stream_aligned,
-            IR._fill_family(codec),
             codec;
             ndrange = workgroup,
             workgroupsize = workgroup,
@@ -461,15 +459,14 @@ function _check_cooperative_kernel_code(
             CUDA.@device_code_sass io = io kernel(
                 rng,
                 packed,
-                T,
-                storage_type,
+                Val(T),
+                Val(storage_type),
                 Val(IR._draw_bits(T)),
                 block_width,
                 plan[2],
                 plan[3],
-                plan[4],
+                outputs_per_store,
                 stream_aligned,
-                IR._fill_family(codec),
                 codec;
                 ndrange = workgroup,
                 workgroupsize = workgroup,
@@ -483,7 +480,7 @@ end
 function _check_public_range(rng, range, count)
     T = eltype(range)
     expected_next, expected = _chain(rng, current -> rand_next(current, range), count, T)
-    allocated_next, allocated = rand_next(rng, range, count)
+    allocated, allocated_next = rand_next(rng, range, count)
     @test (Array(allocated), allocated_next.position) == (expected, expected_next.position)
 end
 
@@ -533,8 +530,8 @@ primary = first(devices)
 CUDA.device!(primary)
 device = MLD.CUDADevice(primary)
 
-@testset "CUDA Bool packed paths preserve every family stream" begin
-    for F in FAMILIES
+@testset "CUDA Bool packed paths preserve every generator stream" begin
+    for F in GENERATORS
         rng = device(F(0x787))
         block_bits = Int(IR._block_bits(rng))
 
@@ -552,7 +549,7 @@ device = MLD.CUDADevice(primary)
             _chain(rng, current -> rand_next(current, Bool), block_bits, Bool)
         for first in (2, 17)
             view = @view storage[first:(first+block_bits-1)]
-            filled_next, returned = rand_next!(rng, view)
+            returned, filled_next = rand_next!(rng, view)
             @test returned === view
             @test Array(view) == expected
             @test filled_next.position == expected_next.position
@@ -592,7 +589,7 @@ end
         _chain(rng, current -> rand_next(current, Float32), 2048, Float32)
     for first in (1, 2)
         view = @view storage[first:(first+2047)]
-        filled_next, returned = rand_next!(rng, view)
+        returned, filled_next = rand_next!(rng, view)
         @test returned === view
         @test Array(view) == expected
         @test filled_next.position == expected_next.position
@@ -604,7 +601,7 @@ end
 end
 
 @testset "CUDA non-Philox float vector stores preserve the dense stream" begin
-    for F in FAMILIES
+    for F in GENERATORS
         F === Philox4x32 && continue
         for T in (Float32, Float64)
             rng = device(F(0x788))
@@ -645,7 +642,7 @@ end
                 _chain(rng, current -> rand_next(current, T), outputs, T)
             for first in (1, 2)
                 view = @view storage[first:(first+outputs-1)]
-                filled_next, returned = rand_next!(rng, view)
+                returned, filled_next = rand_next!(rng, view)
                 @test returned === view
                 @test Array(view) == expected
                 @test filled_next.position == expected_next.position
@@ -655,14 +652,14 @@ end
             packed_next, packed_expected =
                 _chain(rng, current -> rand_next(current, T), packed_count, T)
             matrix = CUDA.CuArray{T}(undef, 1, packed_count)
-            matrix_next, returned_matrix = rand_next!(rng, matrix)
+            returned_matrix, matrix_next = rand_next!(rng, matrix)
             @test returned_matrix === matrix
             @test vec(Array(matrix)) == packed_expected
             @test matrix_next.position == packed_next.position
 
             strided_storage = CUDA.CuArray{T}(undef, 2packed_count)
             strided = @view strided_storage[1:2:(2packed_count)]
-            strided_next, returned_strided = rand_next!(rng, strided)
+            returned_strided, strided_next = rand_next!(rng, strided)
             @test returned_strided === strided
             @test Array(strided) == packed_expected
             @test strided_next.position == packed_next.position
@@ -694,7 +691,7 @@ end
         outputs_per_pack = 16 ÷ sizeof(T)
         expected_next, expected = _chain(rng, current -> rand_next(current, T), count, T)
 
-        allocated_next, allocated = rand_next(rng, T, 3, 1360)
+        allocated, allocated_next = rand_next(rng, T, 3, 1360)
         @test Array(allocated) == reshape(expected, 3, 1360)
         @test allocated_next.position == expected_next.position
 
@@ -712,7 +709,7 @@ end
         expected_fallback_next = _chain(rng, current -> rand_next(current, T), 64, T)[1]
         for first in (2, aligned_first)
             view = @view storage[first:(first+63)]
-            fallback_next, returned = rand_next!(rng, view)
+            returned, fallback_next = rand_next!(rng, view)
             @test returned === view
             @test Array(view) == expected[1:64]
             @test fallback_next.position == expected_fallback_next.position
@@ -722,7 +719,7 @@ end
         terminal_expected, terminal_values =
             _chain(terminal_rng, current -> rand_next(current, T), outputs_per_pack, T)
         terminal_destination = CUDA.fill(zero(T), outputs_per_pack)
-        terminal_next, _ = rand_next!(terminal_rng, terminal_destination)
+        _, terminal_next = rand_next!(terminal_rng, terminal_destination)
         @test Array(terminal_destination) == terminal_values
         @test terminal_next.position == terminal_expected.position == _terminal(rng)
     end
@@ -768,8 +765,8 @@ end
     end
 end
 
-@testset "grouped public fallbacks cover every remaining family and type" begin
-    for F in FAMILIES, T in UNIFORM_TYPES
+@testset "grouped public fallbacks cover every remaining generator and type" begin
+    for F in GENERATORS, T in UNIFORM_TYPES
         F === Philox4x32 && T in COOPERATIVE_UNIFORM_TYPES && continue
         rng = device(F(0x782))
         block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
@@ -777,7 +774,7 @@ end
         _check_public_packed_fill(positioned, T, 9, rand_next, rand_next!)
     end
 
-    for F in FAMILIES, T in NORMAL_TYPES
+    for F in GENERATORS, T in NORMAL_TYPES
         F === Philox4x32 && continue
         rng = device(F(0x783))
         block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
@@ -793,9 +790,9 @@ end
     end
 end
 
-@testset "non-Philox normal packed fills preserve every family stream" begin
+@testset "non-Philox normal packed fills preserve every generator stream" begin
     backend = CUDA.CUDABackend()
-    for F in FAMILIES, T in NORMAL_TYPES
+    for F in GENERATORS, T in NORMAL_TYPES
         F === Philox4x32 && continue
         rng = device(F(0x782))
         plan = IR._device_normal_fill_plan(backend, rng, T)
@@ -826,8 +823,8 @@ end
         rng = device(Threefry4x64(0x785))
         unsigned_values = CUDA.CuArray{unsigned}(undef, count)
         signed_values = CUDA.CuArray{signed}(undef, count)
-        unsigned_next, _ = rand_next!(rng, unsigned_values)
-        signed_next, _ = rand_next!(rng, signed_values)
+        _, unsigned_next = rand_next!(rng, unsigned_values)
+        _, signed_next = rand_next!(rng, signed_values)
         @test Array(signed_values) == reinterpret(signed, Array(unsigned_values))
         @test signed_next.position == unsigned_next.position
     end
@@ -839,7 +836,7 @@ end
 
         dims = T === UInt32 ? (2, count ÷ 2) : (1, count)
         matrix = CUDA.CuArray{T}(undef, dims)
-        matrix_next, returned = rand_next!(rng, matrix)
+        returned, matrix_next = rand_next!(rng, matrix)
         @test returned === matrix
         @test vec(Array(matrix)) == expected
         @test matrix_next.position == expected_next.position
@@ -849,14 +846,14 @@ end
             _chain(rng, current -> rand_next(current, T), fallback_count, T)
         storage = CUDA.CuArray{T}(undef, fallback_count + 1)
         offset = @view storage[2:end]
-        offset_next, returned_offset = rand_next!(rng, offset)
+        returned_offset, offset_next = rand_next!(rng, offset)
         @test returned_offset === offset
         @test Array(offset) == fallback_expected
         @test offset_next.position == fallback_next.position
 
         strided_storage = CUDA.CuArray{T}(undef, 2fallback_count)
         strided = @view strided_storage[1:2:end]
-        strided_next, returned_strided = rand_next!(rng, strided)
+        returned_strided, strided_next = rand_next!(rng, strided)
         @test returned_strided === strided
         @test Array(strided) == fallback_expected
         @test strided_next.position == fallback_next.position
@@ -898,7 +895,7 @@ end
 end
 
 @testset "public K=64 grouped and K=128 generic ranges" begin
-    for F in FAMILIES, range in (K64_RANGE, K128_RANGE)
+    for F in GENERATORS, range in (K64_RANGE, K128_RANGE)
         rng = device(F(0x785))
         block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(11)
         positioned = _positioned_at_bit(rng, block, IR._block_bits(rng) - UInt16(5))
@@ -927,7 +924,7 @@ end
 @testset "all array draws: residency, parity, shape, and fixed work" begin
     uniform_cases = (
         ((Philox4x32, T) for T in UNIFORM_TYPES)...,
-        ((F, UInt64) for F in FAMILIES if F !== Philox4x32)...,
+        ((F, UInt64) for F in GENERATORS if F !== Philox4x32)...,
     )
     for (F, T) in uniform_cases
         cpu_rng = F(0x123456)
@@ -960,7 +957,7 @@ end
 
     normal_cases = (
         ((Philox4x32, T) for T in NORMAL_TYPES)...,
-        ((F, Float64) for F in FAMILIES if F !== Philox4x32)...,
+        ((F, Float64) for F in GENERATORS if F !== Philox4x32)...,
     )
     for (F, T) in normal_cases
         cpu_rng = F(0x123456)
@@ -992,30 +989,30 @@ end
 
     range_cases = (
         ((Philox4x32, T) for T in RANGE_TYPES)...,
-        ((F, UInt64) for F in FAMILIES if F !== Philox4x32)...,
+        ((F, UInt64) for F in GENERATORS if F !== Philox4x32)...,
     )
     for (F, T) in range_cases
         cpu_rng = F(0x123456)
         _check_array_draw(cpu_rng, device(cpu_rng), _range(T), T, rand, rand_next)
     end
 
-    for F in FAMILIES, T in UNIFORM_TYPES
+    for F in GENERATORS, T in UNIFORM_TYPES
         (F === Philox4x32 || T === UInt64) && continue
         _check_array_continuation(device(F(0x123459)), T, rand_next)
     end
 
-    for F in FAMILIES, T in NORMAL_TYPES
+    for F in GENERATORS, T in NORMAL_TYPES
         (F === Philox4x32 || T === Float64) && continue
         _check_array_continuation(device(F(0x12345a)), T, randn_next)
     end
 
-    for F in FAMILIES, T in RANGE_TYPES
+    for F in GENERATORS, T in RANGE_TYPES
         (F === Philox4x32 || T === UInt64) && continue
         _check_array_continuation(device(F(0x12345b)), _range(T), rand_next)
     end
 
     wide = UInt64(0):UInt64(1):(UInt64(1)<<40)
-    for F in FAMILIES
+    for F in GENERATORS
         cpu_rng = F(0x123456)
         @test Array(rand(device(cpu_rng), wide, 17)) == rand(cpu_rng, wide, 17)
     end
@@ -1062,7 +1059,7 @@ end
         packed_typed = IR.KernelAbstractions.@ka_code_typed kernel(
             packed_rng,
             destination,
-            storage_type,
+            Val(storage_type),
             ndrange = extension_module._CUDA_FILL_THREADS,
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
@@ -1071,7 +1068,7 @@ end
             CUDA.@device_code_llvm io = io kernel(
                 packed_rng,
                 destination,
-                storage_type;
+                Val(storage_type);
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -1083,7 +1080,7 @@ end
             CUDA.@device_code_sass io = io kernel(
                 packed_rng,
                 destination,
-                storage_type;
+                Val(storage_type);
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -1092,7 +1089,7 @@ end
     end
 
     bool_kernel = IR._uniform_fill_bool_blocks_kernel!(backend)
-    for F in FAMILIES
+    for F in GENERATORS
         bool_rng = device(F(0x787))
         plan = IR._device_uniform_fill_plan(backend, bool_rng, Bool)
         expected = F === Philox4x32 ? Val(:cooperative) : Val(:bool_blocks)
@@ -1151,7 +1148,7 @@ end
         )
     end
 
-    for F in FAMILIES
+    for F in GENERATORS
         F === Philox4x32 && continue
         for T in (Float32, Float64)
             rng = device(F(0x788))
@@ -1203,7 +1200,7 @@ end
         )
     end
 
-    for F in FAMILIES
+    for F in GENERATORS
         rng = device(F(0x123456))
         signed32 = CUDA.zeros(Int32, 3)
         signed64 = CUDA.zeros(Int64, 3)
@@ -1224,7 +1221,7 @@ end
         @test !occursin("BigInt", typed_text)
         @test !occursin(r"\bi128\b", llvm_text)
 
-        next_uniform, continued_uniform = rand_next(rng, UInt32)
+        continued_uniform, next_uniform = rand_next(rng, UInt32)
         @test Array(args[1]) == UInt32[
             rand(rng, UInt32),
             randat(rng, UInt32, 1),
@@ -1239,20 +1236,20 @@ end
         @test normal32[4] === normal32[5]
         @test normal64[1] === normal64[2] === normal64[3]
         @test normal64[4] === normal64[5]
-        next_unsigned32, continued_unsigned32 = rand_next(rng, UInt32)
+        continued_unsigned32, next_unsigned32 = rand_next(rng, UInt32)
         @test Array(signed32) == Int32[
             reinterpret(Int32, rand(rng, UInt32)),
             reinterpret(Int32, continued_unsigned32),
             reinterpret(Int32, rand(next_unsigned32, UInt32)),
         ]
-        next_unsigned64, continued_unsigned64 = rand_next(rng, UInt64)
+        continued_unsigned64, next_unsigned64 = rand_next(rng, UInt64)
         @test Array(signed64) == Int64[
             reinterpret(Int64, rand(rng, UInt64)),
             reinterpret(Int64, continued_unsigned64),
             reinterpret(Int64, rand(next_unsigned64, UInt64)),
         ]
         range = UInt64(0):UInt64(1):(UInt64(1)<<40)
-        next_range, continued_range = rand_next(rng, range)
+        continued_range, next_range = rand_next(rng, range)
         @test Array(args[4]) == [continued_range, rand(next_range, range)]
 
         k64_values = CUDA.CuArray{UInt32}(undef, 2)
@@ -1264,14 +1261,14 @@ end
         @test !occursin("UInt128", k64_typed_text)
         @test !occursin("BigInt", k64_typed_text)
         @test !occursin(r"\bi128\b", k64_llvm_text)
-        k64_next, k64_value = rand_next(rng, K64_RANGE)
+        k64_value, k64_next = rand_next(rng, K64_RANGE)
         @test Array(k64_values) == [k64_value, rand(k64_next, K64_RANGE)]
     end
 
 end
 
 @testset "exponential CUDA scalar, array, fill, and IR smoke" begin
-    for F in FAMILIES, T in (Float32, Float64)
+    for F in GENERATORS, T in (Float32, Float64)
         cpu_rng = F(0x123456)
         rng = device(cpu_rng)
         values = CUDA.CuArray{T}(undef, 5)
@@ -1312,12 +1309,12 @@ end
         @test Tuple(Array(lattice)) === IR._exponential_lattice(T, expected_raw)
 
         last_rng = _last_draw_rng(rng, IR._exponential_bits(T))
-        terminal, _ = randexp_next(last_rng, T)
+        _, terminal = randexp_next(last_rng, T)
         @test terminal.position == _terminal(rng)
-        terminal_array_next, terminal_array = randexp_next(last_rng, T, 1)
+        terminal_array, terminal_array_next = randexp_next(last_rng, T, 1)
         @test terminal_array_next.position == terminal.position
         terminal_destination = similar(terminal_array)
-        terminal_fill_next, _ = randexp_next!(last_rng, terminal_destination)
+        _, terminal_fill_next = randexp_next!(last_rng, terminal_destination)
         @test terminal_fill_next.position == terminal.position
         @test Array(terminal_destination) == Array(terminal_array)
         @test_throws ArgumentError randexp(terminal, T)
@@ -1334,14 +1331,14 @@ end
             empty_profile = CUDA.@profile raw = true operation(terminal, empty)
             @test count(value -> !ismissing(value), empty_profile.device.grid) == 0
         end
-        empty_next, returned_empty = randexp_next!(terminal, empty)
+        returned_empty, empty_next = randexp_next!(terminal, empty)
         @test returned_empty === empty
         @test empty_next.position == terminal.position
     end
 end
 
 @testset "CUDA exponential packed stores match grouped fallback" begin
-    for F in FAMILIES, T in (Float32, Float64)
+    for F in GENERATORS, T in (Float32, Float64)
         F === Philox4x32 && T === Float64 && continue
         base = device(F(0x78a))
         outputs_per_store = T === Float32 ? 4 : 2
@@ -1351,8 +1348,8 @@ end
             storage = CUDA.CuArray{T}(undef, count + 1)
             grouped = @view storage[2:end]
 
-            packed_next, _ = randexp_next!(rng, packed)
-            grouped_next, _ = randexp_next!(rng, grouped)
+            _, packed_next = randexp_next!(rng, packed)
+            _, grouped_next = randexp_next!(rng, grouped)
             @test isequal(Array(packed), Array(grouped))
             @test packed_next.position == grouped_next.position
         end
@@ -1363,7 +1360,7 @@ end
     block_bits = (64, 128, 128, 256, 64, 128, 128, 256)
     capacity_exponents = (62, 71, 71, 136, 62, 71, 71, 136)
     for (F, expected_block_bits, capacity_exponent) in
-        zip(FAMILIES, block_bits, capacity_exponents)
+        zip(GENERATORS, block_bits, capacity_exponents)
 
         cpu_rng = F(0x123456)
         gpu_rng = device(cpu_rng)
@@ -1379,8 +1376,8 @@ end
 
         cross_cpu = _positioned_at_bit(cpu_rng, UInt64(9), UInt16(expected_block_bits - 1))
         cross_gpu = device(cross_cpu)
-        cross_next, cross_values = rand_next(cross_gpu, UInt64, 2)
-        expected_next, expected_values = rand_next(cross_cpu, UInt64, 2)
+        cross_values, cross_next = rand_next(cross_gpu, UInt64, 2)
+        expected_values, expected_next = rand_next(cross_cpu, UInt64, 2)
         @test Array(cross_values) == expected_values
         @test cross_next.position == expected_next.position
 
@@ -1388,32 +1385,32 @@ end
             carry_position =
                 IR._Position128(typemax(UInt64), UInt64(7), UInt16(expected_block_bits - 1))
             carry = IR._rebuild(gpu_rng, carry_position, gpu_rng.device)
-            carry_next, _ = rand_next(carry, UInt32, 1)
+            _, carry_next = rand_next(carry, UInt32, 1)
             @test carry_next.position == IR._Position128(UInt64(0), UInt64(8), UInt16(31))
         end
 
         range = UInt16(2):UInt16(3):UInt16(74)
-        gpu_1, bools = rand_next(gpu_rng, Bool, 3)
-        gpu_2, u64s = rand_next(gpu_1, UInt64, 2)
-        gpu_3, normals = randn_next(gpu_2, Float32, 5)
-        gpu_4, ranges = rand_next(gpu_3, range, 4)
-        cpu_1, expected_bools = rand_next(cpu_rng, Bool, 3)
-        cpu_2, expected_u64s = rand_next(cpu_1, UInt64, 2)
-        cpu_3, _ = randn_next(cpu_2, Float32, 5)
-        cpu_4, expected_ranges = rand_next(cpu_3, range, 4)
+        bools, gpu_1 = rand_next(gpu_rng, Bool, 3)
+        u64s, gpu_2 = rand_next(gpu_1, UInt64, 2)
+        normals, gpu_3 = randn_next(gpu_2, Float32, 5)
+        ranges, gpu_4 = rand_next(gpu_3, range, 4)
+        expected_bools, cpu_1 = rand_next(cpu_rng, Bool, 3)
+        expected_u64s, cpu_2 = rand_next(cpu_1, UInt64, 2)
+        _, cpu_3 = randn_next(cpu_2, Float32, 5)
+        expected_ranges, cpu_4 = rand_next(cpu_3, range, 4)
         @test Array(bools) == expected_bools
         @test Array(u64s) == expected_u64s
         @test Array(ranges) == expected_ranges
         @test gpu_4.position == cpu_4.position
 
         last_rng = _last_draw_rng(gpu_rng, UInt16(32))
-        exhausted, final_value = rand_next(last_rng, UInt32)
+        final_value, exhausted = rand_next(last_rng, UInt32)
         @test exhausted.position.bit == IR._EXHAUSTED_BIT
         @test_throws ArgumentError rand_next(exhausted, UInt32)
-        array_exhausted, final_array = rand_next(last_rng, UInt32, 1)
+        final_array, array_exhausted = rand_next(last_rng, UInt32, 1)
         @test array_exhausted.position == exhausted.position
         @test Array(final_array) == [final_value]
-        empty_next, empty = rand_next(exhausted, UInt32, 0)
+        empty, empty_next = rand_next(exhausted, UInt32, 0)
         @test isempty(empty)
         @test empty_next.position == exhausted.position
         destination = CUDA.fill(UInt32(0xdeadbeef), 2)
@@ -1425,7 +1422,7 @@ end
             (UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd), UInt16(128)),
         )
             last_range = _last_draw_rng(gpu_rng, width)
-            terminal, range_value = rand_next(last_range, capacity_range, 1)
+            range_value, terminal = rand_next(last_range, capacity_range, 1)
             cpu_last = MLD.CPUDevice()(last_range)
             @test Array(range_value) == rand(cpu_last, capacity_range, 1)
             @test terminal.position == _terminal(gpu_rng)
@@ -1447,7 +1444,7 @@ end
     @test CUDA.device() == before
 
     empty = CUDA.CuArray{UInt32}(undef, 0)
-    empty_next, returned = rand_next!(rng, empty)
+    returned, empty_next = rand_next!(rng, empty)
     @test returned === empty
     @test empty_next.position == rng.position
     empty_profile = CUDA.@profile raw = true rand_next!(rng, empty)
@@ -1455,7 +1452,7 @@ end
 
     empty_normal = CUDA.CuArray{Float32}(undef, 0)
     @test randn!(rng, empty_normal) === empty_normal
-    empty_normal_next, returned_normal = randn_next!(rng, empty_normal)
+    returned_normal, empty_normal_next = randn_next!(rng, empty_normal)
     @test returned_normal === empty_normal
     @test empty_normal_next.position == rng.position
     for operation in (randn!, randn_next!)
@@ -1522,34 +1519,34 @@ end
 end
 
 @testset "R56-R58 and R60 CUDA unweighted sampling" begin
-    for F in FAMILIES
+    for F in GENERATORS
         cpu_rng = F(0x91a)
         gpu_rng = device(cpu_rng)
         host_population = reshape(collect(Int32(-11):Int32(12)), 4, 6)
         population = CuArray(host_population)
 
-        next_gpu, values = randsample_next(gpu_rng, population, 19)
-        next_cpu, expected = randsample_next(cpu_rng, host_population, 19)
+        values, next_gpu = randsample_next(gpu_rng, population, 19)
+        expected, next_cpu = randsample_next(cpu_rng, host_population, 19)
         @test values isa CuArray{Int32,1}
         @test Array(values) == expected
         @test next_gpu.position == next_cpu.position
         @test _device_id(values) == CUDA.deviceid(primary)
         @test Array(randsample(gpu_rng, population, 7)) == expected[1:7]
 
-        no_k_next, no_k = randsample_next(gpu_rng, population)
-        expected_no_k_next, expected_no_k = randsample_next(cpu_rng, host_population)
+        no_k, no_k_next = randsample_next(gpu_rng, population)
+        expected_no_k, expected_no_k_next = randsample_next(cpu_rng, host_population)
         @test Array(no_k) == expected_no_k
         @test no_k_next.position == expected_no_k_next.position
 
         range = UInt64(0):(UInt64(1)<<32)
-        range_next, range_values = randsample_next(gpu_rng, range, 5)
-        expected_range_next, expected_range = randsample_next(cpu_rng, range, 5)
+        range_values, range_next = randsample_next(gpu_rng, range, 5)
+        expected_range, expected_range_next = randsample_next(cpu_rng, range, 5)
         @test Array(range_values) == expected_range
         @test range_next.position == expected_range_next.position
 
         iterable = DeviceAgnosticPopulation(collect(Int16(3):Int16(13)))
-        iterable_next, iterable_values = randsample_next(gpu_rng, iterable, 9)
-        expected_iterable_next, expected_iterable =
+        iterable_values, iterable_next = randsample_next(gpu_rng, iterable, 9)
+        expected_iterable, expected_iterable_next =
             randsample_next(cpu_rng, iterable.values, 9)
         @test iterable_values isa CuArray{Int16,1}
         @test Array(iterable_values) == expected_iterable
@@ -1557,8 +1554,8 @@ end
         @test iterable.starts[] == 1
 
         agnostic_array = DeviceAgnosticArray(collect(Int16(21):Int16(31)))
-        array_next, array_values = randsample_next(gpu_rng, agnostic_array, 9)
-        expected_array_next, expected_array =
+        array_values, array_next = randsample_next(gpu_rng, agnostic_array, 9)
+        expected_array, expected_array_next =
             randsample_next(cpu_rng, agnostic_array.values, 9)
         @test array_values isa CuArray{Int16,1}
         @test Array(array_values) == expected_array
@@ -1566,7 +1563,7 @@ end
         @test agnostic_array.reads[] == length(agnostic_array)
 
         empty = CuArray{Int32}(undef, 0)
-        empty_next, empty_values = randsample_next(gpu_rng, empty, 0)
+        empty_values, empty_next = randsample_next(gpu_rng, empty, 0)
         @test empty_values isa CuArray{Int32,1}
         @test isempty(empty_values)
         @test empty_next.position == gpu_rng.position
@@ -1601,7 +1598,7 @@ end
 end
 
 @testset "R30 GPU-bound scalar allocation" begin
-    for F in FAMILIES
+    for F in GENERATORS
         rng = device(F(0x123456))
         range = UInt32(2):UInt32(3):UInt32(74)
         _check_scalar_allocation(() -> rand_next(rng, UInt32))
@@ -1623,8 +1620,8 @@ end
     for F in (Philox4x32, Threefry4x64)
         cpu_rng = F(0x791)
         gpu_rng = device(cpu_rng)
-        expected_next, expected = randsample_next(cpu_rng, cpu_population, cpu_weights, 17)
-        next_rng, values = randsample_next(gpu_rng, gpu_population, gpu_weights, 17)
+        expected, expected_next = randsample_next(cpu_rng, cpu_population, cpu_weights, 17)
+        values, next_rng = randsample_next(gpu_rng, gpu_population, gpu_weights, 17)
         @test _device_id(values) == CUDA.deviceid(primary)
         @test Array(values) == expected
         @test next_rng.position == expected_next.position
@@ -1634,24 +1631,24 @@ end
         cursor = gpu_rng
         chained = Int32[]
         for _ = 1:17
-            cursor, value = randsample_next(cursor, gpu_population, gpu_weights, 1)
+            value, cursor = randsample_next(cursor, gpu_population, gpu_weights, 1)
             push!(chained, only(Array(value)))
         end
         @test chained == expected
         @test cursor.position == next_rng.position
 
-        no_k_next, no_k = randsample_next(gpu_rng, gpu_population, gpu_weights)
-        cpu_no_k_next, cpu_no_k = randsample_next(cpu_rng, cpu_population, cpu_weights)
+        no_k, no_k_next = randsample_next(gpu_rng, gpu_population, gpu_weights)
+        cpu_no_k, cpu_no_k_next = randsample_next(cpu_rng, cpu_population, cpu_weights)
         @test Array(no_k) == cpu_no_k
         @test no_k_next.position == cpu_no_k_next.position
 
-        empty_next, empty = randsample_next(gpu_rng, gpu_population, gpu_weights, 0)
+        empty, empty_next = randsample_next(gpu_rng, gpu_population, gpu_weights, 0)
         @test empty isa CUDA.CuArray{Int32,1}
         @test isempty(empty)
         @test empty_next.position == gpu_rng.position
 
         last_rng = _last_draw_rng(gpu_rng, UInt16(53))
-        terminal, final_value = randsample_next(last_rng, gpu_population, gpu_weights, 1)
+        final_value, terminal = randsample_next(last_rng, gpu_population, gpu_weights, 1)
         @test length(final_value) == 1
         @test terminal.position == _terminal(gpu_rng)
         @test_throws ArgumentError randsample(last_rng, gpu_population, gpu_weights, 2)
@@ -1662,9 +1659,9 @@ end
     range_population = UInt16(10):UInt16(3):UInt16(43)
     range_weights = CUDA.fill(1.0, length(range_population))
     range_rng = device(Philox4x32(0x792))
-    range_next, range_values =
+    range_values, range_next =
         randsample_next(range_rng, range_population, range_weights, 9)
-    cpu_range_next, cpu_range_values = randsample_next(
+    cpu_range_values, cpu_range_next = randsample_next(
         Philox4x32(0x792),
         range_population,
         ones(length(range_population)),
@@ -1674,9 +1671,9 @@ end
     @test range_next.position == cpu_range_next.position
 
     agnostic_weights = 1:length(range_population)
-    agnostic_next, agnostic_values =
+    agnostic_values, agnostic_next =
         randsample_next(range_rng, range_population, agnostic_weights, 9)
-    cpu_agnostic_next, cpu_agnostic_values =
+    cpu_agnostic_values, cpu_agnostic_next =
         randsample_next(Philox4x32(0x792), range_population, agnostic_weights, 9)
     @test Array(agnostic_values) == cpu_agnostic_values
     @test agnostic_next.position == cpu_agnostic_next.position

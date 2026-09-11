@@ -6,9 +6,9 @@ using Random
 using Test
 
 const IR = PureRNGs
-const METAL_32_FAMILIES = (Philox2x32, Philox4x32, Threefry2x32, Threefry4x32)
-const METAL_64_FAMILIES = (Philox2x64, Philox4x64, Threefry2x64, Threefry4x64)
-const METAL_FAMILIES = (METAL_32_FAMILIES..., METAL_64_FAMILIES...)
+const METAL_32_GENERATORS = (Philox2x32, Philox4x32, Threefry2x32, Threefry4x32, ChaCha)
+const METAL_64_GENERATORS = (Philox2x64, Philox4x64, Threefry2x64, Threefry4x64)
+const METAL_GENERATORS = (METAL_32_GENERATORS..., METAL_64_GENERATORS...)
 const METAL_FIXED_DISTRIBUTIONS = (
     (Normal{Float32}(0.5f0, 1.25f0), Float32),
     (Normal{Float64}(0.5, 1.25), Float64),
@@ -86,13 +86,13 @@ IR.KernelAbstractions.@kernel function _metal_exponential_lattice_kernel!(values
 end
 
 @testset "R38 Metal public host surface" begin
-    for F in METAL_FAMILIES
+    for F in METAL_GENERATORS
         cpu_rng = F(0x816)
         rng = MetalDevice()(cpu_rng)
         @test rng.device === IR._METAL_BACKEND
         for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
             @test rand(rng, T) === rand(cpu_rng, T)
-            @test IR.rand_next(rng, T)[2] === IR.rand_next(cpu_rng, T)[2]
+            @test IR.rand_next(rng, T)[1] === IR.rand_next(cpu_rng, T)[1]
         end
         for T in (Float32, Float64)
             @test randn(rng, T) === randn(cpu_rng, T)
@@ -103,7 +103,7 @@ end
 end
 
 @testset "R41 Metal allocating exclusions" begin
-    for F in METAL_32_FAMILIES
+    for F in METAL_32_GENERATORS
         rng = MetalDevice()(F(0x817))
         for count in (0, 1)
             _check_metal_error(() -> rand(rng, Float64, count))
@@ -120,7 +120,7 @@ end
         _check_metal_error(() -> IR.rand_next(rng, Float64, -1))
     end
 
-    for F in METAL_64_FAMILIES
+    for F in METAL_64_GENERATORS
         rng = MetalDevice()(F(0x818))
         for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64), count in (0, 1)
             _check_metal_error(() -> rand(rng, T, count))
@@ -134,7 +134,7 @@ end
         end
     end
 
-    for F in METAL_FAMILIES,
+    for F in METAL_GENERATORS,
         T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64),
         count in (0, 1)
 
@@ -166,7 +166,7 @@ end
     _check_metal_error(() -> randsample(rng, population, weights))
     _check_metal_error(() -> randsample_next(rng, population, weights))
 
-    for F in METAL_32_FAMILIES
+    for F in METAL_32_GENERATORS
         rng = MetalDevice()(F(0x81b))
         destination = MetalDeviceArrayProbe(Float64[])
         _check_metal_error(() -> rand!(rng, destination))
@@ -177,7 +177,7 @@ end
         _check_metal_error(() -> IR.randexp_next!(rng, destination))
     end
 
-    for F in METAL_64_FAMILIES
+    for F in METAL_64_GENERATORS
         rng = MetalDevice()(F(0x81c))
         for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
             destination = MetalDeviceArrayProbe(Vector{T}())
@@ -193,7 +193,7 @@ end
         end
     end
 
-    for F in METAL_FAMILIES
+    for F in METAL_GENERATORS
         rng = MetalDevice()(F(0x91c))
         range = UInt32(1):UInt32(7)
         for operation in (IR.randsample, IR.randsample_next)
@@ -208,10 +208,10 @@ end
 end
 
 @testset "R41-R64 Metal fixed-distribution surface" begin
-    for F in METAL_FAMILIES, (distribution, result_type) in METAL_FIXED_DISTRIBUTIONS
+    for F in METAL_GENERATORS, (distribution, result_type) in METAL_FIXED_DISTRIBUTIONS
         rng = MetalDevice()(F(0x91e))
         value = rand(rng, distribution)
-        next_rng, next_value = IR.rand_next(rng, distribution)
+        next_value, next_rng = IR.rand_next(rng, distribution)
         @test isequal(value, rand(rng, distribution))
         @test isequal(next_value, value)
         @test isequal(IR.randat(rng, distribution, 1), value)
@@ -230,22 +230,22 @@ end
 
 if Metal.functional()
     @testset "R41 Metal served primitive smoke" begin
-        for F in METAL_32_FAMILIES, T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
+        for F in METAL_32_GENERATORS, T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
             cpu_rng = F(0x81b)
             rng = MetalDevice()(cpu_rng)
-            next_rng, values = IR.rand_next(rng, T, 17)
-            expected_next, expected = IR.rand_next(cpu_rng, T, 17)
+            values, next_rng = IR.rand_next(rng, T, 17)
+            expected, expected_next = IR.rand_next(cpu_rng, T, 17)
             @test values isa Metal.MtlArray{T,1}
             @test Array(values) == expected
             @test next_rng.position == expected_next.position
         end
 
-        for F in METAL_32_FAMILIES
+        for F in METAL_32_GENERATORS
             cpu_rng = F(0x81c)
             rng = MetalDevice()(cpu_rng)
-            next_rng, values = IR.randn_next(rng, Float32, 17)
-            repeat_next, repeated = IR.randn_next(rng, Float32, 17)
-            expected_next, _ = IR.randn_next(cpu_rng, Float32, 17)
+            values, next_rng = IR.randn_next(rng, Float32, 17)
+            repeated, repeat_next = IR.randn_next(rng, Float32, 17)
+            _, expected_next = IR.randn_next(cpu_rng, Float32, 17)
             @test values isa Metal.MtlArray{Float32,1}
             @test Array(values) == Array(repeated)
             @test next_rng.position == repeat_next.position == expected_next.position
@@ -258,14 +258,13 @@ if Metal.functional()
             block = IR._position_block(rng.position)
             extracted = IR._extract_bits_unchecked(
                 rng,
-                IR.FAMILY_EXP,
                 block,
                 rng.position.bit,
                 Val(24),
             )
             @test extracted == UInt64(raw)
 
-            next_rng, device_values = IR.randexp_next(rng, Float32, 1)
+            device_values, next_rng = IR.randexp_next(rng, Float32, 1)
             value = only(Array(device_values))
             scale = setprecision(BigFloat, 160) do
                 ldexp(one(BigFloat), -24)

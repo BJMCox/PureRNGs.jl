@@ -1,11 +1,10 @@
 const _RangeInteger = Union{Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
-const FAMILY_RANGE = UInt32(0x00000003)
 
 @inline _range_bits(span::UInt64) =
     span != zero(UInt64) && span <= UInt64(1) << 32 ? UInt16(64) : UInt16(128)
 
 # This is the pinned K=64 reduction for spans through 2^32.
-@inline function _mulhi32limbs(word::UInt64, span::UInt64)
+@inline function _mulhi_by_halves(word::UInt64, span::UInt64)
     high = word >> 32
     low = word & UInt64(0xffffffff)
     return (high * span + ((low * span) >> 32)) >> 32
@@ -20,7 +19,7 @@ end
 end
 
 @inline _reduce_range_candidate(candidate::UInt64, span::UInt64) =
-    _mulhi32limbs(candidate, span)
+    _mulhi_by_halves(candidate, span)
 @inline _reduce_range_candidate(lo::UInt64, hi::UInt64, span::UInt64) =
     iszero(span) ? hi : _mulhi128_by64(lo, hi, span)
 
@@ -57,21 +56,21 @@ end
     return iszero(index) ? last(range) : range[index]
 end
 
-@inline function _range_offset(rng::_ScalarUniformFamily, position, span::UInt64)
+@inline function _range_offset(rng::_ScalarUniformGenerators, position, span::UInt64)
     block = _position_block(position)
     if span != zero(UInt64) && span <= UInt64(1) << 32
-        candidate = _extract_bits_unchecked(rng, FAMILY_RANGE, block, position.bit, Val(64))
+        candidate = _extract_bits_unchecked(rng, block, position.bit, Val(64))
         return _reduce_range_candidate(candidate, span)
     end
-    lo, hi = _extract_bits128_unchecked(rng, FAMILY_RANGE, block, position.bit)
+    lo, hi = _extract_bits128_unchecked(rng, block, position.bit)
     return _reduce_range_candidate(lo, hi, span)
 end
 
-@inline _range_offset(rng::_ScalarUniformFamily, span::UInt64) =
+@inline _range_offset(rng::_ScalarUniformGenerators, span::UInt64) =
     _range_offset(rng, rng.position, span)
 
 @inline function _draw_range_unchecked(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     position,
     range::AbstractRange{T},
     span::UInt64,
@@ -80,35 +79,35 @@ end
 end
 
 @inline function _draw_range_unchecked(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
     span::UInt64,
 ) where {T<:_RangeInteger}
     return _draw_range_unchecked(rng, rng.position, range, span)
 end
 
-@inline function _rand_range(rng::_ScalarUniformFamily, range::AbstractRange{T}) where {T}
-    span = _range_span(range)
-    width = _range_bits(span)
-    _reserve(rng, UInt64(width), UInt64(0))
-    return _draw_range_unchecked(rng, range, span)
-end
-
 @inline function _rand_next_range(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
 ) where {T}
     span = _range_span(range)
     width = _range_bits(span)
     next_rng = _reserve(rng, UInt64(width), UInt64(0))
-    return next_rng, _draw_range_unchecked(rng, range, span)
+    if width == UInt16(64)
+        candidate = _chain_bits(rng, next_rng, Val(64))
+        return _range_value(range, _reduce_range_candidate(candidate, span)), next_rng
+    end
+    return _draw_range_unchecked(rng, range, span), next_rng
 end
+
+@inline _rand_range(rng::_ScalarUniformGenerators, range::AbstractRange{T}) where {T} =
+    first(_rand_next_range(rng, range))
 
 for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
     @eval begin
-        @inline Random.rand(rng::_ScalarUniformFamily, range::AbstractRange{$T}) =
+        @inline Random.rand(rng::_ScalarUniformGenerators, range::AbstractRange{$T}) =
             _rand_range(rng, range)
-        @inline rand_next(rng::_ScalarUniformFamily, range::AbstractRange{$T}) =
+        @inline rand_next(rng::_ScalarUniformGenerators, range::AbstractRange{$T}) =
             _rand_next_range(rng, range)
     end
 end

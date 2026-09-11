@@ -19,6 +19,20 @@ end
     ) == (0x59cd1dbb, 0xb8879579, 0x86b5d00c, 0xac8b6d84)
 end
 
+@testset "Threefry4x64-13 Random123 KATs" begin
+    core = PureRNGs._threefry4x64
+    @test core(ntuple(_ -> UInt64(0), 4), ntuple(_ -> UInt64(0), 4), Val(13)) ==
+          (0x4071fabee1dc8e05, 0x02ed3113695c9c62, 0x397311b5b89f9d49, 0xe21292c3258024bc)
+    ones = ntuple(_ -> 0xffffffffffffffff, 4)
+    @test core(ones, ones, Val(13)) ==
+          (0x7eaed935479722b5, 0x90994358c429f31c, 0x496381083e07a75b, 0x627ed0d746821121)
+    @test core(
+        (0x243f6a8885a308d3, 0x13198a2e03707344, 0xa4093822299f31d0, 0x082efa98ec4e6c89),
+        (0x452821e638d01377, 0xbe5466cf34e90c6c, 0xc0ac29b7c97c50dd, 0x3f84d5b5b5470917),
+        Val(13),
+    ) == (0x4361288ef9c1900c, 0x8717291521782833, 0x0d19db18c20cf47e, 0xa0b41d63ac8581e5)
+end
+
 @testset "Threefry2x64 Random123 KATs" begin
     core = PureRNGs._threefry2x64
     @test core((UInt64(0), UInt64(0)), (UInt64(0), UInt64(0))) ==

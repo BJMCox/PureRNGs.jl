@@ -111,7 +111,6 @@ function _reference_normal(rng, ::Type{T}) where {T}
     width = _normal_width(T)
     raw = _reference_extract(
         rng,
-        IR.FAMILY_NORMAL,
         _reference_position_block(rng.position),
         rng.position.bit,
         width,
@@ -161,104 +160,92 @@ function _serial_normal_fill_allocations(rng, destination)
 end
 
 @testset "R13 and R28 packed normal raw golden vectors" begin
-    # The preserved revision-13 C++ oracle was adapted only to select
-    # FAMILY_NORMAL and emit 23-bit, 52-bit, and midpoint values. The files
-    # PureRNGs-normal-oracle.cpp and PureRNGs-normal-oracle.out live
-    # beside the preserved oracle outside Git. Their file SHA-256 hashes are
-    # c1917e39610fbc65b6b91872c9eb33fd7103f955da275913516a4b00df90226b and
-    # 76d0fd9045667d5df5267a2207a321ad58fbd92b8724feababca92dee8f2997b.
-    # Their payload SHA-256 hashes are
-    # 7099d627be91f7a7583be82e09b310bcd3db83cf3d739038bd35ee6f47cdaa86 and
-    # 77e6f0348d5f391058937a2ad0dc21bb3435d6f809adb6e996d9915ff3c6887b.
-    # The adapter includes the preserved source with payload SHA-256
-    # 68a432f195091fff370c858b5ef80617ec3bf3399ff9db8bfa4cc06ca753f5e3.
-    # Pinned testbed commit for unchanged cores and layouts:
-    # 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d.
-    # Public normal result bits were captured on aarch64 macOS and verified on
-    # x86-64 Linux. R43 permits final AS241 results to differ elsewhere.
+    # Normal draws read the uniform stream, so the 23-bit and 52-bit raws are
+    # prefixes of the uniform golden block at this position. The midpoint and
+    # result bits pin the AS241 transform.
+    # Public normal result bits were captured on aarch64 macOS. R43 permits
+    # final AS241 results to differ elsewhere.
     exact_public_results =
         (Sys.ARCH, Sys.KERNEL) in ((:aarch64, :Darwin), (:x86_64, :Linux))
     expected = (
         (
-            0x72d8ec,
-            0x0e5b1d8e28fcd5,
-            0x3f65b1d9,
-            0x3fecb63b1c51f9ab,
-            0x3fa20c90,
-            0x3ff4419224daef1f,
+            0x79cb04,
+            0x0f39608ad54873,
+            0x3f739609,
+            0x3fee72c115aa90e7,
+            0x3fd46f94,
+            0x3ffa8df2a6e3179a,
         ),
         (
-            0x788a42,
-            0x0f11485c914b5b,
-            0x3f711485,
-            0x3fee2290b92296b7,
-            0x3fc8e12b,
-            0x3ff91c2631cb2053,
+            0x1014e4,
+            0x02029c87b4a20b,
+            0x3e00a724,
+            0x3fc014e43da5105c,
+            0xbf92d956,
+            0xbff25b2aeade0df4,
         ),
         (
-            0x33ab13,
-            0x067562689937a8,
-            0x3eceac4e,
-            0x3fd9d589a264dea2,
-            0xbe79be14,
-            0xbfcf37c332c6479a,
+            0x1516ac,
+            0x02a2d596a681fd,
+            0x3e28b564,
+            0x3fc516acb5340fec,
+            0xbf79a063,
+            0xbfef340c238deb88,
         ),
         (
-            0x0c5af3,
-            0x018b5e633ebdeb,
-            0x3dc5af38,
-            0x3fb8b5e633ebdeb8,
-            0xbfa69b03,
-            0xbff4d360c3607e53,
+            0x312659,
+            0x0624cb22e36a26,
+            0x3ec49966,
+            0x3fd8932c8b8da89a,
+            0xbe970f14,
+            0xbfd2e1e3148ee9ef,
         ),
         (
-            0x6ebd7e,
-            0x0dd7afcc2cf972,
-            0x3f5d7afd,
-            0x3febaf5f9859f2e5,
-            0x3f8d48ff,
-            0x3ff1a91fc02d3427,
+            0x6a587f,
+            0x0d4b0fe71e0a71,
+            0x3f54b0ff,
+            0x3fea961fce3c14e3,
+            0x3f751a5c,
+            0x3feea34b41c59b6e,
         ),
         (
-            0x7c45dd,
-            0x0f88bbad99b74d,
-            0x3f788bbb,
-            0x3fef11775b336e9b,
-            0x3ff26bf0,
-            0x3ffe4d7dd9742d79,
+            0x06bfc7,
+            0x00d7f8e4de9196,
+            0x3d57f8f0,
+            0x3faaff1c9bd232d0,
+            0xbfcf3a2a,
+            0xbff9e745e1e9dad7,
         ),
         (
-            0x6baf7c,
-            0x0d75ef88d35261,
-            0x3f575ef9,
-            0x3feaebdf11a6a4c3,
-            0x3f7ff1f7,
-            0x3feffe3e9f3eaeba,
+            0x2269c9,
+            0x044d3930c5cae4,
+            0x3e89a726,
+            0x3fd134e4c3172b92,
+            0xbf1dc4d4,
+            0xbfe3b89a5cbc295a,
         ),
         (
-            0x53948c,
-            0x0a72918c5d912e,
-            0x3f272919,
-            0x3fe4e52318bb225d,
-            0x3ec965a5,
-            0x3fd92cb4a0df0afc,
+            0x36e0cd,
+            0x06dc19acb71673,
+            0x3edb8336,
+            0x3fdb7066b2dc59ce,
+            0xbe37e7a4,
+            0xbfc6fcf4af71978a,
         ),
     )
 
     for ((F, key), (raw32, raw64, midpoint32, midpoint64, normal32, normal64)) in
-        zip(PACKED_GOLDEN_FAMILIES, expected)
+        zip(PACKED_GOLDEN_GENERATORS, expected)
         rng = _packed_golden_rng(F, key)
         block = _reference_position_block(rng.position)
         got32 = IR._extract_bits_unchecked(
             rng,
-            IR.FAMILY_NORMAL,
             block,
             rng.position.bit,
             Val(23),
         )
         got64 = IR._extract_bits_unchecked(
             rng,
-            IR.FAMILY_NORMAL,
             block,
             rng.position.bit,
             Val(52),
@@ -294,13 +281,13 @@ end
 end
 
 @testset "R28 packed scalar normals" begin
-    for F in FAMILY_TYPES, T in NORMAL_TYPES
+    for F in GENERATOR_TYPES, T in NORMAL_TYPES
         for bit in (UInt16(0), UInt16(23), UInt16(51), UInt16(63))
             rng = _positioned(F, 0x742, UInt64(9), bit)
             expected = _reference_normal(rng, T)
             @test randn(rng, T) === expected
 
-            next_rng, value = randn_next(rng, T)
+            value, next_rng = randn_next(rng, T)
             @test value === expected
             @test next_rng.position == _reference_position(rng, _normal_width(T))
             @test randnat(rng, T, 1) === expected
@@ -316,34 +303,18 @@ end
     end
 end
 
-@testset "R8 and R53 normal family, capacity, and mixed positions" begin
-    for F in FAMILY_TYPES, T in NORMAL_TYPES
+@testset "R8 and R53 normal generator, capacity, and mixed positions" begin
+    for F in GENERATOR_TYPES, T in NORMAL_TYPES
         rng = _positioned(F, 0x743, UInt64(4), UInt16(61))
-        normal_raw = _reference_extract(
-            rng,
-            IR.FAMILY_NORMAL,
-            _reference_position_block(rng.position),
-            rng.position.bit,
-            _normal_width(T),
-        )
-        uniform_raw = _reference_extract(
-            rng,
-            IR.FAMILY_BITS,
-            _reference_position_block(rng.position),
-            rng.position.bit,
-            _normal_width(T),
-        )
-        @test normal_raw != uniform_raw
-
-        next_rng, _ = randn_next(rng, T)
+        _, next_rng = randn_next(rng, T)
         @test next_rng.position == _reference_position(rng, _normal_width(T))
-        final_rng, final_rng_value = rand_next(next_rng, UInt32)
+        final_rng_value, final_rng = rand_next(next_rng, UInt32)
         @test final_rng_value === rand(next_rng, UInt32)
         @test final_rng.position ==
               _reference_position(rng, _normal_width(T) + _uniform_width(UInt32))
 
         terminal_rng = _terminal_normal_rng(F, T)
-        exhausted, value = randn_next(terminal_rng, T)
+        value, exhausted = randn_next(terminal_rng, T)
         @test value === randn(terminal_rng, T)
         @test exhausted.position.bit === IR._EXHAUSTED_BIT
         @test_throws ArgumentError randn(exhausted, T)
@@ -353,22 +324,22 @@ end
     end
 end
 
-@testset "R30 Position128 normal low-limb carry" begin
+@testset "R30 Position128 normal low-word carry" begin
     for F in (Philox4x64, Threefry4x64), T in NORMAL_TYPES
         rng = F(0x746)
         bit = UInt16(IR._block_bits(rng) - _normal_width(T))
         position = IR._Position128(typemax(UInt64), UInt64(7), bit)
         rng = IR._rebuild(rng, position, rng.device)
-        next_rng, _ = randn_next(rng, T)
+        _, next_rng = randn_next(rng, T)
         @test next_rng.position == IR._Position128(UInt64(0), UInt64(8), UInt16(0))
     end
 end
 
 @testset "R23 and R30 scalar normal fixed-work and codegen" begin
-    for F in FAMILY_TYPES
+    for F in GENERATOR_TYPES
         rng = F(0x744)
-        default_next, default_value = randn_next(rng)
-        typed_next, typed_value = randn_next(rng, Float64)
+        default_value, default_next = randn_next(rng)
+        typed_value, typed_next = randn_next(rng, Float64)
         @test default_next === typed_next
         @test default_value === typed_value
 
@@ -380,7 +351,7 @@ end
         end
     end
 
-    rng = Philox4x64(0x745)
+    rng = IR.MLDataDevices.CUDADevice()(Philox4x64(0x745))
     for (function_, signature) in (
         (randn, Tuple{typeof(rng),Type{Float64}}),
         (randn_next, Tuple{typeof(rng),Type{Float32}}),
@@ -407,7 +378,7 @@ end
 end
 
 @testset "R23, R24, and R26 packed normal fills and allocations" begin
-    for F in FAMILY_TYPES, T in NORMAL_TYPES
+    for F in GENERATOR_TYPES, T in NORMAL_TYPES
         for bit in (UInt16(0),)
             rng = _positioned(F, 0x747, UInt64(6), bit)
             next_rng, expected = _reference_normal_chain(rng, T, 17)
@@ -420,7 +391,7 @@ end
             @test serial == threaded == expected
             @test rng.position.bit == bit
 
-            continued_next, continued = randn_next!(rng, similar(serial))
+            continued, continued_next = randn_next!(rng, similar(serial))
             sync_cpu()
             @test continued == expected
             @test continued_next.position == next_rng.position
@@ -431,7 +402,7 @@ end
             @test size(matrix) == (1, 17)
             @test rng.position.bit == bit
 
-            allocated_next, allocated = randn_next(rng, T, 17)
+            allocated, allocated_next = randn_next(rng, T, 17)
             sync_cpu()
             @test allocated == expected
             @test allocated_next.position == next_rng.position
@@ -441,7 +412,7 @@ end
         next_rng, expected = _reference_normal_chain(rng, T, 12)
         storage = fill(zero(T), 24)
         destination = @view storage[2:2:24]
-        view_next, returned = randn_next!(rng, destination; threaded = false)
+        returned, view_next = randn_next!(rng, destination; threaded = false)
         @test returned === destination
         @test collect(destination) == expected
         @test all(iszero, @view storage[1:2:23])
@@ -459,14 +430,14 @@ end
         bit = UInt16(127)
         rng = _positioned(Philox4x32, 0x747, UInt64(6), bit)
         expected_rng, expected = _reference_normal_chain(rng, T, 17)
-        next_rng, destination = randn_next!(rng, Vector{T}(undef, 17); threaded = false)
+        destination, next_rng = randn_next!(rng, Vector{T}(undef, 17); threaded = false)
         @test destination == expected
         @test next_rng.position == expected_rng.position
     end
 
     rng = Philox4x32(0x749)
-    default_next, default_values = randn_next(rng, 2, 3)
-    typed_next, typed_values = randn_next(rng, Float64, 2, 3)
+    default_values, default_next = randn_next(rng, 2, 3)
+    typed_values, typed_next = randn_next(rng, Float64, 2, 3)
     sync_cpu()
     @test default_values == typed_values
     @test default_next.position == typed_next.position
@@ -484,8 +455,8 @@ end
             count = 4chunk_elements + delta
             serial = Vector{T}(undef, count)
             threaded = similar(serial)
-            serial_next, _ = randn_next!(rng, serial; threaded = false)
-            threaded_next, _ = randn_next!(rng, threaded; threaded = true)
+            _, serial_next = randn_next!(rng, serial; threaded = false)
+            _, threaded_next = randn_next!(rng, threaded; threaded = true)
             sync_cpu()
             @test threaded == serial
             @test threaded_next.position == serial_next.position
@@ -495,7 +466,7 @@ end
     rng = _positioned(Philox4x32, 0x74b, UInt64(3), UInt16(29))
     caller = current_task()
     probe = TaskWriteProbe(Vector{Float64}(undef, 37))
-    next_rng, returned = randn_next!(rng, probe; threaded = false)
+    returned, next_rng = randn_next!(rng, probe; threaded = false)
     expected_rng, expected = _reference_normal_chain(rng, Float64, 37)
     @test returned === probe
     @test all(task -> task === caller, probe.writers)
@@ -507,7 +478,7 @@ end
     rng = _positioned(Philox4x32, 0x74b1, UInt64(5), UInt16(61))
     for count in (128, 129)
         expected_next, expected = _reference_normal_chain(rng, Float64, count)
-        next_rng, values = randn_next(rng, Float64, count)
+        values, next_rng = randn_next(rng, Float64, count)
         sync_cpu()
         @test values == expected
         @test next_rng.position == expected_next.position
@@ -519,19 +490,19 @@ end
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     empty = Float32[]
     @test randn!(exhausted, empty; threaded = false) === empty
-    empty_next, empty_result = randn_next!(exhausted, empty; threaded = false)
+    empty_result, empty_next = randn_next!(exhausted, empty; threaded = false)
     @test empty_result === empty
     @test empty_next === exhausted
     @test isempty(randn(exhausted, Float32, 0))
-    allocated_empty_next, allocated_empty = randn_next(exhausted, Float32, 0)
+    allocated_empty, allocated_empty_next = randn_next(exhausted, Float32, 0)
     @test isempty(allocated_empty)
     @test allocated_empty_next === exhausted
-    default_empty_next, default_empty = randn_next(exhausted, 0)
+    default_empty, default_empty_next = randn_next(exhausted, 0)
     @test isempty(default_empty)
     @test eltype(default_empty) === Float64
     @test default_empty_next === exhausted
 
-    for F in FAMILY_TYPES, T in NORMAL_TYPES
+    for F in GENERATOR_TYPES, T in NORMAL_TYPES
         last = _terminal_normal_rng(F, T)
         destination = fill(one(T), 2)
         before = copy(destination)
@@ -541,7 +512,7 @@ end
         @test destination == before
 
         final = Vector{T}(undef, 1)
-        final_next, _ = randn_next!(last, final; threaded = false)
+        _, final_next = randn_next!(last, final; threaded = false)
         @test final[1] === _reference_normal(last, T)
         expected_terminal =
             last.position isa IR._Position64 ? IR._terminal64(IR._max_block(last)) :
@@ -549,7 +520,7 @@ end
         @test final_next.position == expected_terminal
 
         pure_final = randn(last, T, 1)
-        allocating_final_next, allocating_final = randn_next(last, T, 1)
+        allocating_final, allocating_final_next = randn_next(last, T, 1)
         sync_cpu()
         @test pure_final == allocating_final == final
         @test allocating_final_next.position == expected_terminal
@@ -567,13 +538,13 @@ end
 end
 
 @testset "R23 and R30 normal fill fixed-work and codegen" begin
-    for F in FAMILY_TYPES, T in NORMAL_TYPES
+    for F in GENERATOR_TYPES, T in NORMAL_TYPES
         rng = F(0x74d)
         destination = Vector{T}(undef, 7)
         @test _serial_normal_fill_allocations(rng, destination) == 0
     end
 
-    rng = Philox4x64(0x74e)
+    rng = IR.MLDataDevices.CUDADevice()(Philox4x64(0x74e))
     destination = Vector{Float64}(undef, 7)
     for (function_, call_signature) in
         ((randn_next!, Tuple{typeof(rng),typeof(destination)}),)

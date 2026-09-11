@@ -21,8 +21,8 @@ zero_position(rng) = PureRNGs._zero_position(typeof(rng))
 end
 
 @testset "R13 derivation golden vectors" begin
-    # The six families outside the pinned testbed scope carry revision-9 vectors here.
-    # The two pinned-testbed families and their provenance live in oracle_conformance.jl.
+    # The six generators outside the pinned testbed scope carry revision-9 vectors here.
+    # The two pinned-testbed generators and their provenance live in oracle_conformance.jl.
     cases = (
         (
             Philox2x32((0x01234567,)),

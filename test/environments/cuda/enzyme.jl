@@ -4,7 +4,7 @@ end
 
 function _enzyme_fill_objective!(fill_function, rng, destination, scale, threaded)
     result = fill_function(rng, destination; threaded = threaded)
-    values = result isa Tuple ? last(result) : result
+    values = result isa Tuple ? first(result) : result
     return scale * sum(values)
 end
 
@@ -42,7 +42,7 @@ function _check_enzyme_primal!(
     continued,
     ::Type{T},
 ) where {T}
-    expected_rng, expected = next_draw(rng, T, 17)
+    expected, expected_rng = next_draw(rng, T, 17)
     values = CUDA.zeros(T, 17)
     shadow = CUDA.fill(T(7), 17)
     shadow_result, primal_result = autodiff(
@@ -55,9 +55,9 @@ function _check_enzyme_primal!(
         Const(true),
     )
     if continued
-        @test primal_result[1] === expected_rng
-        @test primal_result[2] === values
-        @test shadow_result[2] === shadow
+        @test primal_result[1] === values
+        @test primal_result[2] === expected_rng
+        @test shadow_result[1] === shadow
     else
         @test primal_result === values
         @test shadow_result === shadow
@@ -69,7 +69,7 @@ function _check_enzyme_primal!(
 end
 
 function _check_enzyme_reverse_gradient!(rng, fill_function, next_draw, ::Type{T}) where {T}
-    _, expected = next_draw(rng, T, 17)
+    expected, _ = next_draw(rng, T, 17)
     reference = sum(Array(expected))
     values = CUDA.zeros(T, 17)
     shadow = CUDA.fill(T(6), 17)
@@ -91,7 +91,7 @@ function _check_enzyme_reverse_gradient!(rng, fill_function, next_draw, ::Type{T
 end
 
 function _check_enzyme_batch_gradient!(rng, fill_function, next_draw, ::Type{T}) where {T}
-    _, expected = next_draw(rng, T, 17)
+    expected, _ = next_draw(rng, T, 17)
     reference = sum(Array(expected))
     values = CUDA.zeros(T, 17)
     shadow_one = CUDA.fill(T(3), 17)
@@ -143,7 +143,7 @@ end
         primal_events = _device_events() do
             result = fill_function(rng, values)
             if continued
-                @test last(result) === values
+                @test first(result) === values
             else
                 @test result === values
             end

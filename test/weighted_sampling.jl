@@ -1,25 +1,25 @@
 const WeightedIR = PureRNGs
 
 const WEIGHTED_GOLDEN = (
-    Philox2x32 => Int32[40, 40, 40, 30, 30, 40, 20, 30],
-    Philox4x32 => Int32[30, 40, 40, 20, 30, 20, 40, 30],
-    Philox2x64 => Int32[20, 40, 40, 40, 30, 20, 30, 40],
-    Philox4x64 => Int32[30, 40, 40, 10, 40, 30, 30, 30],
-    Threefry2x32 => Int32[40, 40, 30, 20, 40, 10, 30, 30],
-    Threefry4x32 => Int32[20, 20, 40, 30, 40, 30, 10, 40],
-    Threefry2x64 => Int32[40, 30, 40, 30, 20, 40, 40, 10],
-    Threefry4x64 => Int32[40, 30, 30, 30, 30, 40, 40, 30],
+    Philox2x32 => Int32[30, 40, 30, 30, 30, 40, 30, 40],
+    Philox4x32 => Int32[30, 30, 30, 20, 30, 40, 30, 20],
+    Philox2x64 => Int32[30, 40, 40, 30, 20, 40, 40, 40],
+    Philox4x64 => Int32[30, 10, 20, 10, 30, 10, 40, 40],
+    Threefry2x32 => Int32[10, 20, 40, 40, 20, 30, 30, 40],
+    Threefry4x32 => Int32[20, 40, 30, 30, 30, 30, 10, 40],
+    Threefry2x64 => Int32[30, 30, 20, 40, 10, 30, 40, 30],
+    Threefry4x64 => Int32[20, 30, 30, 40, 20, 20, 40, 30],
 )
 
 const WEIGHTED_OFFSET_GOLDEN = (
-    Philox2x32 => Int32[104, 104, 105, 106, 106, 106, 103, 101, 103, 105, 106, 103],
-    Philox4x32 => Int32[104, 106, 105, 104, 105, 103, 104, 105, 106, 104, 103, 103],
-    Philox2x64 => Int32[103, 106, 105, 105, 103, 104, 103, 103, 106, 103, 106, 106],
-    Philox4x64 => Int32[106, 105, 103, 106, 105, 103, 103, 105, 101, 105, 103, 105],
-    Threefry2x32 => Int32[104, 106, 103, 104, 101, 106, 106, 106, 105, 103, 103, 106],
-    Threefry4x32 => Int32[106, 101, 103, 103, 106, 106, 104, 106, 101, 103, 103, 103],
-    Threefry2x64 => Int32[103, 105, 106, 101, 106, 104, 106, 106, 101, 106, 106, 106],
-    Threefry4x64 => Int32[106, 106, 103, 106, 104, 106, 105, 106, 106, 106, 106, 101],
+    Philox2x32 => Int32[103, 106, 103, 106, 104, 101, 105, 103, 103, 106, 105, 105],
+    Philox4x32 => Int32[103, 106, 105, 104, 105, 104, 104, 103, 103, 104, 105, 105],
+    Philox2x64 => Int32[105, 103, 106, 103, 104, 106, 106, 104, 103, 106, 103, 106],
+    Philox4x64 => Int32[106, 104, 104, 104, 101, 106, 104, 106, 106, 106, 105, 104],
+    Threefry2x32 => Int32[106, 106, 103, 106, 104, 106, 106, 104, 103, 103, 103, 104],
+    Threefry4x32 => Int32[106, 106, 106, 106, 105, 105, 106, 106, 103, 103, 104, 105],
+    Threefry2x64 => Int32[106, 105, 105, 105, 106, 103, 104, 106, 106, 105, 106, 106],
+    Threefry4x64 => Int32[106, 106, 103, 106, 105, 106, 103, 103, 105, 106, 106, 101],
 )
 
 mutable struct CountedWeights{T} <: AbstractVector{T}
@@ -58,7 +58,6 @@ function _weighted_reference(rng, population, weights, k::Int)
     for index in eachindex(thresholds)
         raw = WeightedIR._extract_bits_unchecked(
             rng,
-            WeightedIR.FAMILY_RANGE,
             WeightedIR._position_block(position),
             position.bit,
             Val(53),
@@ -106,7 +105,7 @@ end
     weights = Float64[1, 2, 3, 4]
     for (F, expected) in WEIGHTED_GOLDEN
         rng = F(0x9750)
-        next_rng, values = randsample_next(rng, population, weights, 8)
+        values, next_rng = randsample_next(rng, population, weights, 8)
         @test values == expected
         @test next_rng === WeightedIR._reserve(rng, UInt64(8 * 53), UInt64(0))
     end
@@ -117,7 +116,7 @@ end
     weights = ZeroBasedVector(Float64[1, 0, 4, 2, 3, 5])
     for (F, expected) in WEIGHTED_OFFSET_GOLDEN
         rng = F(0x9761)
-        _, values = randsample_next(rng, population, weights, 12)
+        values, _ = randsample_next(rng, population, weights, 12)
         @test values == expected
         @test randsample(rng, population, weights, 12) == expected
     end
@@ -147,7 +146,7 @@ end
     for (population, weights) in zip(populations, weight_sets)
         rng = Philox4x32(0x9752)
         expected_next, expected = _weighted_reference(rng, population, weights, 11)
-        next_rng, values = randsample_next(rng, population, weights, 11)
+        values, next_rng = randsample_next(rng, population, weights, 11)
 
         @test values == expected
         @test next_rng === expected_next
@@ -159,7 +158,7 @@ end
     @test randsample(rng, population, weights, 5) == expected[1:5]
     default_expected_next, default_expected =
         _weighted_reference(rng, population, weights, length(population))
-    default_next, default_values = randsample_next(rng, population, weights)
+    default_values, default_next = randsample_next(rng, population, weights)
     @test default_values == default_expected
     @test default_next === default_expected_next
     @test randsample(rng, population, weights) == default_expected
@@ -169,11 +168,11 @@ end
     population = collect('a':'f')
     weights = [0.0, 1.0, 7.0, 0.0, 2.0, 4.0]
     rng = Philox4x32(0x9753)
-    batch_next, batch = randsample_next(rng, population, weights, 17)
+    batch, batch_next = randsample_next(rng, population, weights, 17)
     cursor = rng
     chained = similar(batch)
     for index in eachindex(chained)
-        cursor, value = randsample_next(cursor, population, weights, 1)
+        value, cursor = randsample_next(cursor, population, weights, 1)
         chained[index] = only(value)
     end
     @test batch == chained
@@ -202,7 +201,7 @@ end
     wrong_weights = SamplingCUDAProbe([1.0, 2.0, 3.0])
     @test_throws ArgumentError randsample(rng, population, wrong_weights, -1)
 
-    empty_next, empty = randsample_next(rng, population, ones(3), 0)
+    empty, empty_next = randsample_next(rng, population, ones(3), 0)
     @test isempty(empty)
     @test empty_next === rng
     @test isempty(randsample(rng, population, ones(3), 0))
@@ -212,7 +211,7 @@ end
     rng = Philox4x64(0x9755)
     weights = CountedWeights([1.0, 0.0, 3.0, 2.0], 0)
     expected_next, expected = _weighted_reference(rng, 11:14, weights.values, 13)
-    next_rng, values = randsample_next(rng, 11:14, weights, 13)
+    values, next_rng = randsample_next(rng, 11:14, weights, 13)
     @test values == expected
     @test next_rng === expected_next
     @test weights.reads == length(weights)
@@ -223,7 +222,7 @@ end
     weights = [1.0, 1.0]
     for F in (Philox2x32, Threefry4x64)
         last = _last_weighted_rng(F)
-        terminal, value = randsample_next(last, population, weights, 1)
+        value, terminal = randsample_next(last, population, weights, 1)
         @test length(value) == 1
         @test terminal.position.bit == WeightedIR._EXHAUSTED_BIT
         @test_throws ArgumentError randsample(last, population, weights, 2)

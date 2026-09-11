@@ -71,7 +71,7 @@ function pure_fill_objective!(fill_function, rng, destination, scale, threaded)
 end
 
 function pure_next_fill_objective!(fill_function, rng, destination, scale, threaded)
-    _, result = fill_function(rng, destination; threaded = threaded)
+    result, _ = fill_function(rng, destination; threaded = threaded)
     return scale * sum(result)
 end
 
@@ -98,7 +98,7 @@ end
 
 @testset "R65 omitted keyword and StatefulRNG annotations" begin
     rng = Philox4x32(0x6506)
-    expected_rng, expected = randn_next(rng, Float64, 9)
+    expected, expected_rng = randn_next(rng, Float64, 9)
 
     destination = zeros(9)
     shadow = fill(4.0, 9)
@@ -110,9 +110,9 @@ end
         Const(rng),
         Duplicated(destination, shadow),
     )
-    @test primal_result[1] === expected_rng
-    @test primal_result[2] === destination
-    @test shadow_result[2] === shadow
+    @test primal_result[1] === destination
+    @test primal_result[2] === expected_rng
+    @test shadow_result[1] === shadow
     @test destination == expected
     @test iszero(shadow)
 
@@ -138,7 +138,7 @@ end
 
 @testset "R65 StatefulRNG reverse normal overwrite" begin
     rng = StatefulRNG(Philox4x32(0x6501))
-    expected_rng, expected = randn_next(parent(rng), Float64, 8)
+    expected, expected_rng = randn_next(parent(rng), Float64, 8)
     destination = zeros(8)
     shadow = fill(9.0, 8)
     scale = 1.25
@@ -165,7 +165,7 @@ end
 @testset "R65 immutable fill rules" begin
     for T in (Float32, Float64), case in pure_fill_cases(Philox4x32(0x6503), T, 13)
         fill_function, next_fill_function, expected = case
-        expected_rng, expected_values = expected
+        expected_values, expected_rng = expected
         rng = Philox4x32(0x6503)
 
         for (function_under_test, continued) in
@@ -182,9 +182,9 @@ end
                 Const(continued),
             )
             if continued
-                @test primal_result[1] === expected_rng
-                @test primal_result[2] === values
-                @test shadow_result[2] === shadow
+                @test primal_result[1] === values
+                @test primal_result[2] === expected_rng
+                @test shadow_result[1] === shadow
             else
                 @test primal_result === values
                 @test shadow_result === shadow
@@ -201,7 +201,7 @@ end
         )
 
         rng = Philox4x32(0x6503)
-        _, expected = randexp_next(rng, T, 13)
+        expected, _ = randexp_next(rng, T, 13)
         values = zeros(T, 13)
         shadow = fill(T(9), 13)
         derivative = only(
@@ -226,7 +226,7 @@ end
 @testset "R65 constant and batched destinations" begin
     for T in (Float32, Float64)
         rng = Philox4x32(0x6504)
-        expected_rng, expected = randexp_next(rng, T, 17)
+        expected, expected_rng = randexp_next(rng, T, 17)
 
         constant_values = zeros(T, 17)
         constant_derivative = only(
@@ -263,7 +263,7 @@ end
         @test batched_derivative[1] ≈ sum(expected)
         @test batched_derivative[2] ≈ T(2) * sum(expected)
 
-        next_rng, direct_values =
+        direct_values, next_rng =
             randexp_next!(rng, similar(batched_values); threaded = true)
         @test next_rng === expected_rng
         @test direct_values == expected
@@ -298,7 +298,7 @@ end
     for T in (Float32, Float64),
         (fill_function, expected) in fill_cases(Philox4x32(0x6502), T, 11)
 
-        expected_rng, expected_values = expected
+        expected_values, expected_rng = expected
 
         forward_rng = StatefulRNG(Philox4x32(0x6502))
         forward_values = zeros(T, 11)
@@ -323,7 +323,7 @@ end
 
 @testset "R65 one primal execution" begin
     rng = Philox4x32(0x6507)
-    _, expected = randn_next(rng, Float64, 10)
+    expected, _ = randn_next(rng, Float64, 10)
     for (mode, shadow_writes) in ((Forward, 10), (Reverse, 20))
         destination = CountingVector(zeros(10))
         shadow = CountingVector(fill(5.0, 10))

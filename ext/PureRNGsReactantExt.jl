@@ -101,7 +101,8 @@ end
 @inline _position128(::Type{R}) where {R} = fieldtype(R, :position) === IR._Position128
 @inline _block_bits(::Type{R}) where {R} =
     R <: Union{IR.Philox2x32,IR.Threefry2x32} ? UInt64(64) :
-    R <: Union{IR.Philox4x64,IR.Threefry4x64} ? UInt64(256) : UInt64(128)
+    R <: Union{IR.Philox4x64,IR.Threefry4x64} ? UInt64(256) :
+    R <: IR.ChaCha ? UInt64(512) : UInt64(128)
 
 @inline function _key(rng::_ReactantRNG{R}) where {R}
     count = _key_count(R)
@@ -135,57 +136,44 @@ end
 end
 @inline _unwrap(words) = map(word -> word.value, words)
 
-@inline function _block(rng::_ReactantRNG{R}, family::UInt32, lo, hi) where {R}
+# The draw counter is the block address zero-extended to the core's counter width,
+# matching `_block` in src/bits.jl.
+@inline function _block(rng::_ReactantRNG{R}, lo, hi) where {R}
     key = _key(rng)
+    pad = IR._core_constant(key[1], 0)
     if R <: Union{IR.Philox2x32,IR.Threefry2x32}
         low = _word32(lo & UInt64(0xffffffff))
-        high = _word32(
-            (UInt64(family) << 24) | (div(lo, UInt64(1) << 32) & UInt64(0x00ffffff)),
-        )
+        high = _word32(div(lo, UInt64(1) << 32) & UInt64(0x00ffffff))
         words =
-            R <: IR.Philox2x32 ? IR._philox2x32((low, high), key) :
-            IR._threefry2x32((low, high), key)
+            R <: IR.Philox2x32 ? IR._philox2x32((low, high), key, Val(IR._rounds(R))) :
+            IR._threefry2x32((low, high), key, Val(IR._rounds(R)))
     elseif R <: Union{IR.Philox4x32,IR.Threefry4x32}
-        counter = (
-            _word32(lo & UInt64(0xffffffff)),
-            _word32(div(lo, UInt64(1) << 32)),
-            IR._core_constant(key[1], family),
-            IR._core_constant(key[1], 0),
-        )
+        counter =
+            (_word32(lo & UInt64(0xffffffff)), _word32(div(lo, UInt64(1) << 32)), pad, pad)
         words =
-            R <: IR.Philox4x32 ? IR._philox4x32(counter, key) :
-            IR._threefry4x32(counter, key)
+            R <: IR.Philox4x32 ? IR._philox4x32(counter, key, Val(IR._rounds(R))) :
+            IR._threefry4x32(counter, key, Val(IR._rounds(R)))
     elseif R <: Union{IR.Philox2x64,IR.Threefry2x64}
-        counter = (_word64(lo), IR._core_constant(key[1], family))
+        counter = (_word64(lo), pad)
         words =
-            R <: IR.Philox2x64 ? IR._philox2x64(counter, key) :
-            IR._threefry2x64(counter, key)
+            R <: IR.Philox2x64 ? IR._philox2x64(counter, key, Val(IR._rounds(R))) :
+            IR._threefry2x64(counter, key, Val(IR._rounds(R)))
     else
-        counter = (
-            _word64(lo),
-            _word64(hi),
-            IR._core_constant(key[1], family),
-            IR._core_constant(key[1], 0),
-        )
+        counter = (_word64(lo), _word64(hi), pad, pad)
         words =
-            R <: IR.Philox4x64 ? IR._philox4x64(counter, key) :
-            IR._threefry4x64(counter, key)
+            R <: IR.Philox4x64 ? IR._philox4x64(counter, key, Val(IR._rounds(R))) :
+            IR._threefry4x64(counter, key, Val(IR._rounds(R)))
     end
     return _unwrap(words)
 end
 
-@inline function _limbs(rng::_ReactantRNG{R}, family, lo, hi) where {R}
-    words = _block(rng, family, lo, hi)
-    if _word_width(R) isa Val{32}
-        if length(words) == 2
-            return ((_as64(words[1]) * (UInt64(1) << 32)) | _as64(words[2]),)
-        end
-        return (
-            (_as64(words[1]) * (UInt64(1) << 32)) | _as64(words[2]),
-            (_as64(words[3]) * (UInt64(1) << 32)) | _as64(words[4]),
-        )
-    end
-    return words
+@inline function _block_words(rng::_ReactantRNG{R}, lo, hi) where {R}
+    words = _block(rng, lo, hi)
+    _word_width(R) isa Val{32} || return words
+    return ntuple(
+        i -> (_as64(words[2i-1]) * (UInt64(1) << 32)) | _as64(words[2i]),
+        Val(length(words) ÷ 2),
+    )
 end
 
 @inline function _next_block(rng::_ReactantRNG{R}, lo, hi) where {R}
@@ -215,19 +203,142 @@ end
 @inline _shift_left(value, count) = value * _power_of_two(count)
 @inline _low_mask(count) = _power_of_two(count) - UInt64(1)
 
-@inline function _raw(rng::_ReactantRNG{R}, family, ::Val{W}) where {R,W}
+@inline function _raw(rng::_ReactantRNG{R}, ::Val{W}) where {R,W}
     position = _position(rng)
     lo = position[1]
     hi = _position128(R) ? position[2] : UInt64(0)
     bit = position[end]
-    current = _limbs(rng, family, lo, hi)
+    current = _block_words(rng, lo, hi)
     next_lo, next_hi = _next_block(rng, lo, hi)
-    following = _limbs(rng, family, next_lo, next_hi)
-    limbs = (current..., following...)
+    following = _block_words(rng, next_lo, next_hi)
+    block_words = (current..., following...)
     lane = div(bit, UInt64(64))
     word_bit = bit & UInt64(63)
-    first = _select(limbs, lane)
-    second = _select(limbs, lane + UInt64(1))
+    first = _select(block_words, lane)
+    second = _select(block_words, lane + UInt64(1))
+    available = UInt64(64) - word_bit
+    right_count = (available - UInt64(W)) & UInt64(63)
+    single = _shift_right(first, right_count) & _low_mask(UInt64(W))
+    remaining = (UInt64(W) - available) & UInt64(63)
+    crossed =
+        _shift_left(first & _low_mask(available), remaining) |
+        _shift_right(second, (UInt64(64) - remaining) & UInt64(63))
+    return ifelse(UInt64(W) <= available, single, crossed)
+end
+
+# ChaCha traces in the four-lane matrix form: `a`, `b`, `c`, `d` are 4×N words,
+# one column per block, and the diagonal round permutes rows. XLA compile time
+# grows with the traced op count, and the word-by-word form of a 512-bit block
+# costs several seconds per compiled draw. Shifts are unavailable on traced
+# words in the pinned Reactant, so rotation uses the multiply and divide form.
+const _CHACHA_LANES = (UInt32[2, 3, 4, 1], UInt32[3, 4, 1, 2], UInt32[4, 1, 2, 3])
+
+@inline _chacha_rotate(v, k) = (v .* UInt32(1 << k)) .| div.(v, UInt32(1) << (32 - k))
+@inline _chacha_lanes(v, k) = v[_CHACHA_LANES[k], :]
+
+@inline function _chacha_quarter(a, b, c, d)
+    a = a .+ b
+    d = _chacha_rotate(d .⊻ a, 16)
+    c = c .+ d
+    b = _chacha_rotate(b .⊻ c, 12)
+    a = a .+ b
+    d = _chacha_rotate(d .⊻ a, 8)
+    c = c .+ d
+    b = _chacha_rotate(b .⊻ c, 7)
+    return a, b, c, d
+end
+
+# `counter` is the 4×N matrix of counter and nonce words, one column per block.
+# Returns the 16×N output words in state order.
+function _chacha_matrix(key, counter, ::Val{R}) where {R}
+    columns = size(counter, 2)
+    b0 = repeat(key[1:4], 1, columns)
+    c0 = repeat(key[5:8], 1, columns)
+    a0 = (b0 .- b0) .+ collect(IR._CHACHA_CONSTANTS)
+    a, b, c, d = a0, b0, c0, counter
+    for round = 1:R
+        if isodd(round)
+            a, b, c, d = _chacha_quarter(a, b, c, d)
+        else
+            b, c, d = _chacha_lanes(b, 1), _chacha_lanes(c, 2), _chacha_lanes(d, 3)
+            a, b, c, d = _chacha_quarter(a, b, c, d)
+            b, c, d = _chacha_lanes(b, 3), _chacha_lanes(c, 2), _chacha_lanes(d, 1)
+        end
+    end
+    return vcat(a .+ a0, b .+ b0, c .+ c0, d .+ counter)
+end
+
+@inline _chacha_key(rng::_ReactantRNG) = UInt32.(rng.state[1:8])
+
+# Pair the 16×N output words into 8N block words, block-major.
+@inline function _chacha_block_words(out)
+    wide = UInt64.(out)
+    return vec((wide[1:2:15, :] .* (UInt64(1) << 32)) .| wide[2:2:16, :])
+end
+
+# The block words of blocks `lo` to `lo + N - 1`. The nonce rows are zero for
+# draws, matching `_core_block` in src/bits.jl.
+function _chacha_words(rng::_ReactantRNG{R}, lo, ::Val{N}) where {R,N}
+    key = _chacha_key(rng)
+    zeros = repeat(key[1:4] .- key[1:4], 1, N)
+    lo32 = _as32(lo & UInt64(0xffffffff))
+    hi32 = _as32(div(lo, UInt64(1) << 32))
+    row = repeat(UInt32[1, 2, 3, 4], 1, N)
+    lo_rows = lo32 .+ repeat(UInt32.(0:N-1)', 4, 1)
+    carry = ifelse.(lo_rows .< lo32 .+ zeros, zeros .+ UInt32(1), zeros)
+    hi_rows = ifelse.(row .== UInt32(2), hi32 .+ carry, zeros)
+    counter = ifelse.(row .== UInt32(1), lo_rows, hi_rows)
+    return _chacha_block_words(_chacha_call(key, counter, Val(IR._rounds(R))))
+end
+
+# Derivation runs blocks whose counter and nonce words are constants, one
+# column per block, as in `_derive_key` and `_subrng_key` for ChaCha in
+# src/derive.jl. Each block yields two child keys, its lower and upper halves.
+function _chacha_derived_blocks(rng::_ReactantRNG{R}, columns::Vector{UInt32}) where {R}
+    key = _chacha_key(rng)
+    zeros = repeat(key[1:4] .- key[1:4], 1, length(columns) ÷ 4)
+    counter = zeros .+ reshape(columns, 4, :)
+    return _chacha_call(key, counter, Val(IR._rounds(R)))
+end
+
+# Every block in a compiled function calls one shared MLIR function. Inlining
+# the rounds at every draw site made the optimization passes superlinear in
+# module size: 48 chained ChaCha20 draws took 86 s and 10 GB to compile.
+@inline _chacha_call(key, counter, rounds::Val) =
+    Reactant.Ops.call(_chacha_matrix, key, counter, rounds)
+
+@inline _chacha_derived_key(out, column::Int, half::Int) = ntuple(
+    index -> IR._core_word(
+        Val(32),
+        _ReactantWordOps(),
+        Reactant.@allowscalar(out[8half+index, column]),
+    ),
+    Val(8),
+)
+
+@inline _chacha_split_column(block_index::UInt64) = (
+    block_index % UInt32,
+    (block_index >> 32) % UInt32,
+    IR._SPLIT_SUBTAG,
+    IR._DERIVE_TAG,
+)
+
+# Indexing a traced vector with a traced index returns a one-element array in
+# the pinned Reactant, so read it back to a scalar.
+@inline function _dynamic_word(words, index)
+    word = Reactant.@allowscalar words[index]
+    return word isa AbstractArray ? (Reactant.@allowscalar word[1]) : word
+end
+
+@inline function _raw(rng::_ReactantRNG{R}, ::Val{W}) where {R<:IR.ChaCha,W}
+    position = _position(rng)
+    lo = position[1]
+    bit = position[end]
+    words = _chacha_words(rng, lo, Val(2))
+    lane = div(bit, UInt64(64))
+    word_bit = bit & UInt64(63)
+    first = _dynamic_word(words, lane + UInt64(1))
+    second = _dynamic_word(words, lane + UInt64(2))
     available = UInt64(64) - word_bit
     right_count = (available - UInt64(W)) & UInt64(63)
     single = _shift_right(first, right_count) & _low_mask(UInt64(W))
@@ -256,7 +367,7 @@ end
 
 @inline function _draw(rng::_ReactantRNG, ::Type{T}) where {T}
     width = IR._draw_bits(T)
-    return _convert_result(T, _raw(rng, IR.FAMILY_BITS, Val(width)))
+    return _convert_result(T, _raw(rng, Val(width)))
 end
 
 @inline function _advance(
@@ -320,7 +431,7 @@ for T in (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64)
     @eval begin
         @inline Random.rand(rng::_ReactantRNG, ::Type{$T}) = _draw(rng, $T)
         @inline function IR.rand_next(rng::_ReactantRNG, ::Type{$T})
-            return _advance(rng, _draw_bits($T)), _draw(rng, $T)
+            return _draw(rng, $T), _advance(rng, _draw_bits($T))
         end
         @inline function IR.randat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _draw(IR._addressed_rng(rng, IR._draw_bits($T), index), $T)
@@ -356,7 +467,7 @@ end
 
 @inline function _normal_value(rng, ::Type{T}) where {T<:Union{Float32,Float64}}
     width = IR._normal_bits(T)
-    raw = _raw(rng, IR.FAMILY_NORMAL, Val(width))
+    raw = _raw(rng, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     midpoint = _cast_scalar(T, (raw * UInt64(2)) | UInt64(1)) * scale
     return _normal_transform(midpoint, T)
@@ -389,7 +500,7 @@ end
 
 @inline function _exponential_value(rng, ::Type{T}) where {T}
     width = IR._exponential_bits(T)
-    raw = _raw(rng, IR.FAMILY_EXP, Val(width))
+    raw = _raw(rng, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     u = _cast_scalar(T, raw) * scale
     return _exponential_transform(one(T) - u, T)
@@ -399,14 +510,14 @@ for T in (Float32, Float64)
     @eval begin
         @inline Random.randn(rng::_ReactantRNG, ::Type{$T}) = _normal_value(rng, $T)
         @inline function IR.randn_next(rng::_ReactantRNG, ::Type{$T})
-            return _advance(rng, _normal_bits($T)), _normal_value(rng, $T)
+            return _normal_value(rng, $T), _advance(rng, _normal_bits($T))
         end
         @inline function IR.randnat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _normal_value(IR._addressed_rng(rng, IR._normal_bits($T), index), $T)
         end
         @inline Random.randexp(rng::_ReactantRNG, ::Type{$T}) = _exponential_value(rng, $T)
         @inline function IR.randexp_next(rng::_ReactantRNG, ::Type{$T})
-            return _advance(rng, _exponential_bits($T)), _exponential_value(rng, $T)
+            return _exponential_value(rng, $T), _advance(rng, _exponential_bits($T))
         end
         @inline function IR.randexpat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _exponential_value(
@@ -432,10 +543,10 @@ end
 
 @inline function _range_offset(rng, span::UInt64)
     if IR._range_bits(span) == UInt16(64)
-        _mulhi64(_raw(rng, IR.FAMILY_RANGE, Val(64)), span)
+        _mulhi64(_raw(rng, Val(64)), span)
     else
-        lo = _raw(rng, IR.FAMILY_RANGE, Val(64))
-        hi = _raw(_advance(rng, UInt64(64)), IR.FAMILY_RANGE, Val(64))
+        lo = _raw(rng, Val(64))
+        hi = _raw(_advance(rng, UInt64(64)), Val(64))
         return iszero(span) ? hi : _mulhi128(lo, hi, span)
     end
 end
@@ -474,7 +585,7 @@ end
 ) where {T<:IR._RangeInteger}
     isempty(range) && throw(ArgumentError("range must be non-empty"))
     width = UInt64(IR._range_bits(length(range) % UInt64))
-    return _advance(rng, width), IR._range_value(rng, range)
+    return IR._range_value(rng, range), _advance(rng, width)
 end
 
 @inline function _child(rng::_ReactantRNG{R}, key) where {R}
@@ -495,19 +606,43 @@ end
     return _child(rng, IR._derive_key(R, _key(rng), index))
 end
 
+@inline function _derive_child(rng::_ReactantRNG{R}, index::UInt64) where {R<:IR.ChaCha}
+    block_index, group = divrem(index, UInt64(2))
+    out = _chacha_derived_blocks(rng, collect(_chacha_split_column(block_index)))
+    return _child(rng, _chacha_derived_key(out, 1, Int(group)))
+end
+
 IR.splitrng(rng::_ReactantRNG) = IR.splitrng(rng, Val(2))
+
+@inline function IR.splitrng(rng::_ReactantRNG{R}, ::Val{N}) where {R<:IR.ChaCha,N}
+    (N isa Int && N >= 0) || throw(ArgumentError("N must be a non-negative Int"))
+    N == 0 && return ()
+    blocks = cld(N, 2)
+    columns = collect(Iterators.flatten(_chacha_split_column(UInt64(b)) for b = 0:blocks-1))
+    out = _chacha_derived_blocks(rng, columns)
+    return ntuple(Val(N)) do index
+        block_index, group = divrem(index - 1, 2)
+        _child(rng, _chacha_derived_key(out, block_index + 1, group))
+    end
+end
 
 @inline function IR.splitrng(rng::_ReactantRNG{R}, ::Val{N}) where {R,N}
     (N isa Int && N >= 0) || throw(ArgumentError("N must be a non-negative Int"))
     if R <: Union{IR.Philox2x32,IR.Threefry2x32}
         N <= IR._NARROW_SPLIT_COUNT ||
-            throw(ArgumentError("a narrow-family child index enters the fold namespace"))
+            throw(ArgumentError("two-word generator child index enters the fold namespace"))
     end
     return ntuple(index -> _derive_child(rng, UInt64(index - 1)), Val(N))
 end
 
 @inline function _subrng(rng::_ReactantRNG{R}, purpose) where {R}
     return _child(rng, IR._subrng_key(R, _key(rng), purpose))
+end
+
+@inline function _subrng(rng::_ReactantRNG{R}, purpose) where {R<:IR.ChaCha}
+    words = (purpose % UInt32, (purpose >> 32) % UInt32, IR._FOLD_SUBTAG, IR._DERIVE_TAG)
+    out = _chacha_derived_blocks(rng, collect(words))
+    return _child(rng, _chacha_derived_key(out, 1, 0))
 end
 
 @inline IR.subrng(rng::_ReactantRNG, purpose::Integer) = _subrng(rng, purpose % UInt64)

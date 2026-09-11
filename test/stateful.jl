@@ -73,23 +73,23 @@ end
         cursor = F(0x802)
         mutable_rng = StatefulRNG(cursor)
         for T in PURE_UNIFORM_TYPES
-            cursor, expected = rand_next(cursor, T)
+            expected, cursor = rand_next(cursor, T)
             @test rand(mutable_rng, T) === expected
             @test mutable_rng.rng === cursor
         end
         for T in NORMAL_TYPES
-            cursor, expected = randn_next(cursor, T)
+            expected, cursor = randn_next(cursor, T)
             @test randn(mutable_rng, T) === expected
             @test mutable_rng.rng === cursor
         end
         for T in EXPONENTIAL_TYPES
-            cursor, expected = randexp_next(cursor, T)
+            expected, cursor = randexp_next(cursor, T)
             @test randexp(mutable_rng, T) === expected
             @test mutable_rng.rng === cursor
         end
         for T in (UInt16,)
             range = T(2):T(3):T(20)
-            cursor, expected = rand_next(cursor, range)
+            expected, cursor = rand_next(cursor, range)
             @test rand(mutable_rng, range) === expected
             @test mutable_rng.rng === cursor
         end
@@ -97,13 +97,13 @@ end
 
     root = Philox4x32(0x803)
     mutable_rng = StatefulRNG(root)
-    next_rng, expected = rand_next(root, Float64)
+    expected, next_rng = rand_next(root, Float64)
     @test rand(mutable_rng) === expected
     @test mutable_rng.rng === next_rng
-    normal_next, normal_expected = randn_next(next_rng, Float64)
+    normal_expected, normal_next = randn_next(next_rng, Float64)
     @test randn(mutable_rng) === normal_expected
     @test mutable_rng.rng === normal_next
-    exponential_next, exponential_expected = randexp_next(normal_next, Float64)
+    exponential_expected, exponential_next = randexp_next(normal_next, Float64)
     @test randexp(mutable_rng) === exponential_expected
     @test mutable_rng.rng === exponential_next
     @test _bridge_allocations() == (0, 0, 0, 0, 0, 0, 0)
@@ -132,7 +132,7 @@ end
         (Float64, UInt16(53), randexp),
     )
         last = _bridge_last(Philox2x32(0x818), width)
-        expected_rng, expected = draw === rand ? rand_next(last, T) : randexp_next(last, T)
+        expected, expected_rng = draw === rand ? rand_next(last, T) : randexp_next(last, T)
         mutable_rng = StatefulRNG(last)
 
         @test draw(mutable_rng, T) === expected
@@ -148,18 +148,18 @@ end
 
     for range in (unit, stepped)
         root = Philox4x32(0x805)
-        expected_rng, expected = rand_next(root, range)
+        expected, expected_rng = rand_next(root, range)
         mutable_rng = StatefulRNG(root)
         @test rand(mutable_rng, range) === expected
         @test mutable_rng.rng === expected_rng
-        @test rand(StatefulRNG(root), range, 4) == last(rand_next(root, range, 4))
+        @test rand(StatefulRNG(root), range, 4) == first(rand_next(root, range, 4))
     end
 end
 
 @testset "R34 range bridge Array fill" begin
     range = UInt16(2):UInt16(17)
     root = Philox4x32(0x819)
-    expected_rng, expected = rand_next(root, range, 3)
+    expected, expected_rng = rand_next(root, range, 3)
     destination = fill(UInt16(0xdead), 3)
     mutable_rng = StatefulRNG(root)
     @test rand!(mutable_rng, destination, range) === destination
@@ -169,7 +169,7 @@ end
     root = Philox4x32(0x81b)
     position = StatefulIR._Position64(StatefulIR._max_block(root), UInt16(0))
     near_last = StatefulIR._rebuild(root, position, root.device)
-    expected_rng, expected = rand_next(near_last, range, 2)
+    expected, expected_rng = rand_next(near_last, range, 2)
     destination = fill(UInt16(0xdead), 5)
     mutable_rng = StatefulRNG(near_last)
     @test_throws ArgumentError rand!(mutable_rng, destination, range)
@@ -194,7 +194,7 @@ end
 
 @testset "R34 and R54 owned bridge fills" begin
     root = Philox4x32(0x806)
-    expected_rng, expected = rand_next(root, UInt64, 19)
+    expected, expected_rng = rand_next(root, UInt64, 19)
     destination = Vector{UInt64}(undef, 19)
     mutable_rng = StatefulRNG(root)
     @test rand!(mutable_rng, destination) === destination
@@ -202,7 +202,7 @@ end
     @test mutable_rng.rng === expected_rng
 
     root = Philox4x32(0x815)
-    expected_rng, expected = randexp_next(root, Float64, 19)
+    expected, expected_rng = randexp_next(root, Float64, 19)
     destination = Vector{Float64}(undef, 19)
     mutable_rng = StatefulRNG(root)
     @test randexp!(mutable_rng, destination) === destination
@@ -214,7 +214,7 @@ end
     @test allocating_rng.rng === expected_rng
 
     root = Philox4x32(0x807)
-    expected_rng, expected = randn_next(root, Float64, 19)
+    expected, expected_rng = randn_next(root, Float64, 19)
     destination = Vector{Float64}(undef, 19)
     mutable_rng = StatefulRNG(root)
     @test randn!(mutable_rng, destination) === destination
@@ -222,7 +222,7 @@ end
     @test mutable_rng.rng === expected_rng
 
     root = Philox4x32(0x808)
-    expected_rng, expected = rand_next(root, Bool, 67)
+    expected, expected_rng = rand_next(root, Bool, 67)
     bits = BitArray(undef, 67)
     mutable_rng = StatefulRNG(root)
     @test rand!(mutable_rng, bits) === bits
@@ -270,7 +270,7 @@ end
 
 @testset "R34 and R54 foreign bridge fills" begin
     uniform_root = _bridge_last(Philox2x32(0x80c), UInt16(64))
-    expected_uniform, first_uniform = rand_next(uniform_root, UInt64)
+    first_uniform, expected_uniform = rand_next(uniform_root, UInt64)
     uniform_destination = BridgeVector(fill(UInt64(0xdeadbeef), 2))
     uniform_mutable = StatefulRNG(uniform_root)
     @test_throws ArgumentError rand!(uniform_mutable, uniform_destination)
@@ -278,7 +278,7 @@ end
     @test uniform_mutable.rng === expected_uniform
 
     normal_root = _bridge_last(Philox2x32(0x80d), UInt16(52))
-    expected_normal, first_normal = randn_next(normal_root, Float64)
+    first_normal, expected_normal = randn_next(normal_root, Float64)
     normal_destination = BridgeVector(fill(1.0, 2))
     normal_mutable = StatefulRNG(normal_root)
     @test_throws ArgumentError randn!(normal_mutable, normal_destination)
@@ -286,7 +286,7 @@ end
     @test normal_mutable.rng === expected_normal
 
     exponential_root = _bridge_last(Philox2x32(0x817), UInt16(53))
-    expected_exponential, first_exponential = randexp_next(exponential_root, Float64)
+    first_exponential, expected_exponential = randexp_next(exponential_root, Float64)
     exponential_destination = BridgeVector(fill(1.0, 2))
     exponential_mutable = StatefulRNG(exponential_root)
     @test_throws ArgumentError randexp!(exponential_mutable, exponential_destination)
@@ -295,11 +295,12 @@ end
 end
 
 @testset "R34 seed and R35 copy" begin
-    for F in FAMILY_TYPES
+    for F in GENERATOR_TYPES
         mutable_rng = StatefulRNG(F(0x80e))
         rand(mutable_rng, UInt32)
         @test Random.seed!(mutable_rng, 0x80f) === mutable_rng
         @test mutable_rng.rng === F(0x80f)
+        @test rand(mutable_rng, UInt32) === first(rand_next(F(0x80f), UInt32))
     end
 
     mutable_rng = StatefulRNG(Philox2x32(0x810))
@@ -387,4 +388,27 @@ end
             any(method -> method.module === StatefulIR, pair)
         end
     @test isempty(ambiguities)
+end
+
+@testset "R32-R35 bridge draws across block boundaries" begin
+    wide = UInt64(1):(UInt64(1) << 40)
+    for F in (Philox2x32, Philox4x32, Threefry4x64)
+        cursor = F(0x811)
+        mutable_rng = StatefulRNG(cursor)
+        for _ = 1:40
+            for T in (Bool, Float32, UInt64, Float64)
+                expected, cursor = rand_next(cursor, T)
+                @test rand(mutable_rng, T) === expected
+            end
+            expected, cursor = randn_next(cursor, Float32)
+            @test randn(mutable_rng, Float32) === expected
+            expected, cursor = randexp_next(cursor, Float64)
+            @test randexp(mutable_rng, Float64) === expected
+            expected, cursor = rand_next(cursor, 1:6)
+            @test rand(mutable_rng, 1:6) === expected
+            expected, cursor = rand_next(cursor, wide)
+            @test rand(mutable_rng, wide) === expected
+        end
+        @test mutable_rng.rng === cursor
+    end
 end

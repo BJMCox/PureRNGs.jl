@@ -1,61 +1,95 @@
-const FAMILY_BITS = UInt32(0x00000000)
+# A draw counter is the block address zero-extended to the core's counter width.
+# Key derivation in derive.jl writes a nonzero tag into the extension words, so
+# derived keys never coincide with a draw address. The two-word generators reserve
+# the top byte of the second word for that tag, which is why their block counter
+# is 56 bits wide.
+@inline _draw_counter(::Val{N}, address::NTuple{K,T}) where {N,K,T} =
+    (address..., ntuple(_ -> zero(T), Val(N - K))...)
+@inline _address32(block::UInt64) = (block % UInt32, (block >> 32) % UInt32)
+@inline _address32_narrow(block::UInt64) =
+    (block % UInt32, ((block >> 32) & 0x00ffffff) % UInt32)
 
-# `_block` is the bulk-codec seam; limb extraction below is for scalar/peel/tail work.
-@inline _block(rng::Philox2x32, family::UInt32, block::UInt64) = _philox2x32(
-    (block % UInt32, (family << 24) | (((block >> 32) & 0x00ffffff) % UInt32)),
-    rng.key,
-)
+# `_core_block` runs the core for one block address. It takes the key rather than
+# a generator so that a generator can decode its own block while it is built.
+@inline _core_block(::Type{F}, key, block::UInt64) where {F<:Philox2x32} =
+    _philox2x32(_address32_narrow(block), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::UInt64) where {F<:Threefry2x32} =
+    _threefry2x32(_address32_narrow(block), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::UInt64) where {F<:Philox4x32} =
+    _philox4x32(_draw_counter(Val(4), _address32(block)), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::UInt64) where {F<:Threefry4x32} =
+    _threefry4x32(_draw_counter(Val(4), _address32(block)), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::UInt64) where {F<:Philox2x64} =
+    _philox2x64(_draw_counter(Val(2), (block,)), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::UInt64) where {F<:Threefry2x64} =
+    _threefry2x64(_draw_counter(Val(2), (block,)), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::NTuple{2,UInt64}) where {F<:Philox4x64} =
+    _philox4x64(_draw_counter(Val(4), block), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::NTuple{2,UInt64}) where {F<:Threefry4x64} =
+    _threefry4x64(_draw_counter(Val(4), block), key, Val(_rounds(F)))
+@inline _core_block(::Type{F}, key, block::UInt64) where {F<:ChaCha} =
+    _chacha(_draw_counter(Val(4), _address32(block)), key, Val(_rounds(F)))
 
-@inline _block(rng::Threefry2x32, family::UInt32, block::UInt64) = _threefry2x32(
-    (block % UInt32, (family << 24) | (((block >> 32) & 0x00ffffff) % UInt32)),
-    rng.key,
-)
-
-@inline _block(rng::Philox4x32, family::UInt32, block::UInt64) =
-    _philox4x32((block % UInt32, (block >> 32) % UInt32, family, UInt32(0)), rng.key)
-
-@inline function _blocks4(rng::Philox4x32, family::UInt32, block::UInt64)
-    high = (block >> 32) % UInt32
-    a = (block % UInt32, high, family, UInt32(0))
-    block += UInt64(1)
-    high += UInt32(iszero(block % UInt32))
-    b = (block % UInt32, high, family, UInt32(0))
-    block += UInt64(1)
-    high += UInt32(iszero(block % UInt32))
-    c = (block % UInt32, high, family, UInt32(0))
-    block += UInt64(1)
-    high += UInt32(iszero(block % UInt32))
-    d = (block % UInt32, high, family, UInt32(0))
-    return _philox4x32_blocks4(a, b, c, d, rng.key)
+# CPU-bound 64-bit Philox runs through the host word ops for the widening multiply.
+@inline function _core_block(
+    ::Type{F},
+    key,
+    block::UInt64,
+) where {F<:Philox2x64{_CPUBackend}}
+    counter = _host_words(_draw_counter(Val(2), (block,)))
+    return _unwrap_words(_philox2x64(counter, _host_words(key), Val(_rounds(F))))
+end
+@inline function _core_block(
+    ::Type{F},
+    key,
+    block::NTuple{2,UInt64},
+) where {F<:Philox4x64{_CPUBackend}}
+    counter = _host_words(_draw_counter(Val(4), block))
+    return _unwrap_words(_philox4x64(counter, _host_words(key), Val(_rounds(F))))
 end
 
-@inline _block(rng::Threefry4x32, family::UInt32, block::UInt64) =
-    _threefry4x32((block % UInt32, (block >> 32) % UInt32, family, UInt32(0)), rng.key)
+# `_block` is the bulk-codec seam; word extraction below is for scalar/peel/tail work.
+@inline _block(rng::_Position64Generators, block::UInt64) =
+    _core_block(typeof(rng), rng.key, block)
+@inline _block(rng::_Position128Generators, block_lo::UInt64, block_hi::UInt64) =
+    _core_block(typeof(rng), rng.key, (block_lo, block_hi))
 
-@inline _block(rng::Philox2x64, family::UInt32, block::UInt64) =
-    _philox2x64((block, UInt64(family)), rng.key)
+@inline function _blocks4(rng::Philox4x32, block::UInt64)
+    counter(offset) = _draw_counter(Val(4), _address32(block + UInt64(offset)))
+    rounds = Val(_rounds(typeof(rng)))
+    return _philox4x32_blocks4(
+        counter(0),
+        counter(1),
+        counter(2),
+        counter(3),
+        rng.key,
+        rounds,
+    )
+end
 
-@inline _block(rng::Threefry2x64, family::UInt32, block::UInt64) =
-    _threefry2x64((block, UInt64(family)), rng.key)
-
-@inline _block(rng::Philox4x64, family::UInt32, block_lo::UInt64, block_hi::UInt64) =
-    _philox4x64((block_lo, block_hi, UInt64(family), UInt64(0)), rng.key)
-
-@inline _block(rng::Threefry4x64, family::UInt32, block_lo::UInt64, block_hi::UInt64) =
-    _threefry4x64((block_lo, block_hi, UInt64(family), UInt64(0)), rng.key)
-
-@inline _stream_limbs(words::NTuple{2,UInt32}) =
-    ((UInt64(words[1]) << 32) | UInt64(words[2]),)
-@inline _stream_limbs(words::NTuple{4,UInt32}) = (
-    (UInt64(words[1]) << 32) | UInt64(words[2]),
-    (UInt64(words[3]) << 32) | UInt64(words[4]),
+# The block as 64-bit words, packing two 32-bit output words per block word.
+@inline _block_words(output::NTuple{2,UInt32}) =
+    ((UInt64(output[1]) << 32) | UInt64(output[2]),)
+@inline _block_words(output::NTuple{4,UInt32}) = (
+    (UInt64(output[1]) << 32) | UInt64(output[2]),
+    (UInt64(output[3]) << 32) | UInt64(output[4]),
 )
-@inline _stream_limbs(words::NTuple{N,UInt64}) where {N} = words
+@inline _block_words(output::NTuple{16,UInt32}) =
+    ntuple(i -> (UInt64(output[2i-1]) << 32) | UInt64(output[2i]), Val(8))
+@inline _block_words(output::NTuple{N,UInt64}) where {N} = output
 
-@inline _stream_limbs(rng::_Position64Family, family::UInt32, block::UInt64) =
-    _stream_limbs(_block(rng, family, block))
-@inline _stream_limbs(rng::_Position128Family, family::UInt32, block::NTuple{2,UInt64}) =
-    _stream_limbs(_block(rng, family, block...))
+@inline _block_words(rng::_Position64Generators, block::UInt64) =
+    _block_words(_block(rng, block))
+@inline _block_words(rng::_Position128Generators, block::NTuple{2,UInt64}) =
+    _block_words(_block(rng, block...))
+
+# The block words a generator carries are the decoded block at its own position.
+@inline _decoded_block_words(::Type{F}, key, position) where {F} =
+    _block_words(_core_block(F, key, _position_block(position)))
+
+# Reuse the carried block when the address matches, otherwise run the core.
+@inline _block_words_at(rng::AbstractPureRNG, block) =
+    block == _position_block(rng.position) ? rng.block_words : _block_words(rng, block)
 
 @inline _next_stream_block_unchecked(block::UInt64) = block + UInt64(1)
 @inline function _next_stream_block_unchecked(block::NTuple{2,UInt64})
@@ -87,35 +121,28 @@ end
 
 @inline _low_mask(width::UInt16) = typemax(UInt64) >> (UInt16(64) - width)
 
-@inline function _next_stream_limb_unchecked(
+@inline function _next_block_word_unchecked(
     rng,
-    family::UInt32,
     block,
-    limbs::NTuple{N,UInt64},
+    block_words::NTuple{N,UInt64},
     lane::UInt16,
 ) where {N}
     next_lane = lane + UInt16(1)
     if next_lane < UInt16(N)
-        return _select_tuple_value(limbs, next_lane), block, limbs, next_lane
+        return _select_tuple_value(block_words, next_lane), block, block_words, next_lane
     end
     next_block = _next_stream_block_unchecked(block)
-    next_limbs = _stream_limbs(rng, family, next_block)
-    return next_limbs[1], next_block, next_limbs, UInt16(0)
+    next_block_words = _block_words(rng, next_block)
+    return next_block_words[1], next_block, next_block_words, UInt16(0)
 end
 
 # Caller guarantees W in 1:64, a valid bit offset, and full-span preflight.
-@inline function _extract_bits_unchecked(
-    rng,
-    family::UInt32,
-    block,
-    bit::UInt16,
-    ::Val{W},
-) where {W}
+@inline function _extract_bits_unchecked(rng, block, bit::UInt16, ::Val{W}) where {W}
     width = UInt16(W)
-    limbs = _stream_limbs(rng, family, block)
+    block_words = _block_words_at(rng, block)
     lane = bit >> UInt16(6)
     word_bit = bit & UInt16(63)
-    first = _select_tuple_value(limbs, lane)
+    first = _select_tuple_value(block_words, lane)
     available = UInt16(64) - word_bit
 
     if width <= available
@@ -123,21 +150,43 @@ end
     end
 
     remaining = width - available
-    second, _, _, _ = _next_stream_limb_unchecked(rng, family, block, limbs, lane)
+    second, _, _, _ = _next_block_word_unchecked(rng, block, block_words, lane)
     return ((first & _low_mask(available)) << remaining) |
            (second >> (UInt16(64) - remaining))
 end
 
-@inline function _extract_bits128_unchecked(rng, family::UInt32, block, bit::UInt16)
-    limbs = _stream_limbs(rng, family, block)
+# Bits for a scalar draw at the generator's position whose successor is known.
+# When the draw straddles two blocks, the successor carries the second block.
+@inline function _chain_bits(rng::AbstractPureRNG, next_rng, ::Val{W}) where {W}
+    width = UInt16(W)
+    block_words = rng.block_words
+    bit = rng.position.bit
+    lane = bit >> UInt16(6)
+    available = UInt16(64) - (bit & UInt16(63))
+    head = _select_tuple_value(block_words, lane)
+    width <= available && return (head >> (available - width)) & _low_mask(width)
+
+    remaining = width - available
+    next_lane = lane + UInt16(1)
+    tail = if next_lane < UInt16(length(block_words))
+        _select_tuple_value(block_words, next_lane)
+    else
+        next_rng.block_words[1]
+    end
+    return ((head & _low_mask(available)) << remaining) |
+           (tail >> (UInt16(64) - remaining))
+end
+
+@inline function _extract_bits128_unchecked(rng, block, bit::UInt16)
+    block_words = _block_words_at(rng, block)
     lane = bit >> UInt16(6)
     word_bit = bit & UInt16(63)
-    first = _select_tuple_value(limbs, lane)
-    second, block, limbs, lane =
-        _next_stream_limb_unchecked(rng, family, block, limbs, lane)
+    first = _select_tuple_value(block_words, lane)
+    second, block, block_words, lane =
+        _next_block_word_unchecked(rng, block, block_words, lane)
     iszero(word_bit) && return second, first
 
-    third, _, _, _ = _next_stream_limb_unchecked(rng, family, block, limbs, lane)
+    third, _, _, _ = _next_block_word_unchecked(rng, block, block_words, lane)
     inverse = UInt16(64) - word_bit
     hi = (first << word_bit) | (second >> inverse)
     lo = (second << word_bit) | (third >> inverse)

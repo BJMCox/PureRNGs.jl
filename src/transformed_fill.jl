@@ -1,4 +1,4 @@
-# A codec selects the family, width, mapping, and fill plan through dispatch.
+# A codec selects the width, mapping, and fill plan through dispatch.
 abstract type _MappedFillCodec end
 const _TransformedFillCodec = Union{Val{:normal},_BackendToken,_MappedFillCodec}
 
@@ -14,7 +14,6 @@ const _TransformedFillCodec = Union{Val{:normal},_BackendToken,_MappedFillCodec}
 ) where {T}
     raw = _extract_bits_unchecked(
         rng,
-        _fill_family(codec),
         _position_block(position),
         position.bit,
         Val(_fill_width(codec, T)),
@@ -31,11 +30,10 @@ end
     codec::_TransformedFillCodec,
 ) where {T}
     isempty(indices) && return nothing
-    family = _fill_family(codec)
-    cursor = _dense_cursor(rng, family, _position_block(position), position.bit)
+    cursor = _dense_cursor(rng, _position_block(position), position.bit)
     width = Val(_fill_width(codec, T))
     @inbounds for index in indices
-        raw, cursor = _take_dense_bits_unchecked(rng, family, cursor, width)
+        raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
         destination[index] = _cooperative_value(codec, T, raw)
     end
     return nothing
@@ -58,7 +56,6 @@ end
         first,
         group,
         Val(_fill_width(codec, T)),
-        _fill_family(codec),
         codec,
     )
 end
@@ -66,7 +63,7 @@ end
 KernelAbstractions.@kernel function _transformed_fill_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
     codec,
 ) where {T}
     ordinal = @index(Global, Linear)
@@ -80,7 +77,7 @@ end
 KernelAbstractions.@kernel function _transformed_fill_grouped_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
     group::Val{N},
     codec,
 ) where {T,N}
@@ -102,7 +99,7 @@ end
     _transformed_fill_kernel!(backend)(
         rng,
         destination,
-        T,
+        Val(T),
         codec;
         ndrange = length(destination),
     )
@@ -122,7 +119,7 @@ end
     _transformed_fill_grouped_kernel!(backend)(
         rng,
         destination,
-        T,
+        Val(T),
         group,
         codec;
         ndrange = workitems,
@@ -138,7 +135,7 @@ const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
 KernelAbstractions.@kernel function _transformed_fill_dense_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
     chunk_elements,
     codec,
 ) where {T}
@@ -152,7 +149,7 @@ end
 KernelAbstractions.@kernel function _transformed_fill_dense_serial_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
     codec,
 ) where {T}
     _fill_transformed_dense_cpu!(
@@ -189,7 +186,7 @@ function _launch_transformed!(
         _transformed_fill_dense_serial_kernel!(backend)(
             rng,
             destination,
-            T,
+            Val(T),
             codec;
             ndrange = 1,
         )
@@ -198,7 +195,7 @@ function _launch_transformed!(
     _transformed_fill_dense_kernel!(backend)(
         rng,
         destination,
-        T,
+        Val(T),
         chunk_elements,
         codec;
         ndrange = workitems,
@@ -217,7 +214,7 @@ function _launch_transformed!(
     _transformed_fill_dense_serial_kernel!(backend)(
         rng,
         destination,
-        Bool,
+        Val(Bool),
         codec;
         ndrange = 1,
     )
@@ -225,14 +222,14 @@ function _launch_transformed!(
 end
 
 @inline function _fill_transformed_prevalidated!(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     threaded::Bool,
     codec::_TransformedFillCodec,
 ) where {T}
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _fill_width(codec, T))
     next_rng = _reserve(rng, bits_lo, bits_hi)
-    isempty(destination) && return next_rng, destination
+    isempty(destination) && return destination, next_rng
     if !threaded && rng.device isa _CPUBackend
         _fill_transformed_dense_cpu!(
             rng,
@@ -242,15 +239,15 @@ end
             eachindex(destination),
             codec,
         )
-        return next_rng, destination
+        return destination, next_rng
     end
     backend = _fill_backend(destination)
     _launch_transformed!(backend, rng, destination, T, codec)
-    return next_rng, destination
+    return destination, next_rng
 end
 
 @inline function _rand_transformed_next_fill!(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     threaded::Bool,
     codec::_TransformedFillCodec,
@@ -261,7 +258,7 @@ end
 end
 
 @inline function _rand_transformed_next_array(
-    rng::_CPUFamily,
+    rng::_CPUGenerators,
     ::Type{T},
     dims::Tuple,
     codec::_TransformedFillCodec,
@@ -273,7 +270,7 @@ end
 end
 
 @inline function _rand_transformed_next_array(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     ::Type{T},
     dims::Tuple,
     codec::_TransformedFillCodec,

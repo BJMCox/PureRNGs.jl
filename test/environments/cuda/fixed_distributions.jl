@@ -57,7 +57,7 @@ end
 @noinline _distribution_oracle(::DiscreteUniform, value) = value
 
 @inline function _write_distribution_probe!(destination, offset, rng, distribution)
-    next_rng, continued = rand_next(rng, distribution)
+    continued, next_rng = rand_next(rng, distribution)
     @inbounds begin
         destination[offset+1] = rand(rng, distribution)
         destination[offset+2] = continued
@@ -69,7 +69,7 @@ end
 end
 
 @inline function _write_primitive_probe!(destination, offset, rng, distribution)
-    next_rng, continued = _primitive_next(rng, distribution)
+    continued, next_rng = _primitive_next(rng, distribution)
     @inbounds begin
         destination[offset+1] = _primitive(rng, distribution)
         destination[offset+2] = continued
@@ -194,7 +194,7 @@ end
     cases = (
         ((Philox4x32, distribution) for distribution in CUDA_FIXED_DISTRIBUTIONS)...,
         (
-            (F, distribution) for F in FAMILIES for
+            (F, distribution) for F in GENERATORS for
             distribution in exact_distributions if F !== Philox4x32
         )...,
     )
@@ -223,7 +223,7 @@ end
 end
 
 @testset "CUDA fixed packed and offset fills agree" begin
-    for F in FAMILIES, T in (Float32, Float64)
+    for F in GENERATORS, T in (Float32, Float64)
         rng = device(F(0x64c5))
         count = T === Float32 ? 2048 : 1024
         aligned = CUDA.CuArray{T}(undef, count)
@@ -231,8 +231,8 @@ end
         offset = @view offset_storage[2:end]
 
         for distribution in (Uniform(T(-1.5), T(2.75)), Distributions.Exponential(T(1.5)))
-            aligned_next, _ = rand_next!(rng, distribution, aligned)
-            offset_next, _ = rand_next!(rng, distribution, offset)
+            _, aligned_next = rand_next!(rng, distribution, aligned)
+            _, offset_next = rand_next!(rng, distribution, offset)
             @test isequal(Array(aligned), Array(offset))
             @test aligned_next.position == offset_next.position
         end
@@ -246,12 +246,12 @@ end
         T = extension._result_type(distribution)
         width = extension._distribution_span(distribution)
         last_rng = _last_draw_rng(rng, width)
-        terminal, _ = rand_next(last_rng, distribution)
+        _, terminal = rand_next(last_rng, distribution)
         @test terminal.position == _terminal(rng)
 
-        array_terminal, values = rand_next(last_rng, distribution, 1)
+        values, array_terminal = rand_next(last_rng, distribution, 1)
         destination = similar(values)
-        fill_terminal, returned = rand_next!(last_rng, distribution, destination)
+        returned, fill_terminal = rand_next!(last_rng, distribution, destination)
         @test returned === destination
         @test isequal(Array(destination), Array(values))
         @test fill_terminal.position == array_terminal.position == terminal.position
@@ -265,7 +265,7 @@ end
         empty = CUDA.CuArray{T}(undef, 0)
         profile = CUDA.@profile raw = true rand_next!(terminal, distribution, empty)
         @test count(value -> !ismissing(value), profile.device.grid) == 0
-        empty_next, returned_empty = rand_next!(terminal, distribution, empty)
+        returned_empty, empty_next = rand_next!(terminal, distribution, empty)
         @test returned_empty === empty
         @test empty_next.position == terminal.position
     end

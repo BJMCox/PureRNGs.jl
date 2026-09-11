@@ -17,14 +17,14 @@ Use Julia 1.10 or later. Load `Random` for Julia's standard sampling function na
 using PureRNGs, Random
 
 rng = Philox4x32(123456)
-rng, x = rand_next(rng, Float64)
-rng, values = rand_next(rng, Float32, 4)
-rng, normal = randn_next(rng, Float32)
-rng, exponential = randexp_next(rng, Float32)
+x, rng = rand_next(rng, Float64)
+values, rng = rand_next(rng, Float32, 4)
+normal, rng = randn_next(rng, Float32)
+exponential, rng = randexp_next(rng, Float32)
 values
 ```
 
-The `_next` functions return `(next_rng, result)`. Assign the returned generator before the next draw.
+The `_next` functions return `(result, next_rng)`. Assign the returned generator before the next draw.
 
 Without a result type, these continuation functions default to `Float64`. Thus, `rand_next(rng, 4)` draws four values.
 
@@ -48,9 +48,9 @@ Integer draws cover the entire type. Uniform floating-point draws lie in `[0, 1)
 Normal and exponential draws support `Float32` and `Float64`.
 
 ```@example start
-rng, bits = rand_next(rng, Bool, 8)
-rng, integers = rand_next(rng, Int32, 4)
-rng, dice = rand_next(rng, 1:6, 8)
+bits, rng = rand_next(rng, Bool, 8)
+integers, rng = rand_next(rng, Int32, 4)
+dice, rng = rand_next(rng, 1:6, 8)
 dice
 ```
 

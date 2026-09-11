@@ -17,10 +17,10 @@ function _range_reference_offset(rng, span::UInt64)
     block = _range_reference_block(rng.position)
     bit = rng.position.bit
     if _range_reference_width(span) == 64
-        candidate = _reference_extract(rng, RangeIR.FAMILY_RANGE, block, bit, 64)
+        candidate = _reference_extract(rng, block, bit, 64)
         return UInt64((BigInt(candidate) * BigInt(span)) >> 64)
     end
-    lo, hi = _reference_extract128(rng, RangeIR.FAMILY_RANGE, block, bit)
+    lo, hi = _reference_extract128(rng, block, bit)
     mathematical_span = iszero(span) ? big(1) << 64 : BigInt(span)
     candidate = (BigInt(hi) << 64) + BigInt(lo)
     return UInt64((candidate * mathematical_span) >> 128)
@@ -97,82 +97,84 @@ end
     range64 = Int32(-1000):Int32(7):Int32(1000)
     range128 = UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd)
     @test length(range128) % UInt64 === UInt64(6148914691236517203)
+    # Range draws read the uniform stream, so each 64-bit candidate is the
+    # uniform golden block at this position. The offsets and values pin the
+    # multiply-high reduction.
     expected = (
         (
-            0x7d914eab99ce23a2,
-            140,
-            Int32(-20),
-            (0x57c4e7526ff8dab9, 0x7d914eab99ce23a2),
-            3016033208430278282,
-            0x7d914eab99ce23a5,
+            0xf39608ad5487335f,
+            272,
+            Int32(904),
+            (0x53e85b78ec2b79e4, 0xf39608ad5487335f),
+            5850742046087865970,
+            0xf39608ad5487335d,
         ),
         (
-            0xf6152dfacb5a4840,
-            274,
-            Int32(918),
-            (0xbae168baafbdd6c0, 0xf6152dfacb5a4840),
-            5910709887672653843,
-            0xf6152dfacb5a4840,
+            0x2029c87b4a20bd10,
+            35,
+            Int32(-755),
+            (0x2df82443a4e5ac43, 0x2029c87b4a20bd10),
+            772534638369674330,
+            0x2029c87b4a20bd15,
         ),
         (
-            0x1d519401f7bff602,
-            32,
-            Int32(-776),
-            (0x7899ef60c081aa44, 0x1d519401f7bff602),
-            704210812128634709,
-            0x1d519401f7bff606,
+            0x2a2d596a681fd002,
+            47,
+            Int32(-671),
+            (0x8c72a1d5323ca8ba, 0x2a2d596a681fd002),
+            1013061212364424533,
+            0x2a2d596a681fd006,
         ),
         (
-            0xc081600225ddb621,
-            215,
-            Int32(505),
-            (0x3748ae5a64f13eb5, 0xc081600225ddb621),
-            4623824629873108830,
-            0xc081600225ddb621,
+            0x624cb22e36a263ea,
+            109,
+            Int32(-237),
+            (0xc3f54ce12431a0f8, 0x624cb22e36a263ea),
+            2361077408500599800,
+            0x624cb22e36a263ef,
         ),
         (
-            0x3634056c83a3a5a8,
-            60,
-            Int32(-580),
-            (0x91e79266bf43d640, 0x3634056c83a3a5a8),
-            1301917580153403191,
-            0x3634056c83a3a5ac,
+            0xd4b0fe71e0a7135a,
+            237,
+            Int32(659),
+            (0xcec17fe430f8841d, 0xd4b0fe71e0a7135a),
+            5108676432331867761,
+            0xd4b0fe71e0a7135a,
         ),
         (
-            0x73352cb976ea01a6,
-            128,
-            Int32(-104),
-            (0xd717ff447b13c633, 0x73352cb976ea01a6),
-            2767196887734332214,
-            0x73352cb976ea01a9,
+            0x0d7f8e4de91962b4,
+            15,
+            Int32(-895),
+            (0xf5dd4c02409383c0, 0x0d7f8e4de91962b4),
+            324217503269899153,
+            0x0d7f8e4de91962ba,
         ),
         (
-            0x6af6002aa956a302,
-            119,
-            Int32(-167),
-            (0xe7376bf5100e297a, 0x6af6002aa956a302),
-            2569115998506945450,
-            0x6af6002aa956a305,
+            0x44d3930c5cae4976,
+            76,
+            Int32(-468),
+            (0x40ff67b3e35799b8, 0x44d3930c5cae4976),
+            1653156431989621542,
+            0x44d3930c5cae4979,
         ),
         (
-            0xccaaa3f2e421cd9a,
-            228,
-            Int32(596),
-            (0x549bdd05b23e3a47, 0xccaaa3f2e421cd9a),
-            4915926731127648049,
-            0xccaaa3f2e421cd9a,
+            0x6dc19acb71673eb8,
+            122,
+            Int32(-146),
+            (0xdb6a53caba025350, 0x6dc19acb71673eb8),
+            2636257539736977297,
+            0x6dc19acb71673eba,
         ),
     )
 
     span64 = length(range64) % UInt64
     span128 = length(range128) % UInt64
     for ((F, key), (candidate64, index64, value64, candidate128, index128, value128)) in
-        zip(PACKED_GOLDEN_FAMILIES, expected)
+        zip(PACKED_GOLDEN_GENERATORS, expected)
         rng = _packed_golden_rng(F, key)
         block = _range_reference_block(rng.position)
         @test RangeIR._extract_bits_unchecked(
             rng,
-            RangeIR.FAMILY_RANGE,
             block,
             rng.position.bit,
             Val(64),
@@ -181,7 +183,6 @@ end
         @test rand(rng, range64) === value64
         @test RangeIR._extract_bits128_unchecked(
             rng,
-            RangeIR.FAMILY_RANGE,
             block,
             rng.position.bit,
         ) === candidate128
@@ -208,7 +209,7 @@ end
         typemax(Int64):Int64(-1):typemin(Int64),
     )
 
-    for F in FAMILY_TYPES
+    for F in GENERATOR_TYPES
         block_bits = Int(RangeIR._block_bits(F(0)))
         bit = UInt16(block_bits - 1)
         for range in ranges
@@ -218,7 +219,7 @@ end
             @test rand(rng, range) === expected
             @test rng.position === position
 
-            next_rng, value = rand_next(rng, range)
+            value, next_rng = rand_next(rng, range)
             width = _range_reference_width(length(range) % UInt64)
             @test value === expected
             @test next_rng.position == _range_reference_position(rng, width)
@@ -229,26 +230,26 @@ end
 @testset "R8 and R53 mixed primitive and range positions" begin
     small = UInt16(3):UInt16(41)
     wide = UInt64(0):(UInt64(1)<<32)
-    for F in FAMILY_TYPES
+    for F in GENERATOR_TYPES
         rng = _range_positioned(F, 0x552, UInt64(11), UInt16(63))
         first_expected = _reference_uniform(rng, UInt32)
-        rng, first_value = rand_next(rng, UInt32)
+        first_value, rng = rand_next(rng, UInt32)
         @test first_value === first_expected
 
         small_expected = _range_reference_draw(rng, small)
         small_position = _range_reference_position(rng, 64)
-        rng, small_value = rand_next(rng, small)
+        small_value, rng = rand_next(rng, small)
         @test small_value === small_expected
         @test rng.position == small_position
 
         wide_expected = _range_reference_draw(rng, wide)
         wide_position = _range_reference_position(rng, 128)
-        rng, wide_value = rand_next(rng, wide)
+        wide_value, rng = rand_next(rng, wide)
         @test wide_value === wide_expected
         @test rng.position == wide_position
 
         final_expected = _reference_uniform(rng, Bool)
-        rng, final_value = rand_next(rng, Bool)
+        final_value, rng = rand_next(rng, Bool)
         @test final_value === final_expected
         @test rng.position ==
               _range_reference_position(RangeIR._rebuild(rng, wide_position, rng.device), 1)
@@ -258,13 +259,13 @@ end
 @testset "R53 and R54 range capacity and validation" begin
     small = UInt8(1):UInt8(7)
     wide = UInt64(0):(UInt64(1)<<32)
-    for F in FAMILY_TYPES, (range, width) in ((small, 64), (wide, 128))
+    for F in GENERATOR_TYPES, (range, width) in ((small, 64), (wide, 128))
         base = F(0x553)
         capacity = _range_capacity(base)
         last_position = _range_position_from_absolute(base, capacity - width)
         last = RangeIR._rebuild(base, last_position, base.device)
         expected = _range_reference_draw(last, range)
-        terminal, value = rand_next(last, range)
+        value, terminal = rand_next(last, range)
         @test value === expected
         @test terminal.position == (
             base.position isa RangeIR._Position64 ?
@@ -283,7 +284,7 @@ end
         @test_throws ArgumentError rand_next(exhausted, range)
     end
 
-    for F in FAMILY_TYPES
+    for F in GENERATOR_TYPES
         rng = F(0x554)
         for range in (Int8(2):Int8(1), UInt64(1):UInt64(0))
             @test_throws ArgumentError rand(rng, range)
@@ -301,7 +302,7 @@ end
 end
 
 @testset "R30 and R55 fixed-work range codegen" begin
-    for F in FAMILY_TYPES,
+    for F in GENERATOR_TYPES,
         range in (
             Int8(-2):Int8(3),
             UInt16(9):Int16(-2):UInt16(1),
@@ -314,7 +315,7 @@ end
         @test integer_allocations(rng, range) == (0, 0)
     end
 
-    rng = Philox4x64(0x557)
+    rng = RangeIR.MLDataDevices.CUDADevice()(Philox4x64(0x557))
     for (function_, signature) in (
         (rand, Tuple{typeof(rng),typeof(UInt16(2):UInt16(17))}),
         (rand_next, Tuple{typeof(rng),typeof(UInt64(0):typemax(UInt64))}),

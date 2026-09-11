@@ -30,44 +30,32 @@ end
 
 @inline function _commit_bridge!(
     mutable_rng::StatefulRNG{R},
-    result::Tuple{R,T},
+    result::Tuple{T,R},
 ) where {R,T}
-    mutable_rng.rng = first(result)
-    return last(result)
+    mutable_rng.rng = last(result)
+    return first(result)
 end
 
-@inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{Bool}) =
-    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, Bool))
-@inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{UInt32}) =
-    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, UInt32))
-@inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{UInt64}) =
-    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, UInt64))
-@inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{Int32}) =
-    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, Int32))
-@inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{Int64}) =
-    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, Int64))
-@inline Random.rand(
-    mutable_rng::StatefulRNG,
-    ::Random.SamplerTrivial{Random.CloseOpen01{Float32}},
-) = _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, Float32))
-@inline Random.rand(
-    mutable_rng::StatefulRNG,
-    ::Random.SamplerTrivial{Random.CloseOpen01{Float64}},
-) = _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, Float64))
+for T in (Bool, UInt32, Int32, UInt64, Int64)
+    @eval @inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{$T}) =
+        _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, $T))
+end
 
-@inline Random.randn(mutable_rng::StatefulRNG) =
-    _commit_bridge!(mutable_rng, randn_next(mutable_rng.rng, Float64))
-@inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float32}) =
-    _commit_bridge!(mutable_rng, randn_next(mutable_rng.rng, Float32))
-@inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float64}) =
-    _commit_bridge!(mutable_rng, randn_next(mutable_rng.rng, Float64))
+for T in (Float32, Float64)
+    @eval begin
+        @inline Random.rand(
+            mutable_rng::StatefulRNG,
+            ::Random.SamplerTrivial{Random.CloseOpen01{$T}},
+        ) = _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, $T))
+        @inline Random.randn(mutable_rng::StatefulRNG, ::Type{$T}) =
+            _commit_bridge!(mutable_rng, randn_next(mutable_rng.rng, $T))
+        @inline Random.randexp(mutable_rng::StatefulRNG, ::Type{$T}) =
+            _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, $T))
+    end
+end
 
-@inline Random.randexp(mutable_rng::StatefulRNG) =
-    _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, Float64))
-@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float32}) =
-    _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, Float32))
-@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float64}) =
-    _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, Float64))
+@inline Random.randn(mutable_rng::StatefulRNG) = Random.randn(mutable_rng, Float64)
+@inline Random.randexp(mutable_rng::StatefulRNG) = Random.randexp(mutable_rng, Float64)
 
 struct _StatefulRangeSampler{T,R<:AbstractRange{T}} <: Random.Sampler{T}
     range::R
@@ -161,7 +149,7 @@ const _StatefulUniform = Union{Bool,UInt32,Int32,UInt64,Int64,Float32,Float64}
     randexp_next!(mutable_rng.rng, destination; threaded = false),
 )
 
-for F in _FAMILY_SYMBOLS
+for F in _GENERATOR_SYMBOLS
     @eval @inline _fresh_bridge_rng(::$F, seed::Integer) = $F(seed)
 end
 

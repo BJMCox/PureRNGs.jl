@@ -13,8 +13,8 @@ function _word_mulhilo end
     product = a * b
     # Callers guarantee a nonnegative product. The dynamic sign and abs preserve
     # that value while preventing XLA from contracting its rounding into the
-    # next operation. Without it, the central R43 probe changes from
-    # 0xbff55e55782ee12e to 0xbff55e55782ee12d.
+    # next operation. Without it, the central R43 normal probe differs from the
+    # CPU result in its last bit.
     return abs(copysign(product, sign))
 end
 
@@ -53,3 +53,26 @@ end
     hi, lo = _word_mulhilo(O(), Val(64), a.value, b.value)
     return _core_word(typeof(a), hi), _core_word(typeof(a), lo)
 end
+
+# Host word operations. The plain `UInt64` core keeps the portable four-product
+# multiply for GPU kernels, where 128-bit integers are not available on every
+# backend. On the host the widening multiply is one instruction, so the 64-bit
+# Philox generators run their core through these ops when bound to the CPU.
+struct _HostWordOps end
+
+@inline _word_constant(::_HostWordOps, ::Val{W}, anchor::Unsigned, value) where {W} =
+    typeof(anchor)(value)
+@inline _word_from_value(::_HostWordOps, ::Val{W}, anchor::Unsigned, value) where {W} =
+    value % typeof(anchor)
+@inline _word_add(::_HostWordOps, ::Val{W}, a, b) where {W} = a + b
+@inline _word_xor(::_HostWordOps, ::Val{W}, a, b) where {W} = a ⊻ b
+@inline _word_rotate(::_HostWordOps, ::Val{W}, value, count) where {W} =
+    bitrotate(value, count)
+@inline function _word_mulhilo(::_HostWordOps, ::Val{64}, a::UInt64, b::UInt64)
+    product = widemul(a, b)
+    return (product >> 64) % UInt64, product % UInt64
+end
+
+@inline _host_word(value::UInt64) = _core_word(Val(64), _HostWordOps(), value)
+@inline _host_words(values::NTuple{N,UInt64}) where {N} = map(_host_word, values)
+@inline _unwrap_words(words::NTuple{N,_CoreWord}) where {N} = map(word -> word.value, words)

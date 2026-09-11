@@ -13,9 +13,17 @@ export Philox2x32,
     Threefry4x32,
     Threefry2x64,
     Threefry4x64,
+    Philox4x32R7,
+    Threefry4x64R13,
+    ChaCha,
+    ChaCha8,
+    ChaCha12,
+    ChaCha20,
     AbstractPureRNG,
     splitrng,
     subrng,
+    rngkey,
+    rngposition,
     rand_next,
     rand_next!,
     randn_next,
@@ -36,7 +44,8 @@ end
 include("core_words.jl")
 include("philox.jl")
 include("threefry.jl")
-include("families.jl")
+include("chacha.jl")
+include("generators.jl")
 include("cpu_allocation.jl")
 include("bits.jl")
 include("derive.jl")

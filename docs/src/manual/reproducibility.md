@@ -2,7 +2,7 @@
 
 ## Preserve the stream inputs
 
-Record the package version, generator family, seed or key, purpose IDs, and draw sequence.
+Record the package version, generator type, seed or key, purpose IDs, and draw sequence.
 
 Pure calls repeat their result. Continuation calls advance explicit state.
 Bulk calls follow chained scalar consumption, so changing chunk sizes does not change the underlying stream.
@@ -10,7 +10,13 @@ Bulk calls follow chained scalar consumption, so changing chunk sizes does not c
 Randomness belongs to logical work, not thread IDs or scheduling order.
 See [Parallel jobs](@ref).
 
-PureRNGs implements Philox and Threefry cores, but its public streams need not match other packages using those cores.
+PureRNGs implements the Philox and Threefry keyed bijections, but its public streams need not match other packages built on them.
+
+## Statistical validation
+
+The Philox and Threefry cores reproduce the Random123 known-answer vectors, and the ChaCha core reproduces the ChaCha8, ChaCha12, and ChaCha20 test vectors.
+Before a release, RNGTest BigCrush runs on the packed uniform stream of every generator in both the `UInt32` and `Float64` lanes.
+The logs are release artifacts and are not committed. Hosted CI runs the CPU unit tests only.
 
 ## Separate bits from floating-point transforms
 
@@ -30,8 +36,8 @@ They do not retry rejected candidates.
 This does not promise constant runtime. Allocation, sorting, backend scheduling, and validation still have costs.
 Foreign consumers of `StatefulRNG` may use rejection algorithms.
 
-Uniforms, normals, exponentials, ranges, and weighted sampling use separate counter-address regions.
-Address separation does not prevent equal output values by chance.
+All draw kinds read one stream of bits at the generator's position.
+Two draws of different kinds at the same position read the same bits. Advance the generator or derive a new key between them.
 
 ## Failure behavior
 

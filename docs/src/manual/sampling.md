@@ -6,9 +6,9 @@
 using PureRNGs, Random
 
 rng = Philox4x32(42)
-rng, die = rand_next(rng, 1:6)
-rng, evens = rand_next(rng, 2:2:20, 5)
-rng, descending = rand_next(rng, 10:-1:1, 5)
+die, rng = rand_next(rng, 1:6)
+evens, rng = rand_next(rng, 2:2:20, 5)
+descending, rng = rand_next(rng, 10:-1:1, 5)
 evens
 ```
 
@@ -18,12 +18,13 @@ Range sampling uses a fixed-width multiply-high mapping, not rejection sampling.
 Arbitrary range lengths can have a small finite mapping bias. Preimage counts differ by at most one.
 
 The candidate uses 64 bits for lengths up to 2^32 and 128 bits for larger lengths.
+The relative probability imbalance between two values is therefore at most 2^-32 for lengths up to 2^32, and at most 2^-64 above that.
 
 ## Sample a population
 
 ```@example sampling
 population = [:red, :green, :blue]
-rng, draws = randsample_next(rng, population, 6)
+draws, rng = randsample_next(rng, population, 6)
 same_length = randsample(rng, population)
 @assert length(same_length) == length(population)
 draws
@@ -35,7 +36,7 @@ It does not shuffle the population.
 Every call returns a vector. Integer ranges have a direct path without materializing the population.
 
 ```@example sampling
-rng, indices = randsample_next(rng, 1:1_000_000, 8)
+indices, rng = randsample_next(rng, 1:1_000_000, 8)
 indices
 ```
 
@@ -48,7 +49,7 @@ Finite non-array iterators are materialized. Do not pass infinite iterators.
 
 ```@example sampling
 weights = [1.0, 3.0, 0.0]
-rng, draws = randsample_next(rng, population, weights, 12)
+draws, rng = randsample_next(rng, population, weights, 12)
 @assert all(!=(:blue), draws)
 draws
 ```

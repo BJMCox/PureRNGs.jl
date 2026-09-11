@@ -156,18 +156,18 @@ end
     indices,
 )
     isempty(indices) && return nothing
-    cursor = _dense_cursor(rng, FAMILY_RANGE, _position_block(position), position.bit)
+    cursor = _dense_cursor(rng, _position_block(position), position.bit)
     if width == UInt16(64)
         @inbounds for index in indices
             candidate, cursor =
-                _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+                _take_dense_bits_unchecked(rng, cursor, Val(64))
             ordinal = _reduce_range_candidate(candidate, cardinality) + UInt64(1)
             destination[index] = _population_value(population, ordinal)
         end
     else
         @inbounds for index in indices
-            hi, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
-            lo, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+            hi, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+            lo, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
             ordinal = _reduce_range_candidate(lo, hi, cardinality) + UInt64(1)
             destination[index] = _population_value(population, ordinal)
         end
@@ -184,11 +184,11 @@ end
     first_index::Int,
     ::Val{2},
 )
-    cursor = _dense_cursor(rng, FAMILY_RANGE, _position_block(position), position.bit)
+    cursor = _dense_cursor(rng, _position_block(position), position.bit)
     @inbounds for offset = 0:1
         index = first_index + offset
         index > length(destination) && break
-        candidate, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+        candidate, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
         ordinal = _reduce_range_candidate(candidate, cardinality) + UInt64(1)
         destination[index] = _population_value(population, ordinal)
     end
@@ -326,10 +326,10 @@ function _randsample_next_unweighted(rng, population, requested_count)
     width = _range_bits(cardinality)
     next_rng = _sampling_reservation(rng, count, width)
     destination = _allocate_sampling_result(rng, indexed, count)
-    isempty(destination) && return next_rng, destination
+    isempty(destination) && return destination, next_rng
     backend = _fill_backend(destination)
     _launch_unweighted_sample!(backend, rng, indexed, cardinality, destination, width)
-    return next_rng, destination
+    return destination, next_rng
 end
 
 """
@@ -345,16 +345,16 @@ not return the advanced generator; use [`randsample_next`](@ref) when subsequent
 draws must continue after the sample.
 """
 @inline function randsample(rng::AbstractPureRNG, population)
-    return last(_randsample_next_unweighted(rng, population, nothing))
+    return first(_randsample_next_unweighted(rng, population, nothing))
 end
 
 @inline function randsample(rng::AbstractPureRNG, population, count::Integer)
-    return last(_randsample_next_unweighted(rng, population, count))
+    return first(_randsample_next_unweighted(rng, population, count))
 end
 
 """
-    randsample_next(rng, population[, count]) -> (next_rng, values)
-    randsample_next(rng, population, weights[, count]) -> (next_rng, values)
+    randsample_next(rng, population[, count]) -> (values, next_rng)
+    randsample_next(rng, population, weights[, count]) -> (values, next_rng)
 
 Sample with replacement from `population` and return the advanced immutable
 generator with the result. Without `count`, return as many draws as the

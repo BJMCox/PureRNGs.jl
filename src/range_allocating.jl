@@ -1,5 +1,5 @@
 @inline function _fill_range_cpu_unchecked!(
-    rng::_CPUFamily,
+    rng::_CPUGenerators,
     position,
     destination::AbstractArray{T},
     range::AbstractRange{T},
@@ -7,18 +7,18 @@
     indices,
 ) where {T<:_RangeInteger}
     isempty(indices) && return nothing
-    cursor = _dense_cursor(rng, FAMILY_RANGE, _position_block(position), position.bit)
+    cursor = _dense_cursor(rng, _position_block(position), position.bit)
     if _range_bits(span) == UInt16(64)
         @inbounds for index in indices
             candidate, cursor =
-                _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+                _take_dense_bits_unchecked(rng, cursor, Val(64))
             offset = _reduce_range_candidate(candidate, span)
             destination[index] = _range_value(range, offset)
         end
     else
         @inbounds for index in indices
-            hi, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
-            lo, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+            hi, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+            lo, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
             offset = _reduce_range_candidate(lo, hi, span)
             destination[index] = _range_value(range, offset)
         end
@@ -37,12 +37,12 @@ end
     first::Int,
     ::Val{2},
 )
-    cursor = _dense_cursor(rng, FAMILY_RANGE, _position_block(position), position.bit)
+    cursor = _dense_cursor(rng, _position_block(position), position.bit)
     last = length(destination)
     @inbounds for offset = 0:1
         index = first + offset
         index > last && break
-        candidate, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(64))
+        candidate, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
         destination[index] = _range_value(range, _reduce_range_candidate(candidate, span))
     end
     return nothing
@@ -115,7 +115,7 @@ end
 
 @inline function _launch_range!(
     backend::KernelAbstractions.CPU,
-    rng::_CPUFamily,
+    rng::_CPUGenerators,
     destination::Array,
     range,
     span,
@@ -146,7 +146,7 @@ end
 end
 
 @inline function _rand_next_range_array(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
     dims::Tuple,
 ) where {T<:_RangeInteger}
@@ -155,26 +155,26 @@ end
     destination = _allocate_draw_array(rng.device, T, dims)
     bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _range_bits(span))
     next_rng = _reserve(rng, bits_lo, bits_hi)
-    isempty(destination) && return next_rng, destination
+    isempty(destination) && return destination, next_rng
     backend = _fill_backend(destination)
     _launch_range!(backend, rng, destination, range, span)
-    return next_rng, destination
+    return destination, next_rng
 end
 
 for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
     @eval begin
         @inline function Random.rand(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             range::AbstractRange{$T},
             dim1::Integer,
             dims::Integer...,
         )
-            _, destination = _rand_next_range_array(rng, range, (dim1, dims...))
+            destination, _ = _rand_next_range_array(rng, range, (dim1, dims...))
             return destination
         end
 
         @inline function rand_next(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             range::AbstractRange{$T},
             dim1::Integer,
             dims::Integer...,

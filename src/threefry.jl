@@ -7,19 +7,24 @@ const _THREEFRY4X64_ROTATIONS =
 const _THREEFRY_PARITY32 = UInt32(0x1bd11bda)
 const _THREEFRY_PARITY64 = UInt64(0x1bd11bdaa9fc1a22)
 
+# Round counts follow Random123: twenty rounds by default, thirteen for the
+# round-reduced generators. Rounds past `R` compile away.
+const _THREEFRY_DEFAULT_ROUNDS = 20
+
 @inline function _threefry2x(
     counter::NTuple{2,T},
     key::NTuple{2,T},
     rotations,
     parity::T,
-) where {T}
+    ::Val{R},
+) where {T,R}
     k0, k1 = key
     k2 = _core_xor(_core_xor(k0, k1), parity)
     keys = (k0, k1, k2)
     x0 = _core_add(counter[1], k0)
     x1 = _core_add(counter[2], k1)
 
-    Base.Cartesian.@nexprs 20 r -> begin
+    Base.Cartesian.@nexprs 20 r -> if r <= R
         round = r - 1
         x0 = _core_add(x0, x1)
         x1 = _core_rotate(x1, rotations[(round&7)+1])
@@ -38,7 +43,8 @@ end
     key::NTuple{4,T},
     rotations,
     parity::T,
-) where {T}
+    ::Val{R},
+) where {T,R}
     k0, k1, k2, k3 = key
     k4 = _core_xor(_core_xor(_core_xor(_core_xor(k0, k1), k2), k3), parity)
     keys = (k0, k1, k2, k3, k4)
@@ -47,7 +53,7 @@ end
     x2 = _core_add(counter[3], k2)
     x3 = _core_add(counter[4], k3)
 
-    Base.Cartesian.@nexprs 20 r -> begin
+    Base.Cartesian.@nexprs 20 r -> if r <= R
         round = r - 1
         rotations_round = rotations[(round&7)+1]
         if round & 1 == 0
@@ -76,46 +82,21 @@ end
     return (x0, x1, x2, x3)
 end
 
-@inline _threefry2x32(counter::NTuple{2,UInt32}, key::NTuple{2,UInt32}) =
-    _threefry2x32_impl(counter, key)
-@inline _threefry2x32(counter::NTuple{2,T}, key::NTuple{2,T}) where {T<:_CoreWord{32}} =
-    _threefry2x32_impl(counter, key)
-@inline _threefry2x32_impl(counter, key) = _threefry2x(
-    counter,
-    key,
-    _THREEFRY2X32_ROTATIONS,
-    _core_constant(counter[1], _THREEFRY_PARITY32),
+for (core, width, rotations, parity) in (
+    (:_threefry2x32, 2, :_THREEFRY2X32_ROTATIONS, :_THREEFRY_PARITY32),
+    (:_threefry4x32, 4, :_THREEFRY4X32_ROTATIONS, :_THREEFRY_PARITY32),
+    (:_threefry2x64, 2, :_THREEFRY2X64_ROTATIONS, :_THREEFRY_PARITY64),
+    (:_threefry4x64, 4, :_THREEFRY4X64_ROTATIONS, :_THREEFRY_PARITY64),
 )
-
-@inline _threefry4x32(counter::NTuple{4,UInt32}, key::NTuple{4,UInt32}) =
-    _threefry4x32_impl(counter, key)
-@inline _threefry4x32(counter::NTuple{4,T}, key::NTuple{4,T}) where {T<:_CoreWord{32}} =
-    _threefry4x32_impl(counter, key)
-@inline _threefry4x32_impl(counter, key) = _threefry4x(
-    counter,
-    key,
-    _THREEFRY4X32_ROTATIONS,
-    _core_constant(counter[1], _THREEFRY_PARITY32),
-)
-
-@inline _threefry2x64(counter::NTuple{2,UInt64}, key::NTuple{2,UInt64}) =
-    _threefry2x64_impl(counter, key)
-@inline _threefry2x64(counter::NTuple{2,T}, key::NTuple{2,T}) where {T<:_CoreWord{64}} =
-    _threefry2x64_impl(counter, key)
-@inline _threefry2x64_impl(counter, key) = _threefry2x(
-    counter,
-    key,
-    _THREEFRY2X64_ROTATIONS,
-    _core_constant(counter[1], _THREEFRY_PARITY64),
-)
-
-@inline _threefry4x64(counter::NTuple{4,UInt64}, key::NTuple{4,UInt64}) =
-    _threefry4x64_impl(counter, key)
-@inline _threefry4x64(counter::NTuple{4,T}, key::NTuple{4,T}) where {T<:_CoreWord{64}} =
-    _threefry4x64_impl(counter, key)
-@inline _threefry4x64_impl(counter, key) = _threefry4x(
-    counter,
-    key,
-    _THREEFRY4X64_ROTATIONS,
-    _core_constant(counter[1], _THREEFRY_PARITY64),
-)
+    mixer = width == 2 ? :_threefry2x : :_threefry4x
+    @eval begin
+        @inline $core(
+            counter::NTuple{$width,T},
+            key::NTuple{$width,T},
+            rounds::Val,
+        ) where {T} =
+            $mixer(counter, key, $rotations, _core_constant(counter[1], $parity), rounds)
+        @inline $core(counter::NTuple{$width,T}, key::NTuple{$width,T}) where {T} =
+            $core(counter, key, Val(_THREEFRY_DEFAULT_ROUNDS))
+    end
+end

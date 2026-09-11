@@ -11,7 +11,7 @@ a = rand(rng, Float64)
 b = rand(rng, Float64)
 state = parent(rng)
 
-expected_state, expected = rand_next(root, Float64, 2)
+expected, expected_state = rand_next(root, Float64, 2)
 @assert [a, b] == expected
 @assert state == expected_state
 ```
@@ -22,7 +22,7 @@ The bridge always runs on the host. Construction rebinds a GPU-bound generator t
 
 Use `parent(rng)` to retrieve the current immutable state.
 Use `copy(rng)` for an independent mutable wrapper at the same position.
-Use `Random.seed!` to reset the same generator family.
+Use `Random.seed!` to reset the same generator type.
 
 ## Respect mutable ownership
 

@@ -7,10 +7,10 @@ using PureRNGs, Random, Distributions
 
 rng = Philox4x32(123456)
 distribution = Normal(2.0, 0.5)
-rng, values = rand_next(rng, distribution, 1024)
+values, rng = rand_next(rng, distribution, 1024)
 
 buffer = similar(values)
-rng, _ = rand_next!(rng, distribution, buffer; threaded=false)
+_, rng = rand_next!(rng, distribution, buffer; threaded=false)
 x = randat(rng, distribution, 1)
 ```
 

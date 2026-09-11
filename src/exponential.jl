@@ -1,4 +1,3 @@
-const FAMILY_EXP = UInt32(0x00000002)
 
 @inline _exponential_bits(::Type{Float32}) = UInt16(24)
 @inline _exponential_bits(::Type{Float64}) = UInt16(53)
@@ -113,52 +112,51 @@ end
 end
 
 @inline function _draw_exponential_unchecked(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     position,
     ::Type{T},
 ) where {T}
     block = _position_block(position)
     value = if T === Float32
-        _extract_bits_unchecked(rng, FAMILY_EXP, block, position.bit, Val(24))
+        _extract_bits_unchecked(rng, block, position.bit, Val(24))
     else
-        _extract_bits_unchecked(rng, FAMILY_EXP, block, position.bit, Val(53))
+        _extract_bits_unchecked(rng, block, position.bit, Val(53))
     end
     return _exponential_from_bits(rng.device, T, value)
 end
 
-@inline _draw_exponential_unchecked(rng::_ScalarUniformFamily, ::Type{T}) where {T} =
+@inline _draw_exponential_unchecked(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
     _draw_exponential_unchecked(rng, rng.position, T)
 
 function Random.randexp(::AbstractPureRNG)
     throw(ArgumentError("untyped immutable draws are forbidden; use randexp(rng, T)"))
 end
 
-@inline function _randexp_scalar(rng::_ScalarUniformFamily, ::Type{T}) where {T}
-    _reserve(rng, UInt64(_exponential_bits(T)), UInt64(0))
-    return _draw_exponential_unchecked(rng, T)
-end
-
-@inline randexp_next(rng::_ScalarUniformFamily) = randexp_next(rng, Float64)
-
-@inline function _randexp_next_scalar(rng::_ScalarUniformFamily, ::Type{T}) where {T}
+@inline function _randexp_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve(rng, UInt64(_exponential_bits(T)), UInt64(0))
-    return next_rng, _draw_exponential_unchecked(rng, T)
+    raw = _chain_bits(rng, next_rng, Val(Int(_exponential_bits(T))))
+    return _exponential_from_bits(rng.device, T, raw), next_rng
 end
+
+@inline _randexp_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
+    first(_randexp_next_scalar(rng, T))
+
+@inline randexp_next(rng::_ScalarUniformGenerators) = randexp_next(rng, Float64)
 
 for T in (Float32, Float64)
     @eval begin
-        @inline Random.randexp(rng::_ScalarUniformFamily, ::Type{$T}) =
+        @inline Random.randexp(rng::_ScalarUniformGenerators, ::Type{$T}) =
             _randexp_scalar(rng, $T)
-        @inline randexp_next(rng::_ScalarUniformFamily, ::Type{$T}) =
+        @inline randexp_next(rng::_ScalarUniformGenerators, ::Type{$T}) =
             _randexp_next_scalar(rng, $T)
-        @inline randexpat(rng::_ScalarUniformFamily, ::Type{$T}, i::Integer) =
+        @inline randexpat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
             _draw_exponential_unchecked(_addressed_rng(rng, _exponential_bits($T), i), $T)
     end
 end
 
 @doc """
-    randexp_next(rng[, T]) -> (next_rng, value)
-    randexp_next(rng[, T], dims...) -> (next_rng, values)
+    randexp_next(rng[, T]) -> (value, next_rng)
+    randexp_next(rng[, T], dims...) -> (values, next_rng)
 
 Draw standard exponential values from `rng` and return the advanced immutable
 generator with the result. Omitting `T` selects `Float64`; `T` may be `Float32`
@@ -175,7 +173,7 @@ Return the `i`th standard exponential draw at or after the current position of
 `rng`, where `i` is one-based and `T` is `Float32` or `Float64`.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
-positive or the addressed draw exceeds the family's counter capacity.
+positive or the addressed draw exceeds the generator's counter capacity.
 """ randexpat
 
 @inline _transformed_fill_plan(::_BackendToken, backend, rng, T) = nothing
@@ -183,10 +181,9 @@ positive or the addressed draw exceeds the family's counter capacity.
 @inline _cooperative_value(device::_BackendToken, ::Type{T}, raw) where {T} =
     _exponential_from_bits(device, T, raw)
 @inline _fill_width(::_BackendToken, ::Type{T}) where {T} = _exponential_bits(T)
-@inline _fill_family(::_BackendToken) = FAMILY_EXP
 
 @inline function _randexp_next_fill!(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
@@ -196,16 +193,16 @@ end
 for T in (Float32, Float64)
     @eval begin
         @inline function Random.randexp!(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
             threaded::Bool = true,
         )
-            _, result = _randexp_next_fill!(rng, destination, threaded)
+            result, _ = _randexp_next_fill!(rng, destination, threaded)
             return result
         end
 
         @inline function randexp_next!(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
             threaded::Bool = true,
         )
@@ -215,7 +212,7 @@ for T in (Float32, Float64)
 end
 
 @doc """
-    randexp_next!(rng, destination; threaded=true) -> (next_rng, destination)
+    randexp_next!(rng, destination; threaded=true) -> (destination, next_rng)
 
 Fill a `Float32` or `Float64` destination with standard exponential values and
 return the advanced immutable generator with the same destination. The

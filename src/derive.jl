@@ -6,30 +6,28 @@ const _NARROW_SPLIT_COUNT = UInt64(0xffffffff)
 const _SPLIT_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_SPLIT_SUBTAG)
 const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 
-for F in _FAMILY_SYMBOLS
-    @eval @inline _derived_rng(rng::$F{D}, key) where {D} =
-        $F{D}(_CONSTRUCTION_TOKEN, key, _zero_position($F), rng.device)
-end
+@inline _derived_rng(rng::AbstractPureRNG, key) =
+    typeof(rng)(_CONSTRUCTION_TOKEN, key, _zero_position(typeof(rng)), rng.device)
 
 @inline function _narrow_index(index::UInt64)
     index < _NARROW_SPLIT_COUNT ||
-        throw(ArgumentError("a narrow-family child index enters the fold namespace"))
+        throw(ArgumentError("two-word generator child index enters the fold namespace"))
     return index % UInt32
 end
 
-@inline function _derive_key(::Type{<:Philox2x32}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Philox2x32}
     counter =
         (_core_constant(key[1], _narrow_index(index)), _core_constant(key[1], _DERIVE_TAG))
-    return (_philox2x32(counter, key)[1],)
+    return (_philox2x32(counter, key, Val(_rounds(F)))[1],)
 end
 
-@inline function _derive_key(::Type{<:Threefry2x32}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Threefry2x32}
     counter =
         (_core_constant(key[1], _narrow_index(index)), _core_constant(key[1], _DERIVE_TAG))
-    return _threefry2x32(counter, key)
+    return _threefry2x32(counter, key, Val(_rounds(F)))
 end
 
-@inline function _derive_key(::Type{<:Philox4x32}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Philox4x32}
     block_index, group = divrem(index, UInt64(2))
     counter = (
         _core_constant(key[1], block_index % UInt32),
@@ -37,34 +35,34 @@ end
         _core_constant(key[1], _SPLIT_SUBTAG),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    block = _philox4x32(counter, key)
+    block = _philox4x32(counter, key, Val(_rounds(F)))
     offset = Int(group << 1)
     return block[offset+1], block[offset+2]
 end
 
-@inline function _derive_key(::Type{<:Threefry4x32}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Threefry4x32}
     counter = (
         _core_constant(key[1], index % UInt32),
         _core_constant(key[1], (index >> 32) % UInt32),
         _core_constant(key[1], _SPLIT_SUBTAG),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    return _threefry4x32(counter, key)
+    return _threefry4x32(counter, key, Val(_rounds(F)))
 end
 
-@inline function _derive_key(::Type{<:Philox2x64}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Philox2x64}
     block_index, group = divrem(index, UInt64(2))
     counter = (_core_constant(key[1], block_index), _core_constant(key[1], _SPLIT_TAG64))
-    block = _philox2x64(counter, key)
+    block = _philox2x64(counter, key, Val(_rounds(F)))
     return (block[Int(group)+1],)
 end
 
-@inline function _derive_key(::Type{<:Threefry2x64}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Threefry2x64}
     counter = (_core_constant(key[1], index), _core_constant(key[1], _SPLIT_TAG64))
-    return _threefry2x64(counter, key)
+    return _threefry2x64(counter, key, Val(_rounds(F)))
 end
 
-@inline function _derive_key(::Type{<:Philox4x64}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Philox4x64}
     block_index, group = divrem(index, UInt64(2))
     counter = (
         _core_constant(key[1], block_index),
@@ -72,27 +70,40 @@ end
         _core_constant(key[1], 0),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    block = _philox4x64(counter, key)
+    block = _philox4x64(counter, key, Val(_rounds(F)))
     offset = Int(group << 1)
     return block[offset+1], block[offset+2]
 end
 
-@inline function _derive_key(::Type{<:Threefry4x64}, key, index::UInt64)
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Threefry4x64}
     counter = (
         _core_constant(key[1], index),
         _core_constant(key[1], _SPLIT_SUBTAG),
         _core_constant(key[1], 0),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    return _threefry4x64(counter, key)
+    return _threefry4x64(counter, key, Val(_rounds(F)))
+end
+
+@inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:ChaCha}
+    block_index, group = divrem(index, UInt64(2))
+    counter = (
+        _core_constant(key[1], block_index % UInt32),
+        _core_constant(key[1], (block_index >> 32) % UInt32),
+        _core_constant(key[1], _SPLIT_SUBTAG),
+        _core_constant(key[1], _DERIVE_TAG),
+    )
+    block = _chacha(counter, key, Val(_rounds(F)))
+    offset = Int(group << 3)
+    return ntuple(i -> block[offset+i], Val(8))
 end
 
 @inline _derive_child(rng::AbstractPureRNG, index::UInt64) =
     _derived_rng(rng, _derive_key(typeof(rng), rng.key, index))
 
-@inline _check_split_count(::_NarrowFamily, count::Integer) =
+@inline _check_split_count(::_NarrowGenerators, count::Integer) =
     count <= _NARROW_SPLIT_COUNT ||
-    throw(ArgumentError("a narrow-family child index enters the fold namespace"))
+    throw(ArgumentError("two-word generator child index enters the fold namespace"))
 @inline _check_split_count(::AbstractPureRNG, ::Integer) = nothing
 
 """
@@ -109,7 +120,7 @@ the device, and starts each child at position zero. It never changes the parent.
 
 Child keys are core output and can collide. Across `n` program-wide derivations
 with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
-collision makes both child subtrees identical. Use a family with at least 128
+collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
 """
 splitrng(rng::AbstractPureRNG) = splitrng(rng, Val(2))
@@ -131,81 +142,92 @@ function splitrng(rng::R, count::Integer) where {R<:AbstractPureRNG}
     return children
 end
 
-@inline function _subrng_key(::Type{<:Philox2x32}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Philox2x32}
     namespace_counter =
         (_core_constant(key[1], _THREEFRY_FOLD_INDEX), _core_constant(key[1], _DERIVE_TAG))
-    namespace_block = _philox2x32(namespace_counter, key)
+    namespace_block = _philox2x32(namespace_counter, key, Val(_rounds(F)))
     namespace_key = (namespace_block[1],)
     counter = (
         _core_from_value(namespace_key[1], purpose),
         _core_from_value(namespace_key[1], div(purpose, UInt64(1) << 32)),
     )
-    block = _philox2x32(counter, namespace_key)
+    block = _philox2x32(counter, namespace_key, Val(_rounds(F)))
     return (block[1],)
 end
 
-@inline function _subrng_key(::Type{<:Threefry2x32}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Threefry2x32}
     namespace_counter =
         (_core_constant(key[1], _THREEFRY_FOLD_INDEX), _core_constant(key[1], _DERIVE_TAG))
-    namespace_key = _threefry2x32(namespace_counter, key)
+    namespace_key = _threefry2x32(namespace_counter, key, Val(_rounds(F)))
     counter = (
         _core_from_value(namespace_key[1], purpose),
         _core_from_value(namespace_key[1], div(purpose, UInt64(1) << 32)),
     )
-    return _threefry2x32(counter, namespace_key)
+    return _threefry2x32(counter, namespace_key, Val(_rounds(F)))
 end
 
-@inline function _subrng_key(::Type{<:Philox4x32}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Philox4x32}
     counter = (
         _core_from_value(key[1], purpose),
         _core_from_value(key[1], div(purpose, UInt64(1) << 32)),
         _core_constant(key[1], _FOLD_SUBTAG),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    block = _philox4x32(counter, key)
+    block = _philox4x32(counter, key, Val(_rounds(F)))
     return block[1], block[2]
 end
 
-@inline function _subrng_key(::Type{<:Threefry4x32}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Threefry4x32}
     counter = (
         _core_from_value(key[1], purpose),
         _core_from_value(key[1], div(purpose, UInt64(1) << 32)),
         _core_constant(key[1], _FOLD_SUBTAG),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    return _threefry4x32(counter, key)
+    return _threefry4x32(counter, key, Val(_rounds(F)))
 end
 
-@inline function _subrng_key(::Type{<:Philox2x64}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Philox2x64}
     counter = (_core_from_value(key[1], purpose), _core_constant(key[1], _FOLD_TAG64))
-    block = _philox2x64(counter, key)
+    block = _philox2x64(counter, key, Val(_rounds(F)))
     return (block[1],)
 end
 
-@inline function _subrng_key(::Type{<:Threefry2x64}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Threefry2x64}
     counter = (_core_from_value(key[1], purpose), _core_constant(key[1], _FOLD_TAG64))
-    return _threefry2x64(counter, key)
+    return _threefry2x64(counter, key, Val(_rounds(F)))
 end
 
-@inline function _subrng_key(::Type{<:Philox4x64}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Philox4x64}
     counter = (
         _core_from_value(key[1], purpose),
         _core_constant(key[1], _FOLD_SUBTAG),
         _core_constant(key[1], 0),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    block = _philox4x64(counter, key)
+    block = _philox4x64(counter, key, Val(_rounds(F)))
     return block[1], block[2]
 end
 
-@inline function _subrng_key(::Type{<:Threefry4x64}, key, purpose)
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:Threefry4x64}
     counter = (
         _core_from_value(key[1], purpose),
         _core_constant(key[1], _FOLD_SUBTAG),
         _core_constant(key[1], 0),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    return _threefry4x64(counter, key)
+    return _threefry4x64(counter, key, Val(_rounds(F)))
+end
+
+@inline function _subrng_key(::Type{F}, key, purpose) where {F<:ChaCha}
+    counter = (
+        _core_from_value(key[1], purpose),
+        _core_from_value(key[1], div(purpose, UInt64(1) << 32)),
+        _core_constant(key[1], _FOLD_SUBTAG),
+        _core_constant(key[1], _DERIVE_TAG),
+    )
+    block = _chacha(counter, key, Val(_rounds(F)))
+    return ntuple(i -> block[i], Val(8))
 end
 
 @inline _subrng(rng::AbstractPureRNG, purpose::UInt64) =
@@ -225,7 +247,7 @@ The same key and purpose always produce the same child.
 
 Child keys are core output and can collide. Across `n` program-wide derivations
 with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
-collision makes both child subtrees identical. Use a family with at least 128
+collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
 """
 @inline subrng(rng::AbstractPureRNG, purpose::Integer) = _subrng(rng, purpose % UInt64)

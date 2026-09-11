@@ -6,7 +6,7 @@ PureRNGs provides counter-based random numbers with explicit state. Generate arr
 using PureRNGs, Random
 
 rng = Philox4x32(123456)
-next_rng, values = rand_next(rng, Float32, 4)
+values, next_rng = rand_next(rng, Float32, 4)
 @assert values == rand(rng, Float32, 4)
 values
 ```

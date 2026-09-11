@@ -1,11 +1,11 @@
 const BitsIR = PureRNGs
 
-bits_allocations(rng, family, block) = (
-    @allocated(BitsIR._extract_bits_unchecked(rng, family, block, UInt16(31), Val(64))),
-    @allocated(BitsIR._extract_bits128_unchecked(rng, family, block, UInt16(63))),
+bits_allocations(rng, block) = (
+    @allocated(BitsIR._extract_bits_unchecked(rng, block, UInt16(31), Val(64))),
+    @allocated(BitsIR._extract_bits128_unchecked(rng, block, UInt16(63))),
 )
 
-const BIT_FAMILIES = (
+const BIT_GENERATORS = (
     Philox2x32(0x1234),
     Philox4x32(0x1234),
     Philox2x64(0x1234),
@@ -14,12 +14,13 @@ const BIT_FAMILIES = (
     Threefry4x32(0x1234),
     Threefry2x64(0x1234),
     Threefry4x64(0x1234),
+    ChaCha(0x1234),
 )
 
-_reference_block(rng::BitsIR._Position64Family, family, block::UInt64) =
-    BitsIR._block(rng, family, block)
-_reference_block(rng::BitsIR._Position128Family, family, block::NTuple{2,UInt64}) =
-    BitsIR._block(rng, family, block...)
+_reference_block(rng::BitsIR._Position64Generators, block::UInt64) =
+    BitsIR._block(rng, block)
+_reference_block(rng::BitsIR._Position128Generators, block::NTuple{2,UInt64}) =
+    BitsIR._block(rng, block...)
 
 _reference_next(block::UInt64) = block + UInt64(1)
 function _reference_next(block::NTuple{2,UInt64})
@@ -27,15 +28,15 @@ function _reference_next(block::NTuple{2,UInt64})
     return lo, block[2] + UInt64(iszero(lo))
 end
 
-_reference_index(::BitsIR._Position64Family) = UInt64(9)
-_reference_index(::BitsIR._Position128Family) = (UInt64(9), UInt64(7))
+_reference_index(::BitsIR._Position64Generators) = UInt64(9)
+_reference_index(::BitsIR._Position128Generators) = (UInt64(9), UInt64(7))
 
-function _reference_extract(rng, family::UInt32, block, bit::UInt16, width::Int)
+function _reference_extract(rng, block, bit::UInt16, width::Int)
     value = UInt64(0)
     remaining = width
     offset = Int(bit)
     while remaining != 0
-        words = _reference_block(rng, family, block)
+        words = _reference_block(rng, block)
         word_bits = 8sizeof(first(words))
         block_bits = word_bits * length(words)
         word_lane, word_bit = divrem(offset, word_bits)
@@ -55,8 +56,8 @@ end
 
 function _reference_advance(rng, block, bit::UInt16, count::Int)
     block_bits =
-        8sizeof(first(_reference_block(rng, BitsIR.FAMILY_BITS, block))) *
-        length(_reference_block(rng, BitsIR.FAMILY_BITS, block))
+        8sizeof(first(_reference_block(rng, block))) *
+        length(_reference_block(rng, block))
     total = Int(bit) + count
     while total >= block_bits
         block = _reference_next(block)
@@ -65,10 +66,10 @@ function _reference_advance(rng, block, bit::UInt16, count::Int)
     return block, UInt16(total)
 end
 
-function _reference_extract128(rng, family, block, bit)
-    hi = _reference_extract(rng, family, block, bit, 64)
+function _reference_extract128(rng, block, bit)
+    hi = _reference_extract(rng, block, bit, 64)
     next_block, next_bit = _reference_advance(rng, block, bit, 64)
-    lo = _reference_extract(rng, family, next_block, next_bit, 64)
+    lo = _reference_extract(rng, next_block, next_bit, 64)
     return lo, hi
 end
 
@@ -100,24 +101,23 @@ function _boundary_offsets(block_bits)
 end
 
 @testset "canonical packed-bit extraction" begin
-    family = UInt32(0x00000003)
     relevant_widths = (1, 23, 24, 32, 52, 53, 64)
 
     overflow_block = (typemax(UInt64), UInt64(7))
     @test BitsIR._next_stream_block_unchecked(overflow_block) == (UInt64(0), UInt64(8))
     for rng in (Philox4x64(0x1234), Threefry4x64(0x1234))
         bit = UInt16(255)
-        @test BitsIR._extract_bits_unchecked(rng, family, overflow_block, bit, Val(64)) ==
-              _reference_extract(rng, family, overflow_block, bit, 64)
-        @test BitsIR._extract_bits128_unchecked(rng, family, overflow_block, bit) ==
-              _reference_extract128(rng, family, overflow_block, bit)
+        @test BitsIR._extract_bits_unchecked(rng, overflow_block, bit, Val(64)) ==
+              _reference_extract(rng, overflow_block, bit, 64)
+        @test BitsIR._extract_bits128_unchecked(rng, overflow_block, bit) ==
+              _reference_extract128(rng, overflow_block, bit)
     end
 
-    for rng in BIT_FAMILIES
+    for rng in BIT_GENERATORS
         block = _reference_index(rng)
-        raw = _reference_block(rng, family, block)
-        limbs = @inferred BitsIR._stream_limbs(rng, family, block)
-        expected_limbs = if first(raw) isa UInt32
+        raw = _reference_block(rng, block)
+        block_words = @inferred BitsIR._block_words(rng, block)
+        expected_block_words = if first(raw) isa UInt32
             ntuple(
                 lane -> (UInt64(raw[2lane-1]) << 32) | UInt64(raw[2lane]),
                 Val(length(raw) ÷ 2),
@@ -125,39 +125,40 @@ end
         else
             raw
         end
-        @test limbs == expected_limbs
+        @test block_words == expected_block_words
 
         block_bits = 8sizeof(first(raw)) * length(raw)
         offsets = _boundary_offsets(block_bits)
         for width in relevant_widths, bit in offsets
-            @test BitsIR._extract_bits_unchecked(rng, family, block, bit, Val(width)) ==
-                  _reference_extract(rng, family, block, bit, width)
+            @test BitsIR._extract_bits_unchecked(rng, block, bit, Val(width)) ==
+                  _reference_extract(rng, block, bit, width)
         end
 
         for bit in offsets
-            candidate = BitsIR._extract_bits128_unchecked(rng, family, block, bit)
-            @test candidate == _reference_extract128(rng, family, block, bit)
+            candidate = BitsIR._extract_bits128_unchecked(rng, block, bit)
+            @test candidate == _reference_extract128(rng, block, bit)
         end
 
         @test @inferred(
-            BitsIR._extract_bits_unchecked(rng, family, block, UInt16(0), Val(1))
+            BitsIR._extract_bits_unchecked(rng, block, UInt16(0), Val(1))
         ) isa UInt64
         @test @inferred(
-            BitsIR._extract_bits_unchecked(rng, family, block, UInt16(31), Val(64))
+            BitsIR._extract_bits_unchecked(rng, block, UInt16(31), Val(64))
         ) isa UInt64
         @test @inferred(
-            BitsIR._extract_bits128_unchecked(rng, family, block, UInt16(63))
+            BitsIR._extract_bits128_unchecked(rng, block, UInt16(63))
         ) isa Tuple{UInt64,UInt64}
 
-        bits_allocations(rng, family, block)
-        @test bits_allocations(rng, family, block) == (0, 0)
+        bits_allocations(rng, block)
+        @test bits_allocations(rng, block) == (0, 0)
 
         index_type = typeof(block)
+        kernel_rng = BitsIR.MLDataDevices.CUDADevice()(rng)
         scalar_ir = sprint(
             show,
             code_typed(
                 BitsIR._extract_bits_unchecked,
-                Tuple{typeof(rng),UInt32,index_type,UInt16,Val{64}};
+                Tuple{typeof(kernel_rng),index_type,UInt16,Val{64}};
                 optimize = true,
             ),
         )
@@ -165,11 +166,12 @@ end
             show,
             code_typed(
                 BitsIR._extract_bits128_unchecked,
-                Tuple{typeof(rng),UInt32,index_type,UInt16};
+                Tuple{typeof(kernel_rng),index_type,UInt16};
                 optimize = true,
             ),
         )
         for typed_ir in (scalar_ir, candidate_ir)
+            @test !isempty(typed_ir)
             @test !occursin("BigInt", typed_ir)
             @test !occursin("UInt128", typed_ir)
         end

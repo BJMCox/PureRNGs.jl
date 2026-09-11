@@ -3,7 +3,8 @@ using PureRNGs
 
 include("philox.jl")
 include("threefry.jl")
-include("families.jl")
+include("chacha.jl")
+include("generators.jl")
 include("oracle_conformance.jl")
 include("derive.jl")
 include("bits.jl")

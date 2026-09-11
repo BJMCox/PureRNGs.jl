@@ -25,7 +25,7 @@ end
 
 @inline _collect_weights(weights) = first(_convert_weights(weights, Val(false)))
 
-function _prepare_weights(rng::_CPUFamily, weights, agnostic::Bool)
+function _prepare_weights(rng::_CPUGenerators, weights, agnostic::Bool)
     return _convert_weights(weights, Val(true))
 end
 
@@ -137,7 +137,6 @@ end
 @inline function _weighted_threshold(rng, position, total::Float64)
     raw = _extract_bits_unchecked(
         rng,
-        FAMILY_RANGE,
         _position_block(position),
         position.bit,
         Val(53),
@@ -165,9 +164,9 @@ end
 )
     isempty(thresholds) && return thresholds
     cursor =
-        _dense_cursor(rng, FAMILY_RANGE, _position_block(rng.position), rng.position.bit)
+        _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
     @inbounds for index in eachindex(thresholds)
-        raw, cursor = _take_dense_bits_unchecked(rng, FAMILY_RANGE, cursor, Val(53))
+        raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
         thresholds[index] = _weighted_threshold_from_bits(raw, total)
     end
     return thresholds
@@ -280,7 +279,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, count, _WEIGHT_BITS)
     destination = _allocate_sampling_result(rng, indexed, count)
-    isempty(destination) && return next_rng, destination
+    isempty(destination) && return destination, next_rng
 
     thresholds = _allocate_array(rng.device, Float64, (count,))
     backend = _fill_backend(thresholds)
@@ -296,7 +295,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
         cumulative,
         destination,
     )
-    return next_rng, destination
+    return destination, next_rng
 end
 
 @inline function randsample(
@@ -304,7 +303,7 @@ end
     population,
     weights::AbstractVector{<:Real},
 )
-    return last(_randsample_next_weighted(rng, population, weights, nothing))
+    return first(_randsample_next_weighted(rng, population, weights, nothing))
 end
 
 
@@ -314,7 +313,7 @@ end
     weights::AbstractVector{<:Real},
     count::Integer,
 )
-    return last(_randsample_next_weighted(rng, population, weights, count))
+    return first(_randsample_next_weighted(rng, population, weights, count))
 end
 
 

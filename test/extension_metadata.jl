@@ -34,9 +34,14 @@ using TOML
 
     @test names(PureRNGs) == [
         :AbstractPureRNG,
+        :ChaCha,
+        :ChaCha12,
+        :ChaCha20,
+        :ChaCha8,
         :Philox2x32,
         :Philox2x64,
         :Philox4x32,
+        :Philox4x32R7,
         :Philox4x64,
         :PureRNGs,
         :StatefulRNG,
@@ -44,6 +49,7 @@ using TOML
         :Threefry2x64,
         :Threefry4x32,
         :Threefry4x64,
+        :Threefry4x64R13,
         :rand_next,
         :rand_next!,
         :randat,
@@ -55,6 +61,8 @@ using TOML
         :randnat,
         :randsample,
         :randsample_next,
+        :rngkey,
+        :rngposition,
         :splitrng,
         :subrng,
     ]

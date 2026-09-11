@@ -10,10 +10,10 @@ using PureRNGs, Random
 using CUDA, MLDataDevices
 
 rng = Philox4x32(123456) |> CUDADevice()
-rng, values = rand_next(rng, Float32, 1_000_000)
+values, rng = rand_next(rng, Float32, 1_000_000)
 @assert values isa CuArray
 
-rng, _ = randn_next!(rng, values)
+_, rng = randn_next!(rng, values)
 host_values = Array(values) # Explicit transfer for host inspection
 ```
 
@@ -46,7 +46,7 @@ Repeated launches with the same generator repeat the noise.
 Use a distinct purpose key for each logical launch, or advance the stream explicitly outside the kernel.
 
 For example, `subrng(root, iteration)` gives a reproducible stream for each iteration.
-Choose a wider-key family when deriving many keys.
+Choose a wider-key generator when deriving many keys.
 
 Bulk fill throughput and fused-kernel throughput measure different work.
 Benchmark the whole consuming kernel before choosing between them.

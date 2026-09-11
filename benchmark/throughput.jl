@@ -15,7 +15,7 @@ using Printf
 #
 # AMDGPUDevice, MetalDevice, and CPUDevice work the same way.
 @isdefined(target_device) || (target_device = MLDataDevices.CPUDevice())
-@isdefined(family) || (family = Philox4x32)
+@isdefined(family) || (generator = Philox4x32)
 @isdefined(result_type) || (result_type = UInt64)
 @isdefined(elements) || (elements = 2^22)
 @isdefined(seconds) || (seconds = 10.0)
@@ -34,7 +34,7 @@ function measure_fill(next_fill_function, rng, values, seconds, threaded)
         error("expected $expected_device output, received $actual_device")
     backend = KernelAbstractions.get_backend(values)
 
-    rng, _ = next_fill_function(rng, values; threaded)
+    _, rng = next_fill_function(rng, values; threaded)
     KernelAbstractions.synchronize(backend)
     GC.gc()
 
@@ -42,7 +42,7 @@ function measure_fill(next_fill_function, rng, values, seconds, threaded)
     started = time_ns()
     elapsed = 0
     while elapsed < seconds * 1.0e9
-        rng, _ = next_fill_function(rng, values; threaded)
+        _, rng = next_fill_function(rng, values; threaded)
         KernelAbstractions.synchronize(backend)
         runs += 1
         elapsed = time_ns() - started

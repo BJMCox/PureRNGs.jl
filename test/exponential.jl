@@ -44,24 +44,27 @@ function _serial_exponential_fill_allocations(rng, destination)
 end
 
 @testset "R13 and R63 exponential golden vectors" begin
+    # Exponential draws read the uniform stream, so the 24-bit and 53-bit raws
+    # are prefixes of the uniform golden block at this position. The result
+    # bits pin the lattice and log transform on the CPU.
     expected = (
-        (0xa05803, 0x140b0076b1f96e, 0x3f7c02be, 0x3fef805814968c68),
-        (0xda96ce, 0x1b52d9c94f7a5f, 0x3ff62be7, 0x3ffec57d08964390),
-        (0xabe90b, 0x157d216f8ed58d, 0x3f8e8068, 0x3ff1d00d16e33a3a),
-        (0x6e4523, 0x0dc8a4782bb60e, 0x3f103c72, 0x3fe2078e5d780b86),
-        (0x98edd2, 0x131dba42705949, 0x3f68e5fb, 0x3fed1cbf6b7dc906),
-        (0xc12127, 0x182424ea242c91, 0x3fb3b990, 0x3ff67732129fcac2),
-        (0x15379a, 0x02a6f350819147, 0x3db12f9c, 0x3fb625f4028b615e),
-        (0x0cb66c, 0x0196cd85660493, 0x3d50a017, 0x3faa14033fc04807),
+        (0xf39608, 0x1e72c115aa90e6, 0x4041afd7, 0x400835fb4ab5275f),
+        (0x2029c8, 0x0405390f694417, 0x3e097b86, 0x3fc12f7102f376e4),
+        (0x2a2d59, 0x0545ab2d4d03fa, 0x3e3859a9, 0x3fc70b355eb44b9b),
+        (0x624cb2, 0x0c499645c6d44c, 0x3ef80dcf, 0x3fdf01b9f96445f5),
+        (0xd4b0fe, 0x1a961fce3c14e2, 0x3fe36f06, 0x3ffc6de0e6e0cd33),
+        (0x0d7f8e, 0x01aff1c9bd232c, 0x3d5ddfda, 0x3fabbbfbefc5db56),
+        (0x44d393, 0x089a72618b95c9, 0x3ea0540d, 0x3fd40a81990acb40),
+        (0x6dc19a, 0x0db833596e2ce7, 0x3f0f55c9, 0x3fe1eab9510e18f7),
     )
 
-    for ((F, key), (raw32, raw64, cpu32, cpu64)) in zip(PACKED_GOLDEN_FAMILIES, expected)
+    for ((F, key), (raw32, raw64, cpu32, cpu64)) in zip(PACKED_GOLDEN_GENERATORS, expected)
         rng = _packed_golden_rng(F, key)
         block = _reference_position_block(rng.position)
         got32 =
-            IR._extract_bits_unchecked(rng, IR.FAMILY_EXP, block, rng.position.bit, Val(24))
+            IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(24))
         got64 =
-            IR._extract_bits_unchecked(rng, IR.FAMILY_EXP, block, rng.position.bit, Val(53))
+            IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(53))
         @test got32 === UInt64(raw32)
         @test got64 === UInt64(raw64)
         @test reinterpret(UInt32, randexp(rng, Float32)) === cpu32
@@ -114,7 +117,7 @@ end
 end
 
 @testset "R29 exponential addressed boundaries" begin
-    for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
+    for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         last = _terminal_exponential_rng(F, T)
         position = last.position
         @test randexpat(last, T, 1) === randexp(last, T)
@@ -134,12 +137,12 @@ end
 end
 
 @testset "R23, R29, R53, and R63 exponential scalars" begin
-    for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
+    for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         for bit in (UInt16(0), UInt16(24), UInt16(52), UInt16(63))
             rng = _positioned(F, 0x863, UInt64(9), bit)
             pure = randexp(rng, T)
 
-            next_rng, value = randexp_next(rng, T)
+            value, next_rng = randexp_next(rng, T)
             @test value === pure
             @test next_rng.position == _reference_position(rng, _exponential_width(T))
             @test randexpat(rng, T, 1) === pure
@@ -158,32 +161,16 @@ end
 end
 
 @testset "R8, R26, R38, and R63 exponential stream" begin
-    for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
+    for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         rng = _positioned(F, 0x865, UInt64(4), UInt16(61))
-        exponential_raw = _reference_extract(
-            rng,
-            IR.FAMILY_EXP,
-            _reference_position_block(rng.position),
-            rng.position.bit,
-            _exponential_width(T),
-        )
-        uniform_raw = _reference_extract(
-            rng,
-            IR.FAMILY_BITS,
-            _reference_position_block(rng.position),
-            rng.position.bit,
-            _exponential_width(T),
-        )
-        @test exponential_raw != uniform_raw
-
-        next_rng, _ = randexp_next(rng, T)
-        final_rng, final_value = rand_next(next_rng, UInt32)
+        _, next_rng = randexp_next(rng, T)
+        final_value, final_rng = rand_next(next_rng, UInt32)
         @test final_value === rand(next_rng, UInt32)
         @test final_rng.position ==
               _reference_position(rng, _exponential_width(T) + _uniform_width(UInt32))
     end
 
-    rng = _packed_golden_rng(PACKED_GOLDEN_FAMILIES[1]...)
+    rng = _packed_golden_rng(PACKED_GOLDEN_GENERATORS[1]...)
     device_rng = MLDataDevices.CUDADevice()(rng)
     @test rand(rng, Float32) === rand(device_rng, Float32)
     @test randn(rng, Float32) === randn(device_rng, Float32)
@@ -191,7 +178,6 @@ end
         Float32,
         _reference_extract(
             rng,
-            IR.FAMILY_EXP,
             _reference_position_block(rng.position),
             rng.position.bit,
             24,
@@ -200,17 +186,15 @@ end
         Float32,
         _reference_extract(
             device_rng,
-            IR.FAMILY_EXP,
             _reference_position_block(device_rng.position),
             device_rng.position.bit,
             24,
         ),
     )
-    @test randexp(rng, Float32) !== randexp(device_rng, Float32)
 end
 
 @testset "R23, R24, and R26 exponential arrays and fills" begin
-    for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
+    for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         for bit in (UInt16(0),)
             rng = _positioned(F, 0x866, UInt64(6), bit)
             next_rng, expected = _scalar_exponential_chain(rng, T, 17)
@@ -223,7 +207,7 @@ end
             @test serial == threaded == expected
             @test rng.position.bit == bit
 
-            continued_next, continued = randexp_next!(rng, similar(serial))
+            continued, continued_next = randexp_next!(rng, similar(serial))
             sync_cpu()
             @test continued == expected
             @test continued_next.position == next_rng.position
@@ -233,7 +217,7 @@ end
             @test vec(matrix) == expected
             @test size(matrix) == (1, 17)
 
-            allocated_next, allocated = randexp_next(rng, T, 17)
+            allocated, allocated_next = randexp_next(rng, T, 17)
             sync_cpu()
             @test allocated == expected
             @test allocated_next.position == next_rng.position
@@ -243,7 +227,7 @@ end
         next_rng, expected = _scalar_exponential_chain(rng, T, 12)
         storage = fill(zero(T), 24)
         destination = @view storage[2:2:24]
-        view_next, returned = randexp_next!(rng, destination; threaded = false)
+        returned, view_next = randexp_next!(rng, destination; threaded = false)
         @test returned === destination
         @test collect(destination) == expected
         @test all(iszero, @view storage[1:2:23])
@@ -254,14 +238,14 @@ end
         bit = UInt16(127)
         rng = _positioned(Philox4x32, 0x866, UInt64(6), bit)
         expected_rng, expected = _scalar_exponential_chain(rng, T, 17)
-        next_rng, destination = randexp_next!(rng, Vector{T}(undef, 17); threaded = false)
+        destination, next_rng = randexp_next!(rng, Vector{T}(undef, 17); threaded = false)
         @test destination == expected
         @test next_rng.position == expected_rng.position
     end
 
     rng = Philox4x32(0x868)
-    default_next, default_values = randexp_next(rng, 2, 3)
-    typed_next, typed_values = randexp_next(rng, Float64, 2, 3)
+    default_values, default_next = randexp_next(rng, 2, 3)
+    typed_values, typed_next = randexp_next(rng, Float64, 2, 3)
     sync_cpu()
     @test default_values == typed_values
     @test default_next.position == typed_next.position
@@ -271,7 +255,7 @@ end
 
     caller = current_task()
     probe = TaskWriteProbe(Vector{Float64}(undef, 37))
-    next_rng, returned = randexp_next!(rng, probe; threaded = false)
+    returned, next_rng = randexp_next!(rng, probe; threaded = false)
     expected_rng, expected = _scalar_exponential_chain(rng, Float64, 37)
     @test returned === probe
     @test all(task -> task === caller, probe.writers)
@@ -283,7 +267,7 @@ end
     rng = _positioned(Philox4x32, 0x86a1, UInt64(5), UInt16(61))
     for count in (128, 129)
         expected_next, expected = _scalar_exponential_chain(rng, Float64, count)
-        next_rng, values = randexp_next(rng, Float64, count)
+        values, next_rng = randexp_next(rng, Float64, count)
         sync_cpu()
         @test values == expected
         @test next_rng.position == expected_next.position
@@ -295,19 +279,19 @@ end
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     empty = Float32[]
     @test randexp!(exhausted, empty; threaded = false) === empty
-    empty_next, empty_result = randexp_next!(exhausted, empty; threaded = false)
+    empty_result, empty_next = randexp_next!(exhausted, empty; threaded = false)
     @test empty_result === empty
     @test empty_next === exhausted
     @test isempty(randexp(exhausted, Float32, 0))
-    allocated_empty_next, allocated_empty = randexp_next(exhausted, Float32, 0)
+    allocated_empty, allocated_empty_next = randexp_next(exhausted, Float32, 0)
     @test isempty(allocated_empty)
     @test allocated_empty_next === exhausted
-    default_empty_next, default_empty = randexp_next(exhausted, 0)
+    default_empty, default_empty_next = randexp_next(exhausted, 0)
     @test isempty(default_empty)
     @test eltype(default_empty) === Float64
     @test default_empty_next === exhausted
 
-    for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
+    for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         last = _terminal_exponential_rng(F, T)
         destination = fill(one(T), 2)
         before = copy(destination)
@@ -317,7 +301,7 @@ end
         @test destination == before
 
         final = Vector{T}(undef, 1)
-        final_next, _ = randexp_next!(last, final; threaded = false)
+        _, final_next = randexp_next!(last, final; threaded = false)
         @test final[1] === randexp(last, T)
         expected_terminal =
             last.position isa IR._Position64 ? IR._terminal64(IR._max_block(last)) :
@@ -337,13 +321,13 @@ end
 end
 
 @testset "R30 exponential fixed-work and codegen" begin
-    for F in FAMILY_TYPES, T in EXPONENTIAL_TYPES
+    for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         rng = F(0x86a)
         destination = Vector{T}(undef, 7)
         @test _serial_exponential_fill_allocations(rng, destination) == 0
     end
 
-    rng = Philox4x64(0x86b)
+    rng = IR.MLDataDevices.CUDADevice()(Philox4x64(0x86b))
     destination = Vector{Float64}(undef, 7)
     for (function_, call_signature) in
         ((randexp_next!, Tuple{typeof(rng),typeof(destination)}),)

@@ -37,19 +37,19 @@ end
     _validate_distribution(d)
     width = _distribution_span(d)
     next_rng = IR._reserve(rng, UInt64(width), UInt64(0))
-    return next_rng, _draw_distribution_unchecked(rng, rng.position, d)
+    return _draw_distribution_unchecked(rng, rng.position, d), next_rng
 end
 
-@inline function Random.rand(rng::IR._ScalarUniformFamily, d::_FixedDistribution)
+@inline function Random.rand(rng::IR._ScalarUniformGenerators, d::_FixedDistribution)
     return _draw_distribution(rng, d)
 end
 
-@inline function IR.rand_next(rng::IR._ScalarUniformFamily, d::_FixedDistribution)
+@inline function IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FixedDistribution)
     return _draw_distribution_next(rng, d)
 end
 
 @inline function IR.randat(
-    rng::IR._ScalarUniformFamily,
+    rng::IR._ScalarUniformGenerators,
     d::_FixedDistribution,
     index::Integer,
 )
@@ -60,11 +60,6 @@ end
 
 @inline IR._fill_width(codec::_DistributionCodec, ::Type) =
     _distribution_span(codec.distribution)
-
-@inline IR._fill_family(::_DistributionCodec{<:Distributions.Normal}) = IR.FAMILY_NORMAL
-@inline IR._fill_family(::_DistributionCodec{<:Distributions.Uniform}) = IR.FAMILY_BITS
-@inline IR._fill_family(::_DistributionCodec{<:Distributions.Exponential}) = IR.FAMILY_EXP
-@inline IR._fill_family(::_DistributionCodec{<:Distributions.Bernoulli}) = IR.FAMILY_BITS
 
 @inline function IR._cooperative_value(
     codec::_DistributionCodec{Distributions.Normal{T}},
@@ -168,7 +163,7 @@ end
     width = IR._range_bits(span)
     bits_lo, bits_hi = IR._bit_span(UInt64(length(destination)), width)
     next_rng = IR._reserve(rng, bits_lo, bits_hi)
-    isempty(destination) && return next_rng, destination
+    isempty(destination) && return destination, next_rng
     if !threaded && rng.device isa IR._CPUBackend
         IR._fill_range_cpu_unchecked!(
             rng,
@@ -178,11 +173,11 @@ end
             span,
             eachindex(destination),
         )
-        return next_rng, destination
+        return destination, next_rng
     end
     backend = IR._fill_backend(destination)
     IR._launch_range!(backend, rng, destination, range, span)
-    return next_rng, destination
+    return destination, next_rng
 end
 
 @inline function _rand_distribution_next_fill!(rng, d, destination, threaded)
@@ -201,17 +196,17 @@ end
 end
 
 @inline function Random.rand(
-    rng::IR._ScalarUniformFamily,
+    rng::IR._ScalarUniformGenerators,
     d::_FixedDistribution,
     dim1::Integer,
     dims::Integer...,
 )
-    _, destination = _rand_distribution_next_array(rng, d, (dim1, dims...))
+    destination, _ = _rand_distribution_next_array(rng, d, (dim1, dims...))
     return destination
 end
 
 @inline function IR.rand_next(
-    rng::IR._ScalarUniformFamily,
+    rng::IR._ScalarUniformGenerators,
     d::_FixedDistribution,
     dim1::Integer,
     dims::Integer...,
@@ -232,17 +227,17 @@ for (distribution_type, result_type) in (
 )
     @eval begin
         @inline function Random.rand!(
-            rng::IR._ScalarUniformFamily,
+            rng::IR._ScalarUniformGenerators,
             d::$distribution_type,
             destination::AbstractArray{$result_type};
             threaded::Bool = true,
         )
-            _, result = _rand_distribution_next_fill!(rng, d, destination, threaded)
+            result, _ = _rand_distribution_next_fill!(rng, d, destination, threaded)
             return result
         end
 
         @inline function IR.rand_next!(
-            rng::IR._ScalarUniformFamily,
+            rng::IR._ScalarUniformGenerators,
             d::$distribution_type,
             destination::AbstractArray{$result_type};
             threaded::Bool = true,

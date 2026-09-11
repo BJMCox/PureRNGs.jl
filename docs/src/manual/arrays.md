@@ -6,10 +6,10 @@
 using PureRNGs, Random
 
 rng = Philox4x32(7)
-rng, matrix = rand_next(rng, Float32, 3, 4)
+matrix, rng = rand_next(rng, Float32, 3, 4)
 
 buffer = similar(matrix)
-rng, result = rand_next!(rng, buffer)
+result, rng = rand_next!(rng, buffer)
 @assert result === buffer
 ```
 
@@ -26,7 +26,7 @@ The same forms exist for `randn!`, `randn_next!`, `randexp!`, and `randexp_next!
 function sum_batches(rng, buffer, batches)
     total = 0.0
     for _ in 1:batches
-        rng, _ = rand_next!(rng, buffer)
+        _, rng = rand_next!(rng, buffer)
         total += sum(buffer)
     end
     return rng, total
@@ -45,7 +45,7 @@ Large CPU fills use threads automatically. Small fills use a serial path.
 Inside your own threaded loop, disable internal threading:
 
 ```@example arrays
-rng, _ = rand_next!(rng, buffer; threaded=false)
+_, rng = rand_next!(rng, buffer; threaded=false)
 ```
 
 This keyword belongs to destination-fill methods, not allocating draws.
@@ -59,7 +59,7 @@ Boolean draws use individual random bits. An ordinary `Array{Bool}` still stores
 
 ```@example arrays
 packed = falses(128)
-rng, _ = rand_next!(rng, packed)
+_, rng = rand_next!(rng, packed)
 packed
 ```
 

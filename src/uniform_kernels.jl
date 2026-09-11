@@ -1,7 +1,7 @@
 KernelAbstractions.@kernel function _uniform_fill_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
 ) where {T}
     ordinal = @index(Global, Linear)
     indices = eachindex(destination)
@@ -14,7 +14,7 @@ end
 KernelAbstractions.@kernel function _uniform_fill_grouped_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
     group::Val{N},
 ) where {T,N}
     workitem = @index(Global, Linear)
@@ -26,7 +26,6 @@ end
 
 @inline _cooperative_value(::Val{:uniform}, ::Type{T}, raw) where {T} = _from_bits(T, raw)
 @inline _fill_width(::Val{:uniform}, ::Type{T}) where {T} = _draw_bits(T)
-@inline _fill_family(::Val{:uniform}) = FAMILY_BITS
 @inline _fill_kernel(::Val{:uniform}) = _uniform_fill_kernel!
 @inline _fill_grouped_kernel(::Val{:uniform}) = _uniform_fill_grouped_kernel!
 
@@ -36,38 +35,37 @@ end
     return lo, block[2] + UInt64(lo < block[1])
 end
 
-@inline _cooperative_shared_limbs(::Val{B}, ::Val{O}, ::Val{W}) where {B,O,W} =
+@inline _cooperative_shared_words(::Val{B}, ::Val{O}, ::Val{W}) where {B,O,W} =
     (B ÷ 64) * cld((B - 1) + O * W, B)
 
 KernelAbstractions.@kernel function _fill_cooperative_kernel!(
     rng,
     destination,
-    ::Type{T},
-    ::Type{D},
+    ::Val{T},
+    ::Val{D},
     ::Val{W},
     block_width::Val{B},
     ::Val{O},
     ::Val{L},
     ::Val{P},
     ::Val{S},
-    family::UInt32,
     codec,
 ) where {T,D,W,B,O,L,P,S}
     destination = reinterpret(D, vec(destination))
     group = @index(Group, Linear)
     lane = @index(Local, Linear)
     shared = @localmem UInt64 (
-        S ? 2 * cld(O * W, 128) : _cooperative_shared_limbs(block_width, Val(O), Val(W)),
+        S ? 2 * cld(O * W, 128) : _cooperative_shared_words(block_width, Val(O), Val(W)),
     )
     if S
         blocks = cld(O * W, 128)
         first_block = rng.position.block + UInt64((group - 1) * blocks)
         block_offset = lane - 1
         while block_offset < blocks
-            limbs = _stream_limbs(rng, family, first_block + UInt64(block_offset))
+            block_words = _block_words(rng, first_block + UInt64(block_offset))
             @inbounds begin
-                shared[2block_offset+1] = limbs[1]
-                shared[2block_offset+2] = limbs[2]
+                shared[2block_offset+1] = block_words[1]
+                shared[2block_offset+2] = block_words[2]
             end
             block_offset += L
         end
@@ -82,10 +80,10 @@ KernelAbstractions.@kernel function _fill_cooperative_kernel!(
         block_offset = lane - 1
         while block_offset < blocks
             block = _stream_block_offset(_position_block(position), UInt64(block_offset))
-            limbs = _stream_limbs(rng, family, block)
-            shared_first = block_offset * length(limbs)
-            @inbounds for limb in eachindex(limbs)
-                shared[shared_first+limb] = limbs[limb]
+            block_words = _block_words(rng, block)
+            shared_first = block_offset * length(block_words)
+            @inbounds for word in eachindex(block_words)
+                shared[shared_first+word] = block_words[word]
             end
             block_offset += L
         end
@@ -155,12 +153,12 @@ KernelAbstractions.@kernel function _uniform_fill_bool_blocks_kernel!(
     while block_ordinal <= block_count
         bits_lo, bits_hi = _bit_span(UInt64(block_ordinal - 1), _block_bits(rng))
         position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-        limbs = _stream_limbs(rng, FAMILY_BITS, _position_block(position))
+        block_words = _block_words(rng, _position_block(position))
         first_pack = (block_ordinal - 1) * P + 1
         pack = 0
         while pack < P
             @inbounds destination[first_pack+pack] =
-                _cooperative_pack(Val(:uniform), Bool, limbs, 16pack, Val(16), Val(1))
+                _cooperative_pack(Val(:uniform), Bool, block_words, 16pack, Val(16), Val(1))
             pack += 1
         end
         block_ordinal += stride
@@ -185,7 +183,7 @@ end
 KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
     chunk_elements,
 ) where {T}
     workitem = @index(Global, Linear)
@@ -198,7 +196,7 @@ end
 KernelAbstractions.@kernel function _uniform_fill_dense_serial_kernel!(
     rng,
     destination,
-    ::Type{T},
+    ::Val{T},
 ) where {T}
     _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
 end
@@ -215,7 +213,7 @@ end
     codec,
     ::Nothing,
 ) where {T}
-    _fill_kernel(codec)(backend)(rng, destination, T; ndrange = length(destination))
+    _fill_kernel(codec)(backend)(rng, destination, Val(T); ndrange = length(destination))
     return destination
 end
 
@@ -229,7 +227,13 @@ end
 ) where {T,N}
     group = plan[2]
     workitems = cld(length(destination), _fill_group_size(group))
-    _fill_grouped_kernel(codec)(backend)(rng, destination, T, group; ndrange = workitems)
+    _fill_grouped_kernel(codec)(backend)(
+        rng,
+        destination,
+        Val(T),
+        group;
+        ndrange = workitems,
+    )
     return destination
 end
 
@@ -267,15 +271,14 @@ end
     _fill_cooperative_kernel!(backend)(
         rng,
         destination,
-        T,
-        D,
+        Val(T),
+        Val(D),
         Val(_fill_width(codec, T)),
         Val(Int(_block_bits(rng))),
         outputs,
         workgroup,
         outputs_per_store,
         stream_aligned,
-        _fill_family(codec),
         codec;
         ndrange = groups * workgroup_size,
         workgroupsize = workgroup_size,

@@ -2,14 +2,14 @@ const SamplingIR = PureRNGs
 const SamplingMLD = PureRNGs.MLDataDevices
 
 const UNWEIGHTED_OFFSET_GOLDEN = (
-    Philox2x32 => Int32[105, 103, 104, 103, 106, 104, 101, 105, 101, 102, 105, 106],
-    Philox4x32 => Int32[105, 103, 106, 101, 105, 102, 103, 103, 101, 104, 106, 105],
-    Philox2x64 => Int32[102, 106, 103, 103, 103, 102, 104, 103, 105, 105, 102, 106],
-    Philox4x64 => Int32[104, 104, 106, 102, 102, 101, 102, 106, 103, 106, 104, 101],
-    Threefry2x32 => Int32[106, 106, 101, 106, 101, 104, 106, 105, 104, 103, 102, 101],
-    Threefry4x32 => Int32[103, 106, 101, 105, 103, 106, 101, 102, 101, 106, 102, 102],
-    Threefry2x64 => Int32[101, 105, 101, 105, 103, 105, 103, 102, 105, 103, 102, 104],
-    Threefry4x64 => Int32[105, 104, 104, 101, 101, 101, 102, 103, 105, 101, 104, 105],
+    Philox2x32 => Int32[104, 105, 102, 101, 105, 101, 105, 105, 106, 103, 106, 102],
+    Philox4x32 => Int32[106, 105, 104, 103, 102, 105, 104, 103, 102, 104, 103, 102],
+    Philox2x64 => Int32[103, 102, 106, 104, 103, 104, 105, 106, 101, 106, 104, 101],
+    Philox4x64 => Int32[106, 103, 105, 104, 101, 101, 106, 104, 101, 104, 102, 101],
+    Threefry2x32 => Int32[103, 103, 101, 102, 104, 101, 106, 105, 104, 103, 106, 105],
+    Threefry4x32 => Int32[101, 104, 101, 102, 103, 104, 105, 103, 103, 105, 104, 106],
+    Threefry2x64 => Int32[102, 102, 103, 105, 104, 104, 102, 103, 102, 101, 105, 104],
+    Threefry4x64 => Int32[103, 103, 106, 103, 103, 101, 104, 102, 102, 101, 103, 106],
 )
 
 struct DeviceAgnosticIterable{T}
@@ -77,7 +77,7 @@ function _chained_unweighted(rng, population, count::Integer)
     cursor = rng
     cardinality = length(population) % UInt64
     for index in eachindex(values)
-        cursor, ordinal = rand_next(cursor, UInt64(1):cardinality)
+        ordinal, cursor = rand_next(cursor, UInt64(1):cardinality)
         values[index] = _sample_at(population, ordinal)
     end
     return cursor, values
@@ -87,7 +87,7 @@ end
     population = IdentityAxesMatrix(reshape(Int32.(101:106), 2, 3))
     for (F, expected) in UNWEIGHTED_OFFSET_GOLDEN
         rng = F(0x9760)
-        _, values = randsample_next(rng, population, 12)
+        values, _ = randsample_next(rng, population, 12)
         @test values == expected
         @test randsample(rng, population, 12) == expected
     end
@@ -107,7 +107,7 @@ end
     for population in populations
         rng = Philox4x32(0x901)
         expected_next, expected = _chained_unweighted(rng, population, 19)
-        next_rng, values = randsample_next(rng, population, 19)
+        values, next_rng = randsample_next(rng, population, 19)
 
         @test values == expected
         @test next_rng == expected_next
@@ -117,7 +117,7 @@ end
     population = first(populations)
     _, expected = _chained_unweighted(rng, population, 19)
     @test randsample(rng, population, 7) == expected[1:7]
-    no_k_next, no_k = randsample_next(rng, population)
+    no_k, no_k_next = randsample_next(rng, population)
     chained_next, chained = _chained_unweighted(rng, population, length(population))
     @test no_k == chained
     @test no_k_next == chained_next
@@ -129,7 +129,7 @@ end
     starts = Ref(0)
     population = DeviceAgnosticIterable(collect(Int32(3):Int32(11)), starts)
     expected_next, expected = _chained_unweighted(rng, population.values, 13)
-    next_rng, values = randsample_next(rng, population, 13)
+    values, next_rng = randsample_next(rng, population, 13)
     @test starts[] == 1
     @test values == expected
     @test next_rng == expected_next
@@ -138,12 +138,12 @@ end
 @testset "R58 fixed work, wide cardinality, and O(k)" begin
     rng = Threefry4x64(0x903)
     small = UInt64(11):UInt64(29)
-    small_next, small_values = randsample_next(rng, small, 5)
+    small_values, small_next = randsample_next(rng, small, 5)
     @test small_next.position == SamplingIR._Position128(1, 0, 64)
     @test small_values == last(_chained_unweighted(rng, small, 5))
 
     wide = UInt64(0):(UInt64(1)<<32)
-    wide_next, wide_values = randsample_next(rng, wide, 5)
+    wide_values, wide_next = randsample_next(rng, wide, 5)
     @test wide_next.position == SamplingIR._Position128(2, 0, 128)
     @test wide_values == last(_chained_unweighted(rng, wide, 5))
 
@@ -158,7 +158,7 @@ end
     population = UInt64(0):(UInt64(1)<<32)
     count = 128
     expected_next, expected = _chained_unweighted(rng, population, count)
-    next_rng, values = randsample_next(rng, population, count)
+    values, next_rng = randsample_next(rng, population, count)
 
     @test values == expected
     @test next_rng == expected_next
@@ -168,7 +168,7 @@ end
     rng = Philox4x32(0x906)
     for population in (Int32[2, 7, 19], UInt64(0):(UInt64(1)<<32))
         expected_next, expected = _chained_unweighted(rng, population, 8193)
-        next_rng, values = randsample_next(rng, population, 8193)
+        values, next_rng = randsample_next(rng, population, 8193)
         sync_cpu()
         @test values == expected
         @test next_rng === expected_next
@@ -179,7 +179,7 @@ end
     rng = Philox4x32(0x904)
     empty = Int32[]
     @test randsample(rng, empty, 0) == Int32[]
-    @test randsample_next(rng, empty, 0) == (rng, Int32[])
+    @test randsample_next(rng, empty, 0) == (Int32[], rng)
     @test randsample(rng, empty) == Int32[]
     @test_throws ArgumentError randsample_next(rng, empty, 1)
     @test_throws ArgumentError randsample_next(rng, 1:3, -1)
@@ -189,7 +189,7 @@ end
     @test_throws ArgumentError randsample(rng, UnknownDeviceIterable([1, 2]), 0)
 
     largest = typemin(Int):(typemax(Int)-1)
-    largest_next, largest_values = randsample_next(rng, largest, 1)
+    largest_values, largest_next = randsample_next(rng, largest, 1)
     @test largest_values == last(_chained_unweighted(rng, largest, 1))
     @test largest_next == first(_chained_unweighted(rng, largest, 1))
     @test_throws ArgumentError randsample(rng, typemin(Int):typemax(Int), 0)
@@ -197,7 +197,7 @@ end
     @test_throws ArgumentError randsample(rng, DeclaredHugeIterable())
 
     huge_generic = big(0):big(typemax(Int))
-    huge_next, huge_values = randsample_next(rng, huge_generic, 1)
+    huge_values, huge_next = randsample_next(rng, huge_generic, 1)
     @test huge_values == last(_chained_unweighted(rng, huge_generic, 1))
     @test huge_next == first(_chained_unweighted(rng, huge_generic, 1))
     wrong = SamplingCUDAProbe([1, 2, 3])
@@ -208,7 +208,7 @@ end
         SamplingIR._Position64(typemax(UInt64), UInt16(64)),
         rng.device,
     )
-    terminal, values = randsample_next(last_rng, 1:3, 1)
+    values, terminal = randsample_next(last_rng, 1:3, 1)
     @test values == last(_chained_unweighted(last_rng, 1:3, 1))
     @test terminal.position == SamplingIR._terminal64(typemax(UInt64))
     @test_throws ArgumentError randsample_next(last_rng, 1:3, 2)

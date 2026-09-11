@@ -38,7 +38,7 @@ end
     @test isempty(DEVICE_VALIDATION_EVENTS)
 
     empty!(DEVICE_VALIDATION_EVENTS)
-    next_rng, returned = rand_next!(cpu_rng, empty)
+    returned, next_rng = rand_next!(cpu_rng, empty)
     @test returned === empty
     @test next_rng === cpu_rng
     @test DEVICE_VALIDATION_EVENTS[1:3] == [:device, :serviceability, :size]

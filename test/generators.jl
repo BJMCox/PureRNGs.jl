@@ -1,6 +1,6 @@
 using MLDataDevices
 
-const FAMILY_TYPES = (
+const GENERATOR_TYPES = (
     Philox2x32,
     Philox4x32,
     Philox2x64,
@@ -9,6 +9,7 @@ const FAMILY_TYPES = (
     Threefry4x32,
     Threefry2x64,
     Threefry4x64,
+    ChaCha,
 )
 const BACKEND_TOKENS = (
     PureRNGs._CPU_BACKEND,
@@ -22,12 +23,14 @@ const BACKEND_TOKENS = (
     @test fieldtypes(PureRNGs._Position128) === (UInt64, UInt64, UInt16)
 end
 
-@testset "R4 and R14 family representation" begin
-    for F in FAMILY_TYPES
+@testset "R4 and R14 generator representation" begin
+    for F in GENERATOR_TYPES
         rng = F(0)
         @test supertype(typeof(rng)) === PureRNGs.AbstractPureRNG
         @test isbitstype(typeof(rng))
-        @test fieldnames(typeof(rng)) === (:key, :position, :device)
+        @test fieldnames(typeof(rng)) === (:key, :position, :device, :block_words)
+        @test rng.block_words ===
+              PureRNGs._block_words(rng, PureRNGs._position_block(rng.position))
         @test rng.device === PureRNGs._CPU_BACKEND
         @test sizeof(rng.device) == 0
         @test MLDataDevices.get_device_type(rng.device) === MLDataDevices.CPUDevice
@@ -58,8 +61,21 @@ end
         big"0x123456789abcdef00fedcba987654321112233445566778899aabbccddeeff00",
     ).key ==
           (0x99aabbccddeeff00, 0x1122334455667788, 0x0fedcba987654321, 0x123456789abcdef0)
+    @test ChaCha(
+        big"0x123456789abcdef00fedcba987654321112233445566778899aabbccddeeff00",
+    ).key == (
+        0xddeeff00,
+        0x99aabbcc,
+        0x55667788,
+        0x11223344,
+        0x87654321,
+        0x0fedcba9,
+        0x9abcdef0,
+        0x12345678,
+    )
 
-    for (F, bits) in zip(FAMILY_TYPES, (32, 64, 64, 128, 64, 128, 128, 256))
+    for F in GENERATOR_TYPES
+        bits = 8 * sizeof(fieldtype(F, :key))
         @test_throws ArgumentError F(-1)
         @test_throws ArgumentError F(big(1) << bits)
         @test all(isone, F((big(1) << bits) - 1).key .== typemax.(typeof.(F(0).key)))
@@ -107,4 +123,54 @@ end
           PureRNGs._CPU_BACKEND
     @test_throws ArgumentError MLDataDevices.oneAPIDevice()(rng)
     @test_throws ArgumentError MLDataDevices.ReactantDevice()(rng)
+end
+
+@testset "round-reduced generators" begin
+    cases = (
+        (Philox4x32R7, Philox4x32, 7),
+        (Threefry4x64R13, Threefry4x64, 13),
+        (ChaCha8, ChaCha, 8),
+        (ChaCha20, ChaCha, 20),
+    )
+    for (alias, base, rounds) in cases
+        reduced = alias(0x1234)
+        full = base(0x1234)
+        @test reduced isa base
+        @test PureRNGs._rounds(typeof(reduced)) == rounds
+        @test PureRNGs._rounds(typeof(full)) == PureRNGs._default_rounds(base)
+        @test rngkey(reduced) == rngkey(full)
+        @test rand(reduced, UInt64) != rand(full, UInt64)
+        @test reduced.block_words ==
+              PureRNGs._block_words(reduced, PureRNGs._position_block(reduced.position))
+        _, moved = rand_next(reduced, Float64, 5)
+        @test alias(rngkey(moved), rngposition(moved)) === moved
+        @test alias(0x1234, rngposition(moved)) === moved
+        @test typeof(splitrng(reduced)[1]) === typeof(reduced)
+        @test typeof(MLDataDevices.CUDADevice()(reduced)) === alias{PureRNGs._CUDABackend}
+    end
+end
+
+@testset "key and position access and reconstruction" begin
+    for F in GENERATOR_TYPES
+        rng = F(7)
+        @test rngkey(rng) === rng.key
+        @test iszero(rngposition(rng))
+        @test F(rngkey(rng), rngposition(rng)) === rng
+
+        _, moved = rand_next(rng, Bool)
+        _, moved = rand_next(moved, Float64, 3)
+        _, moved = rand_next(moved, UInt64)
+        @test rngposition(moved) == 1 + 3 * 53 + 64
+        @test F(rngkey(moved), rngposition(moved)) === moved
+        @test F(7, rngposition(moved)) === moved
+        @test rngposition(MLDataDevices.CUDADevice()(moved)) == rngposition(moved)
+
+        terminal_position =
+            moved.position isa PureRNGs._Position64 ?
+            PureRNGs._terminal64(PureRNGs._max_block(rng)) : PureRNGs._terminal128()
+        terminal = PureRNGs._rebuild(rng, terminal_position, rng.device)
+        @test F(rngkey(terminal), rngposition(terminal)) === terminal
+        @test_throws ArgumentError F(rngkey(rng), -1)
+        @test_throws ArgumentError F(rngkey(rng), rngposition(terminal) + 1)
+    end
 end

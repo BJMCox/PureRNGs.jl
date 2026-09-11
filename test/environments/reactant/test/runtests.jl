@@ -4,7 +4,7 @@ using Random
 using Reactant
 using Test
 
-const FAMILIES = (
+const GENERATORS = (
     Philox2x32,
     Philox4x32,
     Philox2x64,
@@ -13,18 +13,19 @@ const FAMILIES = (
     Threefry4x32,
     Threefry2x64,
     Threefry4x64,
+    ChaCha,
 )
 
-function _select_families(names)
-    isempty(names) && return FAMILIES
+function _select_generators(names)
+    isempty(names) && return GENERATORS
     return Tuple(map(names) do name
-        index = findfirst(F -> string(nameof(F)) == name, FAMILIES)
-        index === nothing && throw(ArgumentError("unknown RNG family: $name"))
-        return FAMILIES[index]
+        index = findfirst(F -> string(nameof(F)) == name, GENERATORS)
+        index === nothing && throw(ArgumentError("unknown generator: $name"))
+        return GENERATORS[index]
     end)
 end
 
-const SELECTED_FAMILIES = _select_families(ARGS)
+const SELECTED_GENERATORS = _select_generators(ARGS)
 const REACTANT_EXT = Base.get_extension(PureRNGs, :PureRNGsReactantExt)
 const REACTANT_DISTRIBUTIONS_EXT =
     Base.get_extension(PureRNGs, :PureRNGsReactantDistributionsExt)
@@ -53,11 +54,11 @@ const SUBNORMAL_DISTRIBUTIONS = (
 )
 const CANCELLATION_NORMAL_DISTRIBUTIONS = (
     Normal{Float32}(
-        reinterpret(Float32, UInt32(0xbf97e383)),
+        reinterpret(Float32, UInt32(0x40517866)),
         reinterpret(Float32, UInt32(0x40490fdb)),
     ),
     Normal{Float64}(
-        reinterpret(Float64, UInt64(0x3fe04abc0dab9585)),
+        reinterpret(Float64, UInt64(0x3ff0147ba1729ded)),
         reinterpret(Float64, UInt64(0x400921fb54442d18)),
     ),
 )
@@ -100,15 +101,20 @@ function _same_transform_class(got, expected::T) where {T<:Union{Float32,Float64
     return !iszero(value) && signbit(value) == signbit(expected)
 end
 
-_same_transform_value(got, expected::T) where {T<:Union{Float32,Float64}} =
-    REACTANT_TEST_BACKEND == "cpu" ? _same_value(got, expected) :
-    _same_transform_class(got, expected)
+# On the CPU backend XLA may contract a multiply-add that the host evaluates in
+# two roundings, so the final transform may differ by one ulp (R43). Raw bits
+# and midpoints are still compared exactly.
+function _same_transform_value(got, expected::T) where {T<:Union{Float32,Float64}}
+    REACTANT_TEST_BACKEND == "cpu" || return _same_transform_class(got, expected)
+    value = T(got)
+    return value === expected || value === nextfloat(expected) ||
+           value === prevfloat(expected)
+end
 
 function _normal_components(rng::AbstractPureRNG, ::Type{T}) where {T}
     position = rng.position
     raw = PureRNGs._extract_bits_unchecked(
         rng,
-        PureRNGs.FAMILY_NORMAL,
         PureRNGs._position_block(position),
         position.bit,
         Val(PureRNGs._normal_bits(T)),
@@ -119,7 +125,7 @@ end
 
 function _normal_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) where {T}
     width = PureRNGs._normal_bits(T)
-    raw = REACTANT_EXT._raw(rng, PureRNGs.FAMILY_NORMAL, Val(width))
+    raw = REACTANT_EXT._raw(rng, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     midpoint = REACTANT_EXT._cast_scalar(T, (raw * UInt64(2)) | UInt64(1)) * scale
     return raw, midpoint
@@ -143,7 +149,6 @@ function _exponential_components(rng::AbstractPureRNG, ::Type{T}) where {T}
     width = PureRNGs._exponential_bits(T)
     raw = PureRNGs._extract_bits_unchecked(
         rng,
-        PureRNGs.FAMILY_EXP,
         PureRNGs._position_block(position),
         position.bit,
         Val(width),
@@ -155,7 +160,7 @@ end
 
 function _exponential_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) where {T}
     width = PureRNGs._exponential_bits(T)
-    raw = REACTANT_EXT._raw(rng, PureRNGs.FAMILY_EXP, Val(width))
+    raw = REACTANT_EXT._raw(rng, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     u = REACTANT_EXT._cast_scalar(T, raw) * scale
     return raw, u, one(T) - u, randexp(rng, T)
@@ -207,25 +212,25 @@ function _snapshot(rng)
         _normal_at_observation(rng, Float64, 3),
     )
 
-    next_rng, bool_value = rand_next(rng, Bool)
-    next_rng, uint32_value = rand_next(next_rng, UInt32)
-    next_rng, int32_value = rand_next(next_rng, Int32)
-    next_rng, uint64_value = rand_next(next_rng, UInt64)
-    next_rng, int64_value = rand_next(next_rng, Int64)
-    next_rng, float32_value = rand_next(next_rng, Float32)
-    next_rng, float64_value = rand_next(next_rng, Float64)
+    bool_value, next_rng = rand_next(rng, Bool)
+    uint32_value, next_rng = rand_next(next_rng, UInt32)
+    int32_value, next_rng = rand_next(next_rng, Int32)
+    uint64_value, next_rng = rand_next(next_rng, UInt64)
+    int64_value, next_rng = rand_next(next_rng, Int64)
+    float32_value, next_rng = rand_next(next_rng, Float32)
+    float64_value, next_rng = rand_next(next_rng, Float64)
     normal32_rng = next_rng
-    next_rng, normal32_value = randn_next(normal32_rng, Float32)
+    normal32_value, next_rng = randn_next(normal32_rng, Float32)
     normal64_rng = next_rng
-    next_rng, normal64_value = randn_next(normal64_rng, Float64)
+    normal64_value, next_rng = randn_next(normal64_rng, Float64)
     continuation_normals = (
         _normal_observation(normal32_rng, Float32, normal32_value),
         _normal_observation(normal64_rng, Float64, normal64_value),
     )
-    next_rng, exponential32_value = randexp_next(next_rng, Float32)
-    next_rng, exponential64_value = randexp_next(next_rng, Float64)
-    next_rng, range_value = rand_next(next_rng, range)
-    next_rng, linrange_value = rand_next(next_rng, linrange)
+    exponential32_value, next_rng = randexp_next(next_rng, Float32)
+    exponential64_value, next_rng = randexp_next(next_rng, Float64)
+    range_value, next_rng = rand_next(next_rng, range)
+    linrange_value, next_rng = rand_next(next_rng, linrange)
     continuation_values = (
         bool_value,
         uint32_value,
@@ -256,7 +261,7 @@ end
 
 function _normal_probe64(rng)
     addressed = PureRNGs._addressed_rng(rng, UInt16(52), 3)
-    raw = REACTANT_EXT._raw(addressed, PureRNGs.FAMILY_NORMAL, Val(52))
+    raw = REACTANT_EXT._raw(addressed, Val(52))
     midpoint =
         REACTANT_EXT._cast_scalar(Float64, (raw * UInt64(2)) | UInt64(1)) * Float64(0x1p-53)
     return raw, midpoint, randnat(rng, Float64, 3)
@@ -365,7 +370,7 @@ _distribution_chain(rng, ::Tuple{}) = (rng, ())
 function _distribution_chain(rng, distributions::Tuple)
     distribution = first(distributions)
     primitive = _distribution_primitive(rng, distribution)
-    next_rng, value = rand_next(rng, distribution)
+    value, next_rng = rand_next(rng, distribution)
     final_rng, values = _distribution_chain(next_rng, Base.tail(distributions))
     direct = _distribution_formula(distribution, primitive)
     return final_rng, ((primitive, value, direct), values...)
@@ -388,7 +393,7 @@ function _normal_distribution_chain(rng, distributions::Tuple)
     distribution = first(distributions)
     T = _normal_distribution_type(distribution)
     primitive = _normal_observation(rng, T, randn(rng, T))
-    next_rng, value = rand_next(rng, distribution)
+    value, next_rng = rand_next(rng, distribution)
     final_rng, values = _normal_distribution_chain(next_rng, Base.tail(distributions))
     direct = muladd(distribution.σ, primitive[3], distribution.μ)
     return final_rng, ((primitive, value, direct), values...)
@@ -557,12 +562,13 @@ Reactant.set_default_backend(REACTANT_TEST_BACKEND)
         @test !_same_transform_class(T(Inf), expected)
         @test !_same_transform_class(T(-Inf), -expected)
         @test !_same_transform_class(T(NaN), expected)
-        @test _same_transform_value(nextfloat(expected), expected) ==
+        @test _same_transform_value(nextfloat(expected), expected)
+        @test _same_transform_value(nextfloat(nextfloat(expected)), expected) ==
               (REACTANT_TEST_BACKEND == "gpu")
     end
 end
 
-if Philox4x64 in SELECTED_FAMILIES
+if Philox4x64 in SELECTED_GENERATORS
     @testset "R42 wide addressed index" begin
         index = (big(1) << 122) + 1
         eager = Philox4x64(0x123456)
@@ -572,7 +578,7 @@ if Philox4x64 in SELECTED_FAMILIES
     end
 end
 
-if Philox2x64 in SELECTED_FAMILIES
+if Philox2x64 in SELECTED_GENERATORS
     @testset "R43 Reactant normal primitive conformance" begin
         compile_rng = _positioned(Philox2x64(0x123456), UInt64(3), UInt16(17))
         central_rng = _positioned(Philox2x64(0x654321), UInt64(7), UInt16(29))
@@ -583,20 +589,20 @@ if Philox2x64 in SELECTED_FAMILIES
         central = compiled(Reactant.to_rarray(central_rng))
         central_expected = _normal_at_observation(central_rng, Float64, 3)
         @test _same_normal_observation(central, central_expected)
-        @test UInt64(central[1]) == 0x000174208c39ebcd
-        @test reinterpret(UInt64, Float64(central[2])) == 0x3fb74208c39ebcd8
-        @test reinterpret(UInt64, central_expected[3]) == 0xbff55e55782ee12e
+        @test UInt64(central[1]) == 0x000c083e66d3d8ef
+        @test reinterpret(UInt64, Float64(central[2])) == 0x3fe8107ccda7b1df
+        @test reinterpret(UInt64, central_expected[3]) == 0x3fe5c96a5e314305
 
         tail = compiled(Reactant.to_rarray(tail_rng))
         tail_expected = _normal_at_observation(tail_rng, Float64, 3)
         @test _same_normal_observation(tail, tail_expected)
-        @test UInt64(tail[1]) == 0x000114ac2a562bb5
-        @test reinterpret(UInt64, Float64(tail[2])) == 0x3fb14ac2a562bb58
+        @test UInt64(tail[1]) == 0x00009718cb653166
+        @test reinterpret(UInt64, Float64(tail[2])) == 0x3fa2e3196ca62cd0
     end
 end
 
 @testset "R42 Reactant primitive and state conformance" begin
-    for F in SELECTED_FAMILIES
+    for F in SELECTED_GENERATORS
         @testset "$F" begin
             first = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
             second = _positioned(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
@@ -609,7 +615,7 @@ end
             @test _same_value(compiled(first_carrier), first_got)
             @test _same_snapshot(compiled(second_carrier), _snapshot(second))
             if F === Philox2x32
-                endpoint = Philox2x32(UInt64(0x2f378f))
+                endpoint = Philox2x32(UInt64(0x55b8cc))
                 endpoint_expected = _snapshot(endpoint)
                 @test reinterpret(
                     UInt32,
@@ -644,7 +650,7 @@ end
     )
 
     for (F, state_length) in cases
-        F in SELECTED_FAMILIES || continue
+        F in SELECTED_GENERATORS || continue
         carrier = Reactant.to_rarray(_positioned(F(0x123456), UInt64(3), UInt16(17)))
         hlo = String(Reactant.@code_hlo optimize = false rand_next(carrier, UInt64))
         state_type = "tensor<$(state_length)xui64>"
@@ -658,7 +664,7 @@ end
 end
 
 @testset "R42 fixed distributions" begin
-    for F in SELECTED_FAMILIES
+    for F in SELECTED_GENERATORS
         @testset "$F" begin
             first = _positioned(F(0x123456), UInt64(3), UInt16(17))
             second = _positioned(F(0x654321), UInt64(7), UInt16(29))
@@ -711,7 +717,7 @@ end
     end
 end
 
-if Philox2x32 in SELECTED_FAMILIES
+if Philox2x32 in SELECTED_GENERATORS
     @testset "R42 subnormal and cancellation mappings" begin
         root = _positioned(Philox2x32(0x123456), UInt64(3), UInt64(2), UInt16(17))
         carrier = Reactant.to_rarray(root)
@@ -745,7 +751,7 @@ if Philox2x32 in SELECTED_FAMILIES
     end
 end
 
-if Philox4x32 in SELECTED_FAMILIES
+if Philox4x32 in SELECTED_GENERATORS
     @testset "R42 integer range method surface" begin
         carrier =
             Reactant.to_rarray(_positioned(Philox4x32(0x123456), UInt64(3), UInt16(17)))
@@ -761,12 +767,12 @@ end
 
 @testset "R42 exact-end continuation" begin
     for F in (Philox2x32, Philox4x32, Philox4x64)
-        F in SELECTED_FAMILIES || continue
+        F in SELECTED_GENERATORS || continue
         eager = _last_bit_rng(F)
-        eager_next, eager_value = rand_next(eager, Bool)
+        eager_value, eager_next = rand_next(eager, Bool)
         carrier = Reactant.to_rarray(eager)
         compiled = Reactant.@compile sync = true rand_next(carrier, Bool)
-        next_carrier, value = compiled(carrier, Bool)
+        value, next_carrier = compiled(carrier, Bool)
         terminal_carrier = Reactant.to_rarray(eager_next)
         @test value == eager_value
         @test Array(next_carrier.state) == Array(terminal_carrier.state)
@@ -774,9 +780,9 @@ end
 end
 
 @testset "R42 eager exhaustion remains checked with Reactant loaded" begin
-    for F in SELECTED_FAMILIES
+    for F in SELECTED_GENERATORS
         last = _last_bit_rng(F)
-        terminal, value = rand_next(last, Bool)
+        value, terminal = rand_next(last, Bool)
         terminal_state = Reactant.to_rarray(terminal).state |> Array
 
         @test value == rand(last, Bool)

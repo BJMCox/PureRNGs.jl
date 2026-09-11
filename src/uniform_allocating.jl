@@ -1,4 +1,8 @@
-@inline function _rand_next_uniform_array(rng::_CPUFamily, ::Type{T}, dims::Tuple) where {T}
+@inline function _rand_next_uniform_array(
+    rng::_CPUGenerators,
+    ::Type{T},
+    dims::Tuple,
+) where {T}
     _check_serviceability(rng, T)
     destination = _allocate_draw_array(rng.device, T, dims)
     threaded = length(destination) > _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS
@@ -6,7 +10,7 @@
 end
 
 @inline function _rand_next_uniform_array(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     ::Type{T},
     dims::Tuple,
 ) where {T}
@@ -15,24 +19,24 @@ end
     return _fill_uniform_prevalidated!(rng, destination, true)
 end
 
-@inline function rand_next(rng::_ScalarUniformFamily, dim1::Integer, dims::Integer...)
+@inline function rand_next(rng::_ScalarUniformGenerators, dim1::Integer, dims::Integer...)
     return _rand_next_uniform_array(rng, Float64, (dim1, dims...))
 end
 
 for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
         @inline function Random.rand(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             ::Type{$T},
             dim1::Integer,
             dims::Integer...,
         )
-            _, destination = _rand_next_uniform_array(rng, $T, (dim1, dims...))
+            destination, _ = _rand_next_uniform_array(rng, $T, (dim1, dims...))
             return destination
         end
 
         @inline function rand_next(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             ::Type{$T},
             dim1::Integer,
             dims::Integer...,

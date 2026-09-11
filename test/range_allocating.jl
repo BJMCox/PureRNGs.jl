@@ -8,26 +8,26 @@ function _chained_range(rng, range, count)
     values = Vector{eltype(range)}(undef, count)
     cursor = rng
     for index in eachindex(values)
-        cursor, values[index] = rand_next(cursor, range)
+        values[index], cursor = rand_next(cursor, range)
     end
     return cursor, values
 end
 
 @testset "R23-R26 and R55 CPU allocating range draws" begin
-    for F in FAMILY_TYPES, T in RANGE_INTS
+    for F in GENERATOR_TYPES, T in RANGE_INTS
         range = _small_allocating_range(T)
         rng = _range_positioned(F, 0x65a, UInt64(7), UInt16(61))
         original_position = rng.position
         expected_next, expected = _chained_range(rng, range, 12)
 
         pure = rand(rng, range, 12)
-        next_rng, continued = rand_next(rng, range, 12)
+        continued, next_rng = rand_next(rng, range, 12)
         @test pure == continued == expected
         @test rng.position === original_position
         @test next_rng === expected_next
 
         matrix = rand(rng, range, 3, 4)
-        matrix_next, continued_matrix = rand_next(rng, range, 3, 4)
+        continued_matrix, matrix_next = rand_next(rng, range, 3, 4)
         @test size(matrix) == (3, 4)
         @test vec(matrix) == expected
         @test continued_matrix == matrix
@@ -42,10 +42,10 @@ end
         UInt64(0):typemax(UInt64),
         UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd),
     )
-    for F in FAMILY_TYPES, range in ranges
+    for F in GENERATOR_TYPES, range in ranges
         rng = _range_positioned(F, 0x65b, UInt64(9), UInt16(63))
         expected_next, expected = _chained_range(rng, range, 9)
-        next_rng, values = rand_next(rng, range, 3, 3)
+        values, next_rng = rand_next(rng, range, 3, 3)
         @test vec(values) == expected
         @test next_rng === expected_next
         @test rand(rng, range, 3, 3) == values
@@ -60,7 +60,7 @@ end
         width = RangeAllocIR._range_bits(length(range) % UInt64)
         count = 3 * Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width)) + 3
         expected_next, expected = _chained_range(rng, range, count)
-        next_rng, values = rand_next(rng, range, count)
+        values, next_rng = rand_next(rng, range, count)
         sync_cpu()
         @test values == expected
         @test next_rng === expected_next
@@ -76,7 +76,7 @@ end
 
     count = 3chunk_elements + 3
     expected_next, expected = _chained_range(rng, range, count)
-    next_rng, values = rand_next(rng, range, count)
+    values, next_rng = rand_next(rng, range, count)
     sync_cpu()
     @test values == expected
     @test next_rng === expected_next
@@ -87,7 +87,7 @@ end
     range = UInt64(0):(UInt64(1)<<32)
     count = 128
     expected_next, expected = _chained_range(rng, range, count)
-    next_rng, values = rand_next(rng, range, count)
+    values, next_rng = rand_next(rng, range, count)
 
     @test values == expected
     @test next_rng === expected_next
@@ -95,7 +95,7 @@ end
 
 @testset "R53-R55 allocating range validation and capacity" begin
     nonempty = UInt16(2):UInt16(3):UInt16(20)
-    for F in FAMILY_TYPES
+    for F in GENERATOR_TYPES
         base = F(0x65c)
         terminal_position =
             base.position isa RangeAllocIR._Position64 ?
@@ -104,7 +104,7 @@ end
         terminal = RangeAllocIR._rebuild(base, terminal_position, base.device)
 
         empty = rand(terminal, nonempty, 0, 2)
-        empty_next, continued_empty = rand_next(terminal, nonempty, 0, 2)
+        continued_empty, empty_next = rand_next(terminal, nonempty, 0, 2)
         @test empty isa Matrix{UInt16}
         @test size(empty) == (0, 2)
         @test continued_empty == empty
@@ -121,14 +121,14 @@ end
         @test_throws ArgumentError rand_next(base, nonempty, 2, -1)
     end
 
-    for F in FAMILY_TYPES, range in (UInt8(1):UInt8(7), UInt64(0):(UInt64(1)<<32))
+    for F in GENERATOR_TYPES, range in (UInt8(1):UInt8(7), UInt64(0):(UInt64(1)<<32))
         base = F(0x65d)
         width = _range_reference_width(length(range) % UInt64)
         capacity = _range_capacity(base)
         final_position = _range_position_from_absolute(base, capacity - 2width)
         final = RangeAllocIR._rebuild(base, final_position, base.device)
         expected_next, expected = _chained_range(final, range, 2)
-        next_rng, values = rand_next(final, range, 2)
+        values, next_rng = rand_next(final, range, 2)
         @test values == expected
         @test next_rng === expected_next
         @test next_rng.position == (
@@ -148,7 +148,9 @@ end
 @testset "R30, R54, and R61 allocating range codegen" begin
     for (F, range) in
         ((Philox2x32, UInt16(2):UInt16(17)), (Philox4x64, UInt64(0):typemax(UInt64)))
-        rng = F(0x65f)
+        # The kernel-facing generator: the CPU-bound 64-bit Philox core uses a
+        # 128-bit widening multiply by design.
+        rng = RangeAllocIR.MLDataDevices.CUDADevice()(F(0x65f))
         signature = Tuple{typeof(rng),typeof(range),Int}
         typed_ir = sprint(show, code_typed(rand_next, signature; optimize = true))
         llvm_ir = sprint() do io

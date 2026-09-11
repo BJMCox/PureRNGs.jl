@@ -65,8 +65,8 @@ end
 
 @inline function IR.rand_next(rng::_ReactantRNG, d::_FixedDistribution)
     _validate_distribution(d)
-    next_rng, value = _primitive_next(rng, d)
-    return next_rng, _map_primitive(d, value)
+    value, next_rng = _primitive_next(rng, d)
+    return _map_primitive(d, value), next_rng
 end
 
 @inline function IR.randat(rng::_ReactantRNG, d::_FixedDistribution, index::Integer)

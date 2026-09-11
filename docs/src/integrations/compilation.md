@@ -60,7 +60,7 @@ other, value = compiled_step(other)
 ```
 
 The converted carrier holds runtime key and position data.
-The same executable accepts changed keys and positions with matching family, backend, shape, and sharding.
+The same executable accepts changed keys and positions with matching generator type, backend, shape, and sharding.
 
 An ordinary unconverted immutable struct can become a compile-time constant.
 Do not use that path for frequently changing RNG state.
@@ -77,7 +77,7 @@ Split counts using `Val` and purpose IDs must be static.
 Changing static inputs can require recompilation.
 
 !!! warning "Capacity is the caller's responsibility"
-    Compiled carriers omit exhaustion checks. Keep every compiled draw within the family's per-key capacity.
+    Compiled carriers omit exhaustion checks. Keep every compiled draw within the generator's per-key capacity.
     Ordinary eager generators retain their checks.
 
 Primitive integer and uniform streams retain their exact value contract.

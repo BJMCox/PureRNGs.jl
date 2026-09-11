@@ -2,7 +2,7 @@
 
 The manual explains workflows and backend limits. These docstrings describe exported entry points.
 
-## Generator families
+## Generators
 
 ```@docs
 AbstractPureRNG
@@ -14,6 +14,12 @@ Threefry2x32
 Threefry4x32
 Threefry2x64
 Threefry4x64
+Philox4x32R7
+Threefry4x64R13
+ChaCha
+ChaCha8
+ChaCha12
+ChaCha20
 ```
 
 ## Continuation draws
@@ -40,6 +46,13 @@ randexpat
 ```@docs
 splitrng
 subrng
+```
+
+## State access
+
+```@docs
+rngkey
+rngposition
 ```
 
 ## Population sampling

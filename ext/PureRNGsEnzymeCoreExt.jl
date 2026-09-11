@@ -29,12 +29,12 @@ end
 @inline _return_shadow(result::AbstractArray, destination::_BatchDuplicated) =
     destination.dval
 @inline _return_shadow(result::Tuple, destination::_Duplicated) =
-    (first(result), destination.dval)
+    (destination.dval, last(result))
 @inline _return_shadow(result::Tuple, destination::_BatchDuplicated) =
-    map(lane -> (first(result), lane), destination.dval)
+    map(lane -> (lane, last(result)), destination.dval)
 
 @inline _zero_return(result::AbstractArray) = EnzymeCore.make_zero(result)
-@inline _zero_return(result::Tuple) = (first(result), EnzymeCore.make_zero(last(result)))
+@inline _zero_return(result::Tuple) = (EnzymeCore.make_zero(first(result)), last(result))
 @inline _return_shadow(config, result, destination) = _return_shadow(result, destination)
 @inline function _return_shadow(config, result, ::EnzymeCore.Const)
     ER.width(config) == 1 && return _zero_return(result)

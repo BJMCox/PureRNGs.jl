@@ -1,4 +1,3 @@
-const FAMILY_NORMAL = UInt32(0x00000001)
 
 const _AS241_A32 = (5.9109374720f1, 1.5929113202f2, 5.0434271938f1, 3.3871327179f0)
 const _AS241_B32 = (6.7187563600f1, 7.8757757664f1, 1.7895169469f1, 1.0f0)
@@ -124,51 +123,51 @@ end
     _device_normal_fill_plan(backend, rng, T)
 
 @inline function _draw_normal_unchecked(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     position,
     ::Type{T},
 ) where {T}
     block = _position_block(position)
     value = if T === Float32
-        _extract_bits_unchecked(rng, FAMILY_NORMAL, block, position.bit, Val(23))
+        _extract_bits_unchecked(rng, block, position.bit, Val(23))
     else
-        _extract_bits_unchecked(rng, FAMILY_NORMAL, block, position.bit, Val(52))
+        _extract_bits_unchecked(rng, block, position.bit, Val(52))
     end
     return _as241(_normal_midpoint(T, value))
 end
 
-@inline _draw_normal_unchecked(rng::_ScalarUniformFamily, ::Type{T}) where {T} =
+@inline _draw_normal_unchecked(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
     _draw_normal_unchecked(rng, rng.position, T)
 
 function Random.randn(::AbstractPureRNG)
     throw(ArgumentError("untyped immutable draws are forbidden; use randn(rng, T)"))
 end
 
-@inline function _randn_scalar(rng::_ScalarUniformFamily, ::Type{T}) where {T}
-    _reserve(rng, UInt64(_normal_bits(T)), UInt64(0))
-    return _draw_normal_unchecked(rng, T)
-end
-
-@inline randn_next(rng::_ScalarUniformFamily) = randn_next(rng, Float64)
-
-@inline function _randn_next_scalar(rng::_ScalarUniformFamily, ::Type{T}) where {T}
+@inline function _randn_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve(rng, UInt64(_normal_bits(T)), UInt64(0))
-    return next_rng, _draw_normal_unchecked(rng, T)
+    raw = _chain_bits(rng, next_rng, Val(Int(_normal_bits(T))))
+    return _normal_from_bits(T, raw), next_rng
 end
+
+@inline _randn_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
+    first(_randn_next_scalar(rng, T))
+
+@inline randn_next(rng::_ScalarUniformGenerators) = randn_next(rng, Float64)
 
 for T in (Float32, Float64)
     @eval begin
-        @inline Random.randn(rng::_ScalarUniformFamily, ::Type{$T}) = _randn_scalar(rng, $T)
-        @inline randn_next(rng::_ScalarUniformFamily, ::Type{$T}) =
+        @inline Random.randn(rng::_ScalarUniformGenerators, ::Type{$T}) =
+            _randn_scalar(rng, $T)
+        @inline randn_next(rng::_ScalarUniformGenerators, ::Type{$T}) =
             _randn_next_scalar(rng, $T)
-        @inline randnat(rng::_ScalarUniformFamily, ::Type{$T}, i::Integer) =
+        @inline randnat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
             _draw_normal_unchecked(_addressed_rng(rng, _normal_bits($T), i), $T)
     end
 end
 
 @doc """
-    randn_next(rng[, T]) -> (next_rng, value)
-    randn_next(rng[, T], dims...) -> (next_rng, values)
+    randn_next(rng[, T]) -> (value, next_rng)
+    randn_next(rng[, T], dims...) -> (values, next_rng)
 
 Draw standard normal values from `rng` and return the advanced immutable
 generator with the result. Omitting `T` selects `Float64`; `T` may be
@@ -185,7 +184,7 @@ Return the `i`th standard normal draw at or after the current position of `rng`,
 where `i` is one-based and `T` is `Float32` or `Float64`.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
-positive or the addressed draw exceeds the family's counter capacity.
+positive or the addressed draw exceeds the generator's counter capacity.
 """ randnat
 
 @inline _normal_from_bits(::Type{T}, value::UInt64) where {T} =
@@ -194,10 +193,9 @@ positive or the addressed draw exceeds the family's counter capacity.
     _normal_from_bits(T, raw)
 
 @inline _fill_width(::Val{:normal}, ::Type{T}) where {T} = _normal_bits(T)
-@inline _fill_family(::Val{:normal}) = FAMILY_NORMAL
 
 @inline function _randn_next_fill!(
-    rng::_ScalarUniformFamily,
+    rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
@@ -207,16 +205,16 @@ end
 for T in (Float32, Float64)
     @eval begin
         @inline function Random.randn!(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
             threaded::Bool = true,
         )
-            _, result = _randn_next_fill!(rng, destination, threaded)
+            result, _ = _randn_next_fill!(rng, destination, threaded)
             return result
         end
 
         @inline function randn_next!(
-            rng::_ScalarUniformFamily,
+            rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
             threaded::Bool = true,
         )
@@ -226,7 +224,7 @@ for T in (Float32, Float64)
 end
 
 @doc """
-    randn_next!(rng, destination; threaded=true) -> (next_rng, destination)
+    randn_next!(rng, destination; threaded=true) -> (destination, next_rng)
 
 Fill a `Float32` or `Float64` destination with standard normal values and return
 the advanced immutable generator with the same destination. The destination's
