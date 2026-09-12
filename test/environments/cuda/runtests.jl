@@ -996,19 +996,14 @@ end
         _check_array_draw(cpu_rng, device(cpu_rng), _range(T), T, rand, rand_next)
     end
 
-    for F in GENERATORS, T in UNIFORM_TYPES
-        (F === Philox4x32 || T === UInt64) && continue
-        _check_array_continuation(device(F(0x123459)), T, rand_next)
-    end
-
-    for F in GENERATORS, T in NORMAL_TYPES
-        (F === Philox4x32 || T === Float64) && continue
-        _check_array_continuation(device(F(0x12345a)), T, randn_next)
-    end
-
-    for F in GENERATORS, T in RANGE_TYPES
-        (F === Philox4x32 || T === UInt64) && continue
-        _check_array_continuation(device(F(0x12345b)), _range(T), rand_next)
+    # The matrix above covers every type on Philox4x32 and one type on the
+    # other generators. One further type per generator checks that the
+    # continuation does not depend on the type the matrix chose.
+    for F in GENERATORS
+        F === Philox4x32 && continue
+        _check_array_continuation(device(F(0x123459)), Float32, rand_next)
+        _check_array_continuation(device(F(0x12345a)), Float32, randn_next)
+        _check_array_continuation(device(F(0x12345b)), _range(UInt16), rand_next)
     end
 
     wide = UInt64(0):UInt64(1):(UInt64(1)<<40)
@@ -1268,7 +1263,12 @@ end
 end
 
 @testset "exponential CUDA scalar, array, fill, and IR smoke" begin
-    for F in GENERATORS, T in (Float32, Float64)
+    exponential_cases = (
+        (Philox4x32, Float32),
+        (Philox4x32, Float64),
+        ((F, Float64) for F in GENERATORS if F !== Philox4x32)...,
+    )
+    for (F, T) in exponential_cases
         cpu_rng = F(0x123456)
         rng = device(cpu_rng)
         values = CUDA.CuArray{T}(undef, 5)

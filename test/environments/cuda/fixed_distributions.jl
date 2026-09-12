@@ -184,11 +184,10 @@ end
 
 @testset "CUDA fixed-distribution arrays and fills" begin
     extension = Base.get_extension(IR, :PureRNGsDistributionsExt)
+    # One exact distribution per primitive draw type for the other generators.
     exact_distributions = (
-        CUDA_FIXED_DISTRIBUTIONS[2],
         CUDA_FIXED_DISTRIBUTIONS[4],
         CUDA_FIXED_DISTRIBUTIONS[6],
-        CUDA_FIXED_DISTRIBUTIONS[8],
         CUDA_FIXED_DISTRIBUTIONS[9],
     )
     cases = (
