@@ -795,3 +795,62 @@ end
         @test Array(Reactant.to_rarray(terminal).state) == terminal_state
     end
 end
+
+function _fill_snapshot(rng)
+    uniform = (
+        rand(rng, Bool, 9),
+        rand(rng, UInt32, 5),
+        rand(rng, Int32, 5),
+        rand(rng, UInt64, 3, 2),
+        rand(rng, Int64, 4),
+        rand(rng, Float32, 70),
+        rand(rng, Float64, 33),
+    )
+    normals = (randn(rng, Float32, 6), randn(rng, Float64, 2, 3))
+    exponentials = (randexp(rng, Float32, 6), randexp(rng, Float64, 5))
+    values, next_rng = rand_next(rng, Float64, 7)
+    return uniform, normals, exponentials, values, next_rng
+end
+
+# A fill traces the transform over a vector, and XLA's vectorized
+# single-precision `log` is a polynomial approximation, so tail normals of a
+# `Float32` fill can differ from the eager value by a few ulps on the CPU
+# backend. Every other fill value is exact.
+function _same_fill_transform_value(got, expected::T) where {T<:Union{Float32,Float64}}
+    REACTANT_TEST_BACKEND == "cpu" || return _same_transform_class(got, expected)
+    value = T(got)
+    U = Base.uinttype(T)
+    distance = abs(Int128(reinterpret(U, value)) - Int128(reinterpret(U, expected)))
+    return distance <= 8
+end
+
+function _same_fill_snapshot(got, expected)
+    uniform = all(zip(got[1], expected[1])) do (array, reference)
+        size(array) == size(reference) && Array(array) == reference
+    end
+    pairs = zip((got[2]..., got[3]...), (expected[2]..., expected[3]...))
+    transformed = all(pairs) do (array, reference)
+        size(array) == size(reference) &&
+            all(_same_fill_transform_value.(Array(array), reference))
+    end
+    return uniform && transformed && Array(got[4]) == expected[4] &&
+           _same_value(got[5], expected[5])
+end
+
+@testset "R42 array fills" begin
+    for F in SELECTED_GENERATORS
+        @testset "$F" begin
+            first = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
+            second = _positioned(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
+            first_carrier = Reactant.to_rarray(first)
+            compiled = Reactant.@compile sync = true _fill_snapshot(first_carrier)
+            @test _same_fill_snapshot(compiled(first_carrier), _fill_snapshot(first))
+            @test _same_fill_snapshot(
+                compiled(Reactant.to_rarray(second)),
+                _fill_snapshot(second),
+            )
+            expected = rand(first, Float32, 70)
+            @test expected == [randat(first, Float32, i) for i = 1:70]
+        end
+    end
+end

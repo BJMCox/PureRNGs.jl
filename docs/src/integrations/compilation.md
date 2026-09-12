@@ -70,9 +70,9 @@ This is not an MLDataDevices `ReactantDevice()` binding.
 
 ## Compiled scope and limits
 
-Carriers support scalar primitive, range, and supported distribution draws, scalar continuations, addressed draws, and static key derivation.
+Carriers support scalar primitive, range, and supported distribution draws, scalar continuations, addressed draws, static key derivation, and allocating uniform, normal, and exponential draws with static sizes.
 
-Allocating draws, destination fills, and `randsample` are not carrier APIs.
+Destination fills, range arrays, and `randsample` are not carrier APIs.
 Split counts using `Val` and purpose IDs must be static.
 Changing static inputs can require recompilation.
 

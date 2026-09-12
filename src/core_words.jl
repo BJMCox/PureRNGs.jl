@@ -44,6 +44,17 @@ end
     return _core_word(typeof(value), _word_rotate(O(), Val(W), value.value, count))
 end
 
+# A point in a core where a backend may materialize the round state. Cores
+# mark the state after each round, and ChaCha marks each rotated word. A
+# backend whose compiler would otherwise fuse the whole round chain into one
+# kernel overrides `_word_checkpoint`.
+@inline _core_checkpoint(words) = words
+@inline _core_checkpoint(word::_CoreWord{W,O}) where {W,O} =
+    only(_word_checkpoint(O(), (word,)))
+@inline _core_checkpoint(words::Tuple{Vararg{_CoreWord{W,O}}}) where {W,O} =
+    _word_checkpoint(O(), words)
+@inline _word_checkpoint(ops, words) = words
+
 @inline function _mulhilo32(a::_CoreWord{32,O}, b::_CoreWord{32,O}) where {O}
     hi, lo = _word_mulhilo(O(), Val(32), a.value, b.value)
     return _core_word(typeof(a), hi), _core_word(typeof(a), lo)

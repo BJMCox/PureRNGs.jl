@@ -8,6 +8,7 @@ const IR = PureRNGs
 const Ops = Reactant.Ops
 const _ReactantRNG = IR._ReactantRNG
 const _TracedNumber = Reactant.TracedRNumber
+const _TracedArray = Reactant.TracedRArray
 
 struct _ReactantWordOps end
 struct _ReactantTransformOps end
@@ -19,18 +20,91 @@ struct _ReactantTransformOps end
 # as a separate kernel, and a two-lane vector form of the same core split a
 # draw into several fusions and ran up to six times slower in a chain.
 @inline _constant_like(::_TracedNumber{T}, value) where {T} = Ops.constant(T(value))
+@inline _constant_like(x::_TracedArray{T}, value) where {T} =
+    Ops.constant(fill(T(value), size(x)))
 
 @inline _convert(::Type{T}, x::_TracedNumber{T}) where {T} = x
 @inline _convert(::Type{T}, x::_TracedNumber) where {T} = Ops.convert(_TracedNumber{T}, x)
+@inline _convert(::Type{T}, x::_TracedArray{T}) where {T} = x
+@inline _convert(::Type{T}, x::_TracedArray{S,N}) where {T,S,N} =
+    Ops.convert(_TracedArray{T,N}, x)
+@inline _bitcast(::Type{T}, x::_TracedNumber) where {T} = Ops.bitcast_convert(T, x)
+@inline _bitcast(::Type{T}, x::_TracedArray{S,N}) where {T,S,N} =
+    Ops.bitcast_convert(_TracedArray{T,N}, x)
 
 @inline _shift_amount(x, count::Integer) = _constant_like(x, count)
-@inline _shift_amount(x, count::_TracedNumber) = count
+@inline _shift_amount(x, count::Union{_TracedNumber,_TracedArray}) = count
 @inline _shl(x, count) = Ops.shift_left(x, _shift_amount(x, count))
 @inline _shr(x, count) = Ops.shift_right_logical(x, _shift_amount(x, count))
 @inline _rotate(x, count::Int, ::Val{W}) where {W} =
     Ops.or(_shl(x, count), _shr(x, W - count))
 
 @inline _vector(x::_TracedNumber) = Reactant.broadcast_to_size(x, (1,))
+@inline _lanes(x::_TracedNumber, ::Val{N}) where {N} = Reactant.broadcast_to_size(x, (N,))
+
+# A traced vector with one value per draw of a fill. The scalar draw and
+# transform code below runs on it unchanged: each operation maps to one
+# stablehlo op over the vector, and plain numbers lift to constant vectors.
+struct _Lane{A<:_TracedArray}
+    data::A
+end
+
+@inline _lift(x::_Lane, value) = _Lane(_constant_like(x.data, value))
+@inline _lift(x::_Lane, ::Type{T}, value) where {T} =
+    _Lane(Ops.constant(fill(T(value), size(x.data))))
+@inline _convert(::Type{T}, x::_Lane) where {T} = _Lane(_convert(T, x.data))
+@inline _bitcast(::Type{T}, x::_Lane) where {T} = _Lane(_bitcast(T, x.data))
+@inline _shift_amount(x::_Lane, count::Integer) = _lift(x, count)
+@inline _shift_amount(::_Lane, count::_Lane) = count
+@inline _shl(x::_Lane, count) = _Lane(Ops.shift_left(x.data, _shift_amount(x, count).data))
+@inline _shr(x::_Lane, count) =
+    _Lane(Ops.shift_right_logical(x.data, _shift_amount(x, count).data))
+
+for (op, hlo) in (
+    (:+, :add),
+    (:-, :subtract),
+    (:*, :multiply),
+    (:/, :divide),
+    (:&, :and),
+    (:|, :or),
+    (:xor, :xor),
+)
+    @eval begin
+        @inline Base.$op(a::_Lane, b::_Lane) = _Lane(Ops.$hlo(a.data, b.data))
+        @inline Base.$op(a::_Lane, b::Number) = $op(a, _lift(a, b))
+        @inline Base.$op(a::Number, b::_Lane) = $op(_lift(b, a), b)
+    end
+end
+for f in (:sqrt, :log, :abs)
+    @eval @inline Base.$f(a::_Lane) = _Lane(Ops.$f(a.data))
+end
+for (op, direction) in ((:<, "LT"), (:<=, "LE"), (:>, "GT"), (:(==), "EQ"))
+    @eval begin
+        @inline Base.$op(a::_Lane, b::_Lane) =
+            _Lane(Ops.compare(a.data, b.data; comparison_direction = $direction))
+        @inline Base.$op(a::_Lane, b::Number) = $op(a, _lift(a, b))
+        @inline Base.$op(a::Number, b::_Lane) = $op(_lift(b, a), b)
+    end
+end
+@inline Base.:-(a::_Lane) = _Lane(Ops.negate(a.data))
+@inline Base.ifelse(pred::_Lane, a::_Lane, b::_Lane) =
+    _Lane(Ops.select(pred.data, a.data, b.data))
+@inline Base.ifelse(pred::_Lane, a::T, b::T) where {T<:Number} =
+    ifelse(pred, _lift(pred, T, a), _lift(pred, T, b))
+@inline Base.ifelse(pred::_Lane, a::_Lane, b::Number) = ifelse(pred, a, _lift(a, b))
+@inline Base.ifelse(pred::_Lane, a::Number, b::_Lane) = ifelse(pred, _lift(b, a), b)
+@inline Base.muladd(a::_Lane, b, c) = a * b + c
+@inline Base.muladd(a::Number, b::_Lane, c) = a * b + c
+@inline Base.muladd(a::Number, b::Number, c::_Lane) = a * b + c
+# The same form as Reactant's scalar `signbit` and `copysign`: the sign test
+# through the integer bits is opaque to XLA, so `_rounded_product` keeps the
+# product's rounding out of the next operation in fills as well.
+@inline _signed_bits(::Type{Float32}) = Int32
+@inline _signed_bits(::Type{Float64}) = Int64
+@inline Base.signbit(a::_Lane{<:_TracedArray{T}}) where {T<:AbstractFloat} =
+    _bitcast(_signed_bits(T), a) < 0
+@inline Base.copysign(a::_Lane, sign::_Lane) = ifelse(signbit(sign), -one(a), one(a)) * abs(a)
+@inline Base.one(a::_Lane) = _lift(a, 1)
 
 @inline IR._word_constant(::_ReactantWordOps, ::Val{W}, anchor, value) where {W} =
     _constant_like(anchor, value)
@@ -46,6 +120,19 @@ struct _ReactantTransformOps end
 @inline IR._word_xor(::_ReactantWordOps, ::Val{W}, a, b) where {W} = Ops.xor(a, b)
 @inline IR._word_rotate(::_ReactantWordOps, ::Val{W}, value, count) where {W} =
     _rotate(value, count, Val(W))
+# In a fill the core runs over one lane per block. Left alone, XLA fuses the
+# whole round chain into one kernel, and that kernel ran a ChaCha fill three
+# hundred times slower than a Philox fill. A barrier after each round
+# materializes the round state instead.
+@inline function IR._word_checkpoint(
+    ::_ReactantWordOps,
+    words::Tuple{Vararg{IR._CoreWord{W,_ReactantWordOps,<:_TracedArray}}},
+) where {W}
+    return map(words) do word
+        value = only(Ops.optimization_barrier(word.value))
+        IR._core_word(Val(W), _ReactantWordOps(), value)
+    end
+end
 @inline IR._transform_muladd(::_ReactantTransformOps, a, b, c) = muladd(a, b, c)
 
 @inline function IR._word_mulhilo(::_ReactantWordOps, ::Val{32}, a, b)
@@ -73,7 +160,7 @@ end
 end
 
 @inline _bitcast_signed(::Type{T}, value) where {T<:Signed} =
-    Ops.bitcast_convert(T, _convert(unsigned(T), value))
+    _bitcast(T, _convert(unsigned(T), value))
 
 # The state holds the key words and the position. An exhausted generator
 # encodes the address after its last block, where a compiled continuation
@@ -337,12 +424,14 @@ end
     return ifelse(abs(q) <= T(0.425), central, tail)
 end
 
-@inline function _normal_value(rng, ::Type{T}) where {T<:Union{Float32,Float64}}
-    raw = _raw(rng, Val(IR._normal_bits(T)))
+@inline function _normal_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}}
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     midpoint = _convert(T, (raw * UInt64(2)) | UInt64(1)) * scale
     return _normal_transform(midpoint, T)
 end
+
+@inline _normal_value(rng, ::Type{T}) where {T} =
+    _normal_from_raw(_raw(rng, Val(IR._normal_bits(T))), T)
 
 # Field layout of the binary float: bits type, mantissa width, exponent mask,
 # exponent bias, mantissa mask, and the bits of one.
@@ -366,9 +455,9 @@ end
         T === Float32 ? reinterpret(Float32, UInt32(0x3f000000)) :
         reinterpret(Float64, UInt64(0x3fe0000000000000))
     B, width, exponent_mask, bias, mantissa_mask, one_bits = _float_layout(T)
-    bits = Ops.bitcast_convert(B, value)
+    bits = _bitcast(B, value)
     exponent = _convert(typeof(bias), _shr(bits, width) & exponent_mask) - bias
-    mantissa = Ops.bitcast_convert(T, (bits & mantissa_mask) | one_bits)
+    mantissa = _bitcast(T, (bits & mantissa_mask) | one_bits)
     upper = mantissa > sqrt2
     mantissa = ifelse(upper, mantissa * half, mantissa)
     exponent += ifelse(upper, one(bias), zero(bias))
@@ -376,12 +465,14 @@ end
     return IR._exponential_reduced(_ReactantTransformOps(), T, mantissa, n)
 end
 
-@inline function _exponential_value(rng, ::Type{T}) where {T}
-    raw = _raw(rng, Val(IR._exponential_bits(T)))
+@inline function _exponential_from_raw(raw, ::Type{T}) where {T}
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     u = _convert(T, raw) * scale
     return _exponential_transform(one(T) - u, T)
 end
+
+@inline _exponential_value(rng, ::Type{T}) where {T} =
+    _exponential_from_raw(_raw(rng, Val(IR._exponential_bits(T))), T)
 
 for T in (Float32, Float64)
     @eval begin
@@ -405,6 +496,130 @@ for T in (Float32, Float64)
         end
     end
 end
+
+# Array fills. The core runs once over every block the fill spans, one lane
+# per block, and a gather reads the two words of each draw. The stream layout
+# matches the CPU fill: draw `i` occupies the `W` bits after `i - 1` draws.
+@inline _fill_blocks(::Type{R}, n::Int, width::Int) where {R} =
+    cld(Int(_block_bits(R)) - 1 + n * width, Int(_block_bits(R))) + 1
+
+# The block words of `B` consecutive blocks from the position, as one vector
+# in stream order.
+function _stream_words(rng::_ReactantRNG{R}, position, ::Val{B}) where {R,B}
+    lo = _lanes(position[1], Val(B))
+    los = Ops.add(lo, Ops.constant(UInt64.(0:B-1)))
+    his = if _position128(R)
+        carry = _convert(UInt64, Ops.compare(los, lo; comparison_direction = "LT"))
+        Ops.add(_lanes(position[2], Val(B)), carry)
+    else
+        los
+    end
+    key = map(word -> _core_word(R, _lanes(word.value, Val(B))), _key(rng))
+    words = _core_words(R, key, los, his)
+    rows = [Ops.broadcast_in_dim(word, [2], [1, B]) for word in words]
+    return Ops.reshape(Ops.concatenate(rows, 1), length(words) * B)
+end
+
+function _fill_raw(rng::_ReactantRNG{R}, ::Val{W}, n::Int) where {R,W}
+    position = _position(rng)
+    flat = _stream_words(rng, position, Val(_fill_blocks(R, n, Int(W))))
+    offsets = Ops.multiply(
+        Ops.iota(UInt64, [n]; iota_dimension = 1),
+        Ops.constant(fill(UInt64(W), n)),
+    )
+    starts = _Lane(Ops.add(offsets, _lanes(position[end], Val(n))))
+    lane = _shr(starts, 6)
+    first = _Lane(flat[(lane+UInt64(1)).data])
+    second = _Lane(flat[(lane+UInt64(2)).data])
+    return _extract(first, second, starts & UInt64(63), Val(W))
+end
+
+function _fill_next(rng::_ReactantRNG, ::Val{W}, dims::Dims, finish) where {W}
+    n = prod(dims)
+    values = finish(_fill_raw(rng, Val(W), n)).data
+    array = length(dims) == 1 ? values : Ops.reshape(values, dims...)
+    return array, _advance(rng, _address_offset(n + 1, UInt64(W))...)
+end
+
+for T in (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64)
+    @eval begin
+        @inline function Random.rand(
+            rng::_ReactantRNG,
+            ::Type{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return first(IR.rand_next(rng, $T, dim1, dims...))
+        end
+        @inline function IR.rand_next(
+            rng::_ReactantRNG,
+            ::Type{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return _fill_next(
+                rng,
+                Val(IR._draw_bits($T)),
+                Int.((dim1, dims...)),
+                raw -> _convert_result($T, raw),
+            )
+        end
+    end
+end
+
+for T in (Float32, Float64)
+    @eval begin
+        @inline function Random.randn(
+            rng::_ReactantRNG,
+            ::Type{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return first(IR.randn_next(rng, $T, dim1, dims...))
+        end
+        @inline function IR.randn_next(
+            rng::_ReactantRNG,
+            ::Type{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return _fill_next(
+                rng,
+                Val(IR._normal_bits($T)),
+                Int.((dim1, dims...)),
+                raw -> _normal_from_raw(raw, $T),
+            )
+        end
+        @inline function Random.randexp(
+            rng::_ReactantRNG,
+            ::Type{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return first(IR.randexp_next(rng, $T, dim1, dims...))
+        end
+        @inline function IR.randexp_next(
+            rng::_ReactantRNG,
+            ::Type{$T},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return _fill_next(
+                rng,
+                Val(IR._exponential_bits($T)),
+                Int.((dim1, dims...)),
+                raw -> _exponential_from_raw(raw, $T),
+            )
+        end
+    end
+end
+
+@inline IR.rand_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
+    IR.rand_next(rng, Float64, dim1, dims...)
+@inline IR.randn_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
+    IR.randn_next(rng, Float64, dim1, dims...)
+@inline IR.randexp_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
+    IR.randexp_next(rng, Float64, dim1, dims...)
 
 @inline function _mulhi64(word, span::UInt64)
     high = _shr(word, 32)

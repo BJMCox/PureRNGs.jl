@@ -84,7 +84,7 @@ for (core, round, bump) in (
     @eval begin
         @inline function $core(ctr::NTuple{N,T}, key::NTuple{K,T}, ::Val{R}) where {N,K,T,R}
             for r = 1:R
-                ctr = $round(ctr, key)
+                ctr = _core_checkpoint($round(ctr, key))
                 r == R || (key = $bump(key))
             end
             return ctr

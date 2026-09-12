@@ -9,15 +9,18 @@ const _CHACHA_CONSTANTS =
 # is the cipher's round count. Rounds past `R` compile away.
 const _CHACHA_DEFAULT_ROUNDS = 12
 
+# The checkpoint after each rotation is the granularity at which a compiled
+# ChaCha fill vectorizes. Checkpoints per round leave whole quarter rounds in
+# one kernel, and XLA ran those five hundred times slower.
 @inline function _chacha_quarter(a, b, c, d)
     a = _core_add(a, b)
-    d = _core_rotate(_core_xor(d, a), 16)
+    d = _core_checkpoint(_core_rotate(_core_xor(d, a), 16))
     c = _core_add(c, d)
-    b = _core_rotate(_core_xor(b, c), 12)
+    b = _core_checkpoint(_core_rotate(_core_xor(b, c), 12))
     a = _core_add(a, b)
-    d = _core_rotate(_core_xor(d, a), 8)
+    d = _core_checkpoint(_core_rotate(_core_xor(d, a), 8))
     c = _core_add(c, d)
-    b = _core_rotate(_core_xor(b, c), 7)
+    b = _core_checkpoint(_core_rotate(_core_xor(b, c), 7))
     return a, b, c, d
 end
 

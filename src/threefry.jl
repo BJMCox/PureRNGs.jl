@@ -34,6 +34,7 @@ const _THREEFRY_DEFAULT_ROUNDS = 20
             x0 = _core_add(x0, keys[s%3+1])
             x1 = _core_add(x1, _core_add(keys[(s+1)%3+1], _core_constant(x1, s)))
         end
+        x0, x1 = _core_checkpoint((x0, x1))
     end
     return (x0, x1)
 end
@@ -78,6 +79,7 @@ end
             x2 = _core_add(x2, keys[(s+2)%5+1])
             x3 = _core_add(x3, _core_add(keys[(s+3)%5+1], _core_constant(x3, s)))
         end
+        x0, x1, x2, x3 = _core_checkpoint((x0, x1, x2, x3))
     end
     return (x0, x1, x2, x3)
 end
