@@ -127,7 +127,7 @@ function _normal_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) where {T}
     width = PureRNGs._normal_bits(T)
     raw = REACTANT_EXT._raw(rng, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
-    midpoint = REACTANT_EXT._cast_scalar(T, (raw * UInt64(2)) | UInt64(1)) * scale
+    midpoint = REACTANT_EXT._convert(T, (raw * UInt64(2)) | UInt64(1)) * scale
     return raw, midpoint
 end
 
@@ -162,7 +162,7 @@ function _exponential_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) wher
     width = PureRNGs._exponential_bits(T)
     raw = REACTANT_EXT._raw(rng, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
-    u = REACTANT_EXT._cast_scalar(T, raw) * scale
+    u = REACTANT_EXT._convert(T, raw) * scale
     return raw, u, one(T) - u, randexp(rng, T)
 end
 
@@ -263,7 +263,7 @@ function _normal_probe64(rng)
     addressed = PureRNGs._addressed_rng(rng, UInt16(52), 3)
     raw = REACTANT_EXT._raw(addressed, Val(52))
     midpoint =
-        REACTANT_EXT._cast_scalar(Float64, (raw * UInt64(2)) | UInt64(1)) * Float64(0x1p-53)
+        REACTANT_EXT._convert(Float64, (raw * UInt64(2)) | UInt64(1)) * Float64(0x1p-53)
     return raw, midpoint, randnat(rng, Float64, 3)
 end
 
@@ -637,8 +637,6 @@ end
     cases = ((Philox2x32, 4), (Philox4x32, 5), (Philox4x64, 6))
     forbidden = (
         "stablehlo.custom_call",
-        "func.call",
-        "call @",
         "scf.if",
         "cf.cond_br",
         "stablehlo.case",
@@ -655,11 +653,17 @@ end
         hlo = String(Reactant.@code_hlo optimize = false rand_next(carrier, UInt64))
         state_type = "tensor<$(state_length)xui64>"
 
-        @test occursin("func.func @main(%arg0: $state_type", hlo)
-        @test !occursin("%arg1", hlo)
+        main = match(r"func\.func @main\([^)]*\)", hlo)
+        @test main !== nothing
+        @test startswith(main.match, "func.func @main(%arg0: $state_type")
+        @test !occursin("%arg1", main.match)
         @test length(findall("sizes = [1]", hlo)) >= state_length
         @test length(findall(state_type, hlo)) >= 2
         @test all(pattern -> !occursin(pattern, hlo), forbidden)
+        # The core body is one shared private function beside `main`, called
+        # once per block of the two-block window.
+        @test count("func.func", hlo) == 2
+        @test count("call @", hlo) == 2
     end
 end
 
