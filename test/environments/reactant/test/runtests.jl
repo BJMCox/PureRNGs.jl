@@ -544,7 +544,11 @@ function _last_bit_rng(::Type{F}) where {F}
     return PureRNGs._rebuild(rng, position, rng.device)
 end
 
-const REACTANT_TEST_BACKEND = get(ENV, "PURERNGS_REACTANT_BACKEND", "cpu")
+# Without an override the suite follows Reactant's default client, so a test
+# runner on a GPU host needs no environment variable.
+const REACTANT_TEST_BACKEND = get(ENV, "PURERNGS_REACTANT_BACKEND") do
+    Reactant.XLA.platform_name(Reactant.XLA.default_backend()) == "cpu" ? "cpu" : "gpu"
+end
 REACTANT_TEST_BACKEND in ("cpu", "gpu") ||
     error("PURERNGS_REACTANT_BACKEND must be cpu or gpu")
 Reactant.set_default_backend(REACTANT_TEST_BACKEND)
