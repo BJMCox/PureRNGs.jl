@@ -854,3 +854,49 @@ end
         end
     end
 end
+
+# Range arrays, samples, and destination fills consume the stream exactly as
+# the eager fills do, including the 128-bit reduction for spans above 2^32.
+function _range_snapshot(rng)
+    narrow = rand(rng, 1:1000, 7)
+    stepped, after_stepped = rand_next(rng, Int16(-3):Int16(2):Int16(40), 2, 3)
+    wide = rand(rng, UInt64(0):(UInt64(1)<<40), 5)
+    linear = rand(rng, LinRange{Int64}(-20, 20, 5), 4)
+    values = randsample(rng, [1.5, 2.5, 3.5], 6)
+    whole, after_whole = randsample_next(rng, 10:20)
+    return narrow, stepped, after_stepped, wide, linear, values, whole, after_whole
+end
+
+function _destination_snapshot(rng, uniform, normal, exponential)
+    _, after_uniform = rand_next!(rng, uniform)
+    _, after_normal = randn_next!(after_uniform, normal)
+    randexp!(after_normal, exponential)
+    return uniform, normal, exponential, after_normal
+end
+
+function _same_snapshot_item(got, expected)
+    expected isa AbstractPureRNG && return _same_value(got, expected)
+    return size(got) == size(expected) && Array(got) == expected
+end
+
+@testset "R42 range arrays, samples, and destination fills" begin
+    for F in SELECTED_GENERATORS
+        @testset "$F" begin
+            eager = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
+            carrier = Reactant.to_rarray(eager)
+            compiled = Reactant.@compile sync = true _range_snapshot(carrier)
+            @test all(_same_snapshot_item.(compiled(carrier), _range_snapshot(eager)))
+
+            sizes = (zeros(Float32, 3, 4), zeros(Float64, 5), zeros(Float32, 6))
+            traced = map(Reactant.to_rarray, sizes)
+            compiled_fill =
+                Reactant.@compile sync = true _destination_snapshot(carrier, traced...)
+            got = compiled_fill(carrier, traced...)
+            expected = _destination_snapshot(eager, map(copy, sizes)...)
+            @test _same_snapshot_item(got[1], expected[1])
+            @test all(_same_fill_transform_value.(Array(got[2]), expected[2]))
+            @test all(_same_fill_transform_value.(Array(got[3]), expected[3]))
+            @test _same_value(got[4], expected[4])
+        end
+    end
+end

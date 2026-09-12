@@ -683,6 +683,139 @@ end
     return IR._range_value(rng, range), _advance(rng, width)
 end
 
+# Range arrays and samples. Each element consumes 64 bits, or 128 bits as a
+# high word followed by a low word, and reduces them as the eager fill does.
+@inline function _mulhi128(lo::_Lane, hi::_Lane, span::UInt64)
+    ops = _ReactantWordOps()
+    span_lane = _constant_like(hi.data, span)
+    high_hi, high_lo = map(_Lane, IR._word_mulhilo(ops, Val(64), hi.data, span_lane))
+    low_hi, _ = map(_Lane, IR._word_mulhilo(ops, Val(64), lo.data, span_lane))
+    sum = high_lo + low_hi
+    return high_hi + ifelse(sum < high_lo, UInt64(1), UInt64(0))
+end
+
+function _fill_offsets(rng::_ReactantRNG, span::UInt64, n::Int)
+    IR._range_bits(span) == UInt16(64) && return _mulhi64(_fill_raw(rng, Val(64), n), span)
+    words = _fill_raw(rng, Val(64), 2n).data
+    hi = _Lane(Ops.slice(words, [1], [2n]; strides = [2]))
+    lo = _Lane(Ops.slice(words, [2], [2n]; strides = [2]))
+    return iszero(span) ? hi : _mulhi128(lo, hi, span)
+end
+
+@inline function _shaped(values::_TracedArray, dims::Dims)
+    return length(dims) == 1 ? values : Ops.reshape(values, dims...)
+end
+
+function _fill_range_next(rng::_ReactantRNG, range, dims::Dims)
+    isempty(range) && throw(ArgumentError("range must be non-empty"))
+    span = length(range) % UInt64
+    n = prod(dims)
+    values = _range_element(range, _fill_offsets(rng, span, n)).data
+    advanced = _advance(rng, _address_offset(n + 1, UInt64(IR._range_bits(span)))...)
+    return _shaped(values, dims), advanced
+end
+
+for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
+    @eval begin
+        @inline function Random.rand(
+            rng::_ReactantRNG,
+            range::Union{OrdinalRange{$T},LinRange{$T}},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return first(IR.rand_next(rng, range, dim1, dims...))
+        end
+        @inline function IR.rand_next(
+            rng::_ReactantRNG,
+            range::Union{OrdinalRange{$T},LinRange{$T}},
+            dim1::Integer,
+            dims::Integer...,
+        )
+            return _fill_range_next(rng, range, Int.((dim1, dims...)))
+        end
+    end
+end
+
+# Destination fills replace the traced destination's value. The `threaded`
+# keyword exists so call sites written for the eager fill trace unchanged.
+@inline function _store!(destination::_TracedArray, values)
+    Reactant.TracedUtils.set_mlir_data!(destination, values.mlir_data)
+    return destination
+end
+
+for (fill, fill_next, draw_next, T) in (
+    (
+        :(Random.rand!),
+        :(IR.rand_next!),
+        :(IR.rand_next),
+        :(Union{Bool,UInt32,UInt64,Int32,Int64,Float32,Float64}),
+    ),
+    (:(Random.randn!), :(IR.randn_next!), :(IR.randn_next), :(Union{Float32,Float64})),
+    (
+        :(Random.randexp!),
+        :(IR.randexp_next!),
+        :(IR.randexp_next),
+        :(Union{Float32,Float64}),
+    ),
+)
+    @eval begin
+        @inline function $fill_next(
+            rng::_ReactantRNG,
+            destination::_TracedArray{T};
+            threaded::Bool = true,
+        ) where {T<:$T}
+            values, next_rng = $draw_next(rng, T, size(destination)...)
+            return _store!(destination, values), next_rng
+        end
+        @inline function $fill(
+            rng::_ReactantRNG,
+            destination::_TracedArray{T};
+            threaded::Bool = true,
+        ) where {T<:$T}
+            return first($fill_next(rng, destination))
+        end
+    end
+end
+
+# Unweighted samples with replacement. Each element is a range draw over the
+# population cardinality followed by a gather, as in the eager fill.
+@inline function _population_values(
+    population::Union{OrdinalRange{T},LinRange{T}},
+    ordinals,
+) where {T<:IR._RangeInteger}
+    return _range_element(population, ordinals - UInt64(1)).data
+end
+
+@inline function _population_values(population::AbstractArray, ordinals)
+    flat = if population isa _TracedArray
+        Ops.reshape(population, length(population))
+    else
+        Ops.constant(vec(collect(population)))
+    end
+    return flat[ordinals.data]
+end
+
+function _sample_next(rng::_ReactantRNG, population, requested_count)
+    cardinality = length(population) % UInt64
+    count =
+        requested_count === nothing ? Int(cardinality) : IR._sampling_count(requested_count)
+    count > 0 && iszero(cardinality) && IR._empty_sampling_population()
+    iszero(count) && return Ops.constant(Vector{eltype(population)}()), rng
+    width = UInt64(IR._range_bits(cardinality))
+    advanced = _advance(rng, _address_offset(count + 1, width)...)
+    ordinals = _fill_offsets(rng, cardinality, count) + UInt64(1)
+    return _population_values(population, ordinals), advanced
+end
+
+@inline IR.randsample(rng::_ReactantRNG, population::AbstractArray) =
+    first(_sample_next(rng, population, nothing))
+@inline IR.randsample(rng::_ReactantRNG, population::AbstractArray, count::Integer) =
+    first(_sample_next(rng, population, count))
+@inline IR.randsample_next(rng::_ReactantRNG, population::AbstractArray) =
+    _sample_next(rng, population, nothing)
+@inline IR.randsample_next(rng::_ReactantRNG, population::AbstractArray, count::Integer) =
+    _sample_next(rng, population, count)
+
 # A child starts at position zero: its state is the key words followed by zeros.
 @inline function _child(rng::_ReactantRNG{R}, key::Tuple) where {R}
     words = map(word -> _vector(_convert(UInt64, word.value)), key)
