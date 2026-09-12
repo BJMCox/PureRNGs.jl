@@ -92,7 +92,7 @@ end
 ) where {T}
     span = _range_span(range)
     width = _range_bits(span)
-    next_rng = _reserve(rng, UInt64(width), UInt64(0))
+    next_rng = _reserve_scalar(rng, width)
     if width == UInt16(64)
         candidate = _chain_bits(rng, next_rng, Val(64))
         return _range_value(range, _reduce_range_candidate(candidate, span)), next_rng

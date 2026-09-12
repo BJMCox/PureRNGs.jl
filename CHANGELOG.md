@@ -7,7 +7,7 @@ Initial development release.
 - Eight immutable Philox and Threefry generators with explicit continuation and purpose-based key derivation. Continuation functions return `(value, next_rng)`.
 - Primitive, integer-range, and population sampling, including weighted sampling with replacement. Every draw kind reads one stream of bits at the generator's position.
 - CPU and CUDA array generation, with preview AMDGPU and experimental Metal support.
-- Generators carry their decoded output block, so consecutive scalar draws inside a block run the core once.
+- Generators carry their decoded output block, so consecutive scalar draws inside a block run the core once. Chained scalar draws and `StatefulRNG` draws run two to three times faster for the 64-bit and ChaCha generators.
 - Round-reduced `Philox4x32R7` and `Threefry4x64R13`, the Random123 minimum round counts that pass BigCrush. The round count is a type parameter on every generator.
 - `ChaCha` generators with a 256-bit key, 512-bit output blocks, and twelve rounds by default, with the `ChaCha8`, `ChaCha12`, and `ChaCha20` round-count aliases, on every backend including Reactant.
 - CPU-bound 64-bit Philox generators use the host widening multiply. Kernel code keeps the portable four-product form.

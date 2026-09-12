@@ -450,10 +450,12 @@ end
     device::D,
 ) where {D<:_BackendToken}
     target = _with_device(typeof(rng), D)
+    key = _by_element(rng.key)
     if _position_block(position) == _position_block(rng.position)
-        return target(_CONSTRUCTION_TOKEN, rng.key, position, device, rng.block_words)
+        words = _by_element(rng.block_words)
+        return target(_CONSTRUCTION_TOKEN, key, position, device, words)
     end
-    return target(_CONSTRUCTION_TOKEN, rng.key, position, device)
+    return target(_CONSTRUCTION_TOKEN, key, position, device)
 end
 
 for (Device, token) in (
@@ -614,6 +616,33 @@ end
     ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
     position == rng.position && return rng
     return _rebuild(rng, position, rng.device)
+end
+
+@inline _with_bit(position::_Position64, bit::UInt16) = _Position64(position.block, bit)
+@inline _with_bit(position::_Position128, bit::UInt16) =
+    _Position128(position.lo, position.hi, bit)
+
+# Copying a tuple field whole into the successor leaves LLVM a memory blob
+# that it copies on every draw of a chained loop once the generator has more
+# than a handful of words. Rebuilding the tuple from its elements keeps every
+# word in a register. A ChaCha chain of Bool draws ran five times faster.
+@inline _by_element(words::NTuple{N,T}) where {N,T} = ntuple(i -> words[i], Val(N))
+
+# A scalar draw that ends inside the current block cannot exhaust the stream
+# and keeps the carried block, so only the bit offset moves. The terminal
+# offset fails the width test in 32-bit arithmetic and takes the checked path.
+@inline function _reserve_scalar(rng::AbstractPureRNG, width::UInt16)
+    bit = rng.position.bit
+    if UInt32(bit) + UInt32(width) < UInt32(_block_bits(rng))
+        return typeof(rng)(
+            _CONSTRUCTION_TOKEN,
+            _by_element(rng.key),
+            _with_bit(rng.position, bit + width),
+            rng.device,
+            _by_element(rng.block_words),
+        )
+    end
+    return _reserve(rng, UInt64(width), UInt64(0))
 end
 
 # Stream capacity in bits. It is the position of the terminal state.

@@ -28,6 +28,20 @@ end
 
 @inline Base.parent(mutable_rng::StatefulRNG) = mutable_rng.rng
 
+# Reading the held generator whole copies it through a stack blob that the
+# next draw's stores then feed back through memory. Reading it word by word
+# keeps the scalar bridge path in registers between the load and the store.
+@inline function _held(mutable_rng::StatefulRNG)
+    rng = mutable_rng.rng
+    return typeof(rng)(
+        _CONSTRUCTION_TOKEN,
+        _by_element(rng.key),
+        rng.position,
+        rng.device,
+        _by_element(rng.block_words),
+    )
+end
+
 @inline function _commit_bridge!(
     mutable_rng::StatefulRNG{R},
     result::Tuple{T,R},
@@ -38,7 +52,7 @@ end
 
 for T in (Bool, UInt32, Int32, UInt64, Int64)
     @eval @inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{$T}) =
-        _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, $T))
+        _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), $T))
 end
 
 for T in (Float32, Float64)
@@ -46,11 +60,11 @@ for T in (Float32, Float64)
         @inline Random.rand(
             mutable_rng::StatefulRNG,
             ::Random.SamplerTrivial{Random.CloseOpen01{$T}},
-        ) = _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, $T))
+        ) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), $T))
         @inline Random.randn(mutable_rng::StatefulRNG, ::Type{$T}) =
-            _commit_bridge!(mutable_rng, randn_next(mutable_rng.rng, $T))
+            _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), $T))
         @inline Random.randexp(mutable_rng::StatefulRNG, ::Type{$T}) =
-            _commit_bridge!(mutable_rng, randexp_next(mutable_rng.rng, $T))
+            _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), $T))
     end
 end
 
@@ -74,7 +88,7 @@ end
 ) where {T<:_RangeInteger} = _StatefulRangeSampler(range)
 
 @inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulRangeSampler) =
-    _commit_bridge!(mutable_rng, rand_next(mutable_rng.rng, sampler.range))
+    _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), sampler.range))
 
 @inline function Random.rand!(
     mutable_rng::StatefulRNG,

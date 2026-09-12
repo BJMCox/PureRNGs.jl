@@ -74,7 +74,7 @@ function Random.rand(::AbstractPureRNG)
 end
 
 @inline function _rand_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
-    next_rng = _reserve(rng, UInt64(_draw_bits(T)), UInt64(0))
+    next_rng = _reserve_scalar(rng, _draw_bits(T))
     return _from_bits(T, _chain_bits(rng, next_rng, Val(Int(_draw_bits(T))))), next_rng
 end
 

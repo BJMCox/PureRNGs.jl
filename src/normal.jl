@@ -144,7 +144,7 @@ function Random.randn(::AbstractPureRNG)
 end
 
 @inline function _randn_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
-    next_rng = _reserve(rng, UInt64(_normal_bits(T)), UInt64(0))
+    next_rng = _reserve_scalar(rng, _normal_bits(T))
     raw = _chain_bits(rng, next_rng, Val(Int(_normal_bits(T))))
     return _normal_from_bits(T, raw), next_rng
 end

@@ -133,7 +133,7 @@ function Random.randexp(::AbstractPureRNG)
 end
 
 @inline function _randexp_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
-    next_rng = _reserve(rng, UInt64(_exponential_bits(T)), UInt64(0))
+    next_rng = _reserve_scalar(rng, _exponential_bits(T))
     raw = _chain_bits(rng, next_rng, Val(Int(_exponential_bits(T))))
     return _exponential_from_bits(rng.device, T, raw), next_rng
 end
