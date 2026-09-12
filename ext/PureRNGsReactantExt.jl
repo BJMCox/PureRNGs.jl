@@ -10,8 +10,19 @@ const _ReactantRNG = IR._ReactantRNG
 const _TracedNumber = Reactant.TracedRNumber
 const _TracedArray = Reactant.TracedRArray
 
-struct _ReactantWordOps end
+# `B` says whether a fill places an optimization barrier at the core's
+# checkpoints. XLA's GPU backend fuses every core well and a barrier only adds
+# a pass over the round state, two to three times the fill time. The CPU
+# backend needs the barriers for two cores: without them it split a
+# Threefry4x32 fill into fifty kernels and ran a ChaCha fill fifty times
+# slower. The choice follows the default client at trace time.
+struct _ReactantWordOps{B} end
 struct _ReactantTransformOps end
+
+@inline function _lane_barriers(::Type{R}) where {R}
+    R <: Union{IR.Threefry4x32,IR.ChaCha} || return false
+    return Reactant.XLA.platform_name(Reactant.XLA.default_backend()) == "cpu"
+end
 
 # Every helper emits one stablehlo op on scalars. Broadcasting on traced
 # arrays and casts through `T.(x)` trace a private function and a call at each
@@ -120,17 +131,15 @@ end
 @inline IR._word_xor(::_ReactantWordOps, ::Val{W}, a, b) where {W} = Ops.xor(a, b)
 @inline IR._word_rotate(::_ReactantWordOps, ::Val{W}, value, count) where {W} =
     _rotate(value, count, Val(W))
-# In a fill the core runs over one lane per block. Left alone, XLA fuses the
-# whole round chain into one kernel, and that kernel ran a ChaCha fill three
-# hundred times slower than a Philox fill. A barrier after each round
-# materializes the round state instead.
+# In a fill the core runs over one lane per block. The barrier materializes
+# the state at the core's checkpoints, see `_lane_barriers`.
 @inline function IR._word_checkpoint(
-    ::_ReactantWordOps,
-    words::Tuple{Vararg{IR._CoreWord{W,_ReactantWordOps,<:_TracedArray}}},
+    ::_ReactantWordOps{true},
+    words::Tuple{Vararg{IR._CoreWord{W,_ReactantWordOps{true},<:_TracedArray}}},
 ) where {W}
     return map(words) do word
         value = only(Ops.optimization_barrier(word.value))
-        IR._core_word(Val(W), _ReactantWordOps(), value)
+        IR._core_word(Val(W), _ReactantWordOps{true}(), value)
     end
 end
 @inline IR._transform_muladd(::_ReactantTransformOps, a, b, c) = muladd(a, b, c)
@@ -205,7 +214,7 @@ end
     R <: IR.ChaCha ? UInt64(512) : UInt64(128)
 
 @inline _core_word(::Type{R}, value) where {R} =
-    IR._core_word(_word_width(R), _ReactantWordOps(), value)
+    IR._core_word(_word_width(R), _ReactantWordOps{_lane_barriers(R)}(), value)
 
 @inline function _key(rng::_ReactantRNG{R}) where {R}
     T = _key_type(R)
@@ -603,7 +612,7 @@ end
 end
 
 @inline function _mulhi128(lo, hi, span::UInt64)
-    ops = _ReactantWordOps()
+    ops = _ReactantWordOps{false}()
     span_word = Ops.constant(span)
     high_hi, high_lo = IR._word_mulhilo(ops, Val(64), hi, span_word)
     low_hi, _ = IR._word_mulhilo(ops, Val(64), lo, span_word)
@@ -661,7 +670,7 @@ end
 # Range arrays and samples. Each element consumes 64 bits, or 128 bits as a
 # high word followed by a low word, and reduces them as the eager fill does.
 @inline function _mulhi128(lo::_Lane, hi::_Lane, span::UInt64)
-    ops = _ReactantWordOps()
+    ops = _ReactantWordOps{false}()
     span_lane = _constant_like(hi.data, span)
     high_hi, high_lo = map(_Lane, IR._word_mulhilo(ops, Val(64), hi.data, span_lane))
     low_hi, _ = map(_Lane, IR._word_mulhilo(ops, Val(64), lo.data, span_lane))
