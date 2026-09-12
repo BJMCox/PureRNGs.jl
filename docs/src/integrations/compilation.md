@@ -74,6 +74,9 @@ Carriers support scalar primitive, range, and supported distribution draws, scal
 Destination fills into traced arrays replace the destination's value.
 
 Weighted `randsample` is not a carrier API.
+
+A carrier holds no output block, so each chained scalar draw evaluates the core again and compiles to its own kernels.
+For more than a few draws in one compiled function, draw an array once and index it.
 Split counts using `Val` and purpose IDs must be static.
 Changing static inputs can require recompilation.
 

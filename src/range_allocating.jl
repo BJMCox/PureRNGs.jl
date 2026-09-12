@@ -145,20 +145,41 @@ end
     return destination
 end
 
+@inline function _rand_next_range_fill!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T},
+    range::AbstractRange{T},
+    threaded::Bool,
+) where {T<:_RangeInteger}
+    _check_fill_device(rng, destination)
+    _check_serviceability(rng, range)
+    span = _range_span(range)
+    bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _range_bits(span))
+    next_rng = _reserve(rng, bits_lo, bits_hi)
+    isempty(destination) && return destination, next_rng
+    if !threaded && rng.device isa _CPUBackend
+        _fill_range_cpu_unchecked!(
+            rng,
+            rng.position,
+            destination,
+            range,
+            span,
+            eachindex(destination),
+        )
+        return destination, next_rng
+    end
+    _launch_range!(_fill_backend(destination), rng, destination, range, span)
+    return destination, next_rng
+end
+
 @inline function _rand_next_range_array(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
     dims::Tuple,
 ) where {T<:_RangeInteger}
     _check_serviceability(rng, range)
-    span = _range_span(range)
     destination = _allocate_draw_array(rng.device, T, dims)
-    bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _range_bits(span))
-    next_rng = _reserve(rng, bits_lo, bits_hi)
-    isempty(destination) && return destination, next_rng
-    backend = _fill_backend(destination)
-    _launch_range!(backend, rng, destination, range, span)
-    return destination, next_rng
+    return _rand_next_range_fill!(rng, destination, range, true)
 end
 
 for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
@@ -172,6 +193,11 @@ for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
             destination, _ = _rand_next_range_array(rng, range, (dim1, dims...))
             return destination
         end
+        @inline Random.rand(
+            rng::_ScalarUniformGenerators,
+            range::AbstractRange{$T},
+            dims::Dims,
+        ) = first(_rand_next_range_array(rng, range, dims))
 
         @inline function rand_next(
             rng::_ScalarUniformGenerators,
@@ -180,6 +206,29 @@ for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
             dims::Integer...,
         )
             return _rand_next_range_array(rng, range, (dim1, dims...))
+        end
+        @inline rand_next(
+            rng::_ScalarUniformGenerators,
+            range::AbstractRange{$T},
+            dims::Dims,
+        ) = _rand_next_range_array(rng, range, dims)
+
+        @inline function Random.rand!(
+            rng::_ScalarUniformGenerators,
+            destination::AbstractArray{$T},
+            range::AbstractRange{$T};
+            threaded::Bool = true,
+        )
+            return first(_rand_next_range_fill!(rng, destination, range, threaded))
+        end
+
+        @inline function rand_next!(
+            rng::_ScalarUniformGenerators,
+            destination::AbstractArray{$T},
+            range::AbstractRange{$T};
+            threaded::Bool = true,
+        )
+            return _rand_next_range_fill!(rng, destination, range, threaded)
         end
     end
 end

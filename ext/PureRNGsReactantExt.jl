@@ -541,85 +541,60 @@ function _fill_next(rng::_ReactantRNG, ::Val{W}, dims::Dims, finish) where {W}
     return array, _advance(rng, _address_offset(n + 1, UInt64(W))...)
 end
 
-for T in (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64)
-    @eval begin
-        @inline function Random.rand(
-            rng::_ReactantRNG,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return first(IR.rand_next(rng, $T, dim1, dims...))
-        end
-        @inline function IR.rand_next(
-            rng::_ReactantRNG,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return _fill_next(
-                rng,
-                Val(IR._draw_bits($T)),
-                Int.((dim1, dims...)),
-                raw -> _convert_result($T, raw),
+for (draw, draw_next, bits, finish, types) in (
+    (
+        :(Random.rand),
+        :(IR.rand_next),
+        :(IR._draw_bits),
+        T -> :(raw -> _convert_result($T, raw)),
+        (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64),
+    ),
+    (
+        :(Random.randn),
+        :(IR.randn_next),
+        :(IR._normal_bits),
+        T -> :(raw -> _normal_from_raw(raw, $T)),
+        (Float32, Float64),
+    ),
+    (
+        :(Random.randexp),
+        :(IR.randexp_next),
+        :(IR._exponential_bits),
+        T -> :(raw -> _exponential_from_raw(raw, $T)),
+        (Float32, Float64),
+    ),
+)
+    for T in types
+        @eval begin
+            @inline function $draw_next(rng::_ReactantRNG, ::Type{$T}, dims::Dims)
+                return _fill_next(rng, Val($bits($T)), dims, $(finish(T)))
+            end
+            @inline function $draw_next(
+                rng::_ReactantRNG,
+                ::Type{$T},
+                dim1::Integer,
+                dims::Integer...,
             )
+                return $draw_next(rng, $T, Int.((dim1, dims...)))
+            end
+            @inline $draw(rng::_ReactantRNG, ::Type{$T}, dims::Dims) =
+                first($draw_next(rng, $T, dims))
+            @inline function $draw(
+                rng::_ReactantRNG,
+                ::Type{$T},
+                dim1::Integer,
+                dims::Integer...,
+            )
+                return first($draw_next(rng, $T, Int.((dim1, dims...))))
+            end
         end
     end
-end
-
-for T in (Float32, Float64)
     @eval begin
-        @inline function Random.randn(
-            rng::_ReactantRNG,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return first(IR.randn_next(rng, $T, dim1, dims...))
-        end
-        @inline function IR.randn_next(
-            rng::_ReactantRNG,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return _fill_next(
-                rng,
-                Val(IR._normal_bits($T)),
-                Int.((dim1, dims...)),
-                raw -> _normal_from_raw(raw, $T),
-            )
-        end
-        @inline function Random.randexp(
-            rng::_ReactantRNG,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return first(IR.randexp_next(rng, $T, dim1, dims...))
-        end
-        @inline function IR.randexp_next(
-            rng::_ReactantRNG,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return _fill_next(
-                rng,
-                Val(IR._exponential_bits($T)),
-                Int.((dim1, dims...)),
-                raw -> _exponential_from_raw(raw, $T),
-            )
-        end
+        @inline $draw_next(rng::_ReactantRNG, dims::Dims) = $draw_next(rng, Float64, dims)
+        @inline $draw_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
+            $draw_next(rng, Float64, Int.((dim1, dims...)))
     end
 end
-
-@inline IR.rand_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
-    IR.rand_next(rng, Float64, dim1, dims...)
-@inline IR.randn_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
-    IR.randn_next(rng, Float64, dim1, dims...)
-@inline IR.randexp_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
-    IR.randexp_next(rng, Float64, dim1, dims...)
 
 @inline function _mulhi64(word, span::UInt64)
     high = _shr(word, 32)
@@ -732,6 +707,50 @@ for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
             dims::Integer...,
         )
             return _fill_range_next(rng, range, Int.((dim1, dims...)))
+        end
+        @inline Random.rand(
+            rng::_ReactantRNG,
+            range::Union{OrdinalRange{$T},LinRange{$T}},
+            dims::Dims,
+        ) = first(_fill_range_next(rng, range, dims))
+        @inline IR.rand_next(
+            rng::_ReactantRNG,
+            range::Union{OrdinalRange{$T},LinRange{$T}},
+            dims::Dims,
+        ) = _fill_range_next(rng, range, dims)
+    end
+end
+
+# The draws at consecutive addresses are the fill that starts at the first one.
+@inline function _addressed_array(
+    rng::_ReactantRNG,
+    ::Type{T},
+    indices::AbstractUnitRange,
+    width::UInt16,
+    fill_next,
+) where {T}
+    isempty(indices) && return Ops.constant(T[])
+    start = IR._addressed_rng(rng, width, first(indices))
+    return first(fill_next(start, T, (length(indices),)))
+end
+
+for (at, fill_next, bits, types) in (
+    (
+        :(IR.randat),
+        :(IR.rand_next),
+        :(IR._draw_bits),
+        (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64),
+    ),
+    (:(IR.randnat), :(IR.randn_next), :(IR._normal_bits), (Float32, Float64)),
+    (:(IR.randexpat), :(IR.randexp_next), :(IR._exponential_bits), (Float32, Float64)),
+)
+    for T in types
+        @eval @inline function $at(
+            rng::_ReactantRNG,
+            ::Type{$T},
+            indices::AbstractUnitRange{<:Integer},
+        )
+            return _addressed_array(rng, $T, indices, $bits($T), $fill_next)
         end
     end
 end

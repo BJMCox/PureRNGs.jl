@@ -13,6 +13,8 @@ end
 )
     return _randexp_next_array(rng, Float64, (dim1, dims...))
 end
+@inline randexp_next(rng::_ScalarUniformGenerators, dims::Dims) =
+    _randexp_next_array(rng, Float64, dims)
 
 for T in (Float32, Float64)
     @eval begin
@@ -25,6 +27,10 @@ for T in (Float32, Float64)
             destination, _ = _randexp_next_array(rng, $T, (dim1, dims...))
             return destination
         end
+        @inline Random.randexp(rng::_ScalarUniformGenerators, ::Type{$T}, dims::Dims) =
+            first(_randexp_next_array(rng, $T, dims))
+        @inline randexp_next(rng::_ScalarUniformGenerators, ::Type{$T}, dims::Dims) =
+            _randexp_next_array(rng, $T, dims)
 
         @inline function randexp_next(
             rng::_ScalarUniformGenerators,

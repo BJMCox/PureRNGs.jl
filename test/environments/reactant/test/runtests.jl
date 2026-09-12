@@ -864,8 +864,14 @@ function _range_snapshot(rng)
     linear = rand(rng, LinRange{Int64}(-20, 20, 5), 4)
     values = randsample(rng, [1.5, 2.5, 3.5], 6)
     whole, after_whole = randsample_next(rng, 10:20)
-    return narrow, stepped, after_stepped, wide, linear, values, whole, after_whole
+    tupled =
+        (rand(rng, Float32, (2, 3)), rand(rng, 1:1000, (3, 2)), rand_next(rng, (4,))...)
+    addressed = randat(rng, Float64, 3:7)
+    return narrow, stepped, after_stepped, wide, linear, values, whole, after_whole,
+    tupled..., addressed
 end
+
+_addressed_transforms(rng) = (randnat(rng, Float32, 2:5), randexpat(rng, Float64, 4:9))
 
 function _destination_snapshot(rng, uniform, normal, exponential)
     _, after_uniform = rand_next!(rng, uniform)
@@ -886,6 +892,10 @@ end
             carrier = Reactant.to_rarray(eager)
             compiled = Reactant.@compile sync = true _range_snapshot(carrier)
             @test all(_same_snapshot_item.(compiled(carrier), _range_snapshot(eager)))
+            compiled_at = Reactant.@compile sync = true _addressed_transforms(carrier)
+            for (got, expected) in zip(compiled_at(carrier), _addressed_transforms(eager))
+                @test all(_same_fill_transform_value.(Array(got), expected))
+            end
 
             sizes = (zeros(Float32, 3, 4), zeros(Float64, 5), zeros(Float32, 6))
             traced = map(Reactant.to_rarray, sizes)

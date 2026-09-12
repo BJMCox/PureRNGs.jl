@@ -1,3 +1,5 @@
+using Random: randexp
+
 @testset "R23-R26 CPU allocating uniform draws" begin
     for F in GENERATOR_TYPES, T in PURE_UNIFORM_TYPES
         rng = F(0x62a)
@@ -48,4 +50,15 @@ end
         @test default == typed
         @test default_next === typed_next
     end
+end
+
+@testset "R23 tuple dimensions match splatted dimensions" begin
+    rng = Philox4x32(0x62c)
+    @test rand(rng, Float32, (2, 3)) == rand(rng, Float32, 2, 3)
+    @test randn(rng, Float64, (4,)) == randn(rng, Float64, 4)
+    @test randexp(rng, Float32, (2, 2)) == randexp(rng, Float32, 2, 2)
+    @test rand_next(rng, UInt32, (3, 2)) == rand_next(rng, UInt32, 3, 2)
+    @test randn_next(rng, (5,)) == randn_next(rng, 5)
+    @test randexp_next(rng, (2, 3)) == randexp_next(rng, 2, 3)
+    @test size(rand(rng, Float64, ())) == ()
 end

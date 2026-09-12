@@ -151,6 +151,11 @@ for T in (Float32, Float64)
             _randexp_next_scalar(rng, $T)
         @inline randexpat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
             _draw_exponential_unchecked(_addressed_rng(rng, _exponential_bits($T), i), $T)
+        @inline randexpat(
+            rng::_ScalarUniformGenerators,
+            ::Type{$T},
+            indices::AbstractUnitRange{<:Integer},
+        ) = _addressed_array(rng, $T, indices, _exponential_bits($T), randexp_next)
     end
 end
 
@@ -168,9 +173,11 @@ generator never changes.
 
 @doc """
     randexpat(rng, T, i)
+    randexpat(rng, T, i:j)
 
 Return the `i`th standard exponential draw at or after the current position of
-`rng`, where `i` is one-based and `T` is `Float32` or `Float64`.
+`rng`, where `i` is one-based, or the vector of draws `i` through `j`. `T` is
+`Float32` or `Float64`.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.

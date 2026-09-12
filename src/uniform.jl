@@ -76,11 +76,12 @@ end
 
 @doc """
     rand_next!(rng, destination; threaded=true) -> (destination, next_rng)
+    rand_next!(rng, destination, range; threaded=true) -> (destination, next_rng)
 
 Fill `destination` from `rng` and return the advanced immutable generator with
 the same destination. The destination element type must be `Bool`, `UInt32`,
-`Int32`, `UInt64`, `Int64`, `Float32`, or `Float64`, and its device must match
-the generator.
+`Int32`, `UInt64`, `Int64`, `Float32`, or `Float64`, or with `range` the
+integer element type of that range, and its device must match the generator.
 
 Set `threaded=false` to request the serial CPU fill path. The keyword does not
 change the generated stream. The input generator never changes.
@@ -149,19 +150,38 @@ end
     return _rebuild(rng, _Position128(lo, hi, UInt16(bit)), rng.device)
 end
 
+# The draws at consecutive addresses are the fill that starts at the first one.
+@inline function _addressed_array(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    indices::AbstractUnitRange{<:Integer},
+    width::UInt16,
+    fill_next,
+) where {T}
+    isempty(indices) && return _allocate_draw_array(rng.device, T, (0,))
+    return first(fill_next(_addressed_rng(rng, width, first(indices)), T, length(indices)))
+end
+
 for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
         @inline randat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
             _draw_unchecked(_addressed_rng(rng, _draw_bits($T), i), $T)
+        @inline randat(
+            rng::_ScalarUniformGenerators,
+            ::Type{$T},
+            indices::AbstractUnitRange{<:Integer},
+        ) = _addressed_array(rng, $T, indices, _draw_bits($T), rand_next)
     end
 end
 
 @doc """
     randat(rng, T, i)
+    randat(rng, T, i:j)
 
 Return the `i`th uniform draw at or after the current position of `rng`, where
-`i` is one-based. Supported result types are `Bool`, `UInt32`, `Int32`,
-`UInt64`, `Int64`, `Float32`, and `Float64`.
+`i` is one-based, or the vector of draws `i` through `j`. Supported result
+types are `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, `Float32`, and
+`Float64`.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.

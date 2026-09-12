@@ -22,6 +22,8 @@ end
 @inline function rand_next(rng::_ScalarUniformGenerators, dim1::Integer, dims::Integer...)
     return _rand_next_uniform_array(rng, Float64, (dim1, dims...))
 end
+@inline rand_next(rng::_ScalarUniformGenerators, dims::Dims) =
+    _rand_next_uniform_array(rng, Float64, dims)
 
 for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
     @eval begin
@@ -34,6 +36,8 @@ for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
             destination, _ = _rand_next_uniform_array(rng, $T, (dim1, dims...))
             return destination
         end
+        @inline Random.rand(rng::_ScalarUniformGenerators, ::Type{$T}, dims::Dims) =
+            first(_rand_next_uniform_array(rng, $T, dims))
 
         @inline function rand_next(
             rng::_ScalarUniformGenerators,
@@ -43,5 +47,7 @@ for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
         )
             return _rand_next_uniform_array(rng, $T, (dim1, dims...))
         end
+        @inline rand_next(rng::_ScalarUniformGenerators, ::Type{$T}, dims::Dims) =
+            _rand_next_uniform_array(rng, $T, dims)
     end
 end

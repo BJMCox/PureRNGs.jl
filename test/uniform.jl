@@ -579,3 +579,12 @@ end
     @test destination == expected
     @test next_rng.position == expected_rng.position
 end
+
+@testset "R29 addressed draw ranges" begin
+    rng = _positioned(Philox4x64, 0x524, UInt64(5), UInt16(47))
+    @test randat(rng, Float64, 3:7) == [randat(rng, Float64, i) for i = 3:7]
+    @test randnat(rng, Float32, 2:5) == [randnat(rng, Float32, i) for i = 2:5]
+    @test randexpat(rng, Float64, 4:9) == [randexpat(rng, Float64, i) for i = 4:9]
+    @test randat(rng, UInt32, 5:4) == UInt32[]
+    @test_throws ArgumentError randat(rng, UInt32, 0:3)
+end

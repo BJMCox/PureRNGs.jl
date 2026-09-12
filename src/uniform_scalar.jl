@@ -101,7 +101,8 @@ end
 Draw from `rng` and return the advanced immutable generator with the result.
 Omitting `T` selects `Float64`. Supported scalar types are `Bool`, `UInt32`,
 `Int32`, `UInt64`, `Int64`, `Float32`, and `Float64`. Integer ranges support
-signed and unsigned integer element types through 64 bits.
+signed and unsigned integer element types through 64 bits. Dimensions may
+also be one tuple, as in `Random`.
 
 The allocating forms create an array on the generator's device. The input
 generator never changes.

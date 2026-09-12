@@ -14,5 +14,6 @@ Initial development release.
 - The Philox4x32 Float64 fill extracts 128 draws per 53 blocks with fixed shifts, with a bit buffer for the remainder.
 - A host-only `Random.AbstractRNG` bridge.
 - `rngkey` and `rngposition` accessors, and constructors that rebuild a generator at a saved position.
+- Array dimensions as one tuple, integer-range destination fills, and addressed draws over an index range.
 - Optional Distributions, Enzyme, and Reactant integrations.
 - A workflow-led manual, CPU and GPU tutorials, and an exported API reference.

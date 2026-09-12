@@ -172,3 +172,20 @@ end
         @test isempty(wide_instructions)
     end
 end
+
+@testset "R23-R26 range tuple dimensions and destination fills" begin
+    rng = _range_positioned(Philox4x32, 0x65b, UInt64(7), UInt16(61))
+    range = Int16(-31):Int16(3):Int16(41)
+    expected, expected_next = rand_next(rng, range, 3, 4)
+    @test rand(rng, range, (3, 4)) == expected
+    @test rand_next(rng, range, (3, 4)) == (expected, expected_next)
+
+    threaded = zeros(Int16, 3, 4)
+    serial = zeros(Int16, 3, 4)
+    filled, next_rng = rand_next!(rng, threaded, range)
+    _, serial_next = rand_next!(rng, serial, range; threaded = false)
+    @test filled === threaded
+    @test threaded == serial == expected
+    @test next_rng === serial_next === expected_next
+    @test rand!(rng, serial, range) === serial
+end
