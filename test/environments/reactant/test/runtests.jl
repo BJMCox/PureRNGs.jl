@@ -112,7 +112,8 @@ end
 function _same_transform_value(got, expected::T) where {T<:Union{Float32,Float64}}
     REACTANT_TEST_BACKEND == "cpu" || return _same_transform_class(got, expected)
     value = T(got)
-    return value === expected || value === nextfloat(expected) ||
+    return value === expected ||
+           value === nextfloat(expected) ||
            value === prevfloat(expected)
 end
 
@@ -676,6 +677,22 @@ end
     end
 end
 
+@testset "R42 fills trace no per-element constants" begin
+    # A dense literal with one entry per element grows with the fill and
+    # fails Reactant's constant size cap above 13 million elements.
+    for F in SELECTED_GENERATORS
+        carrier = Reactant.to_rarray(_positioned(F(0x123456), UInt64(3), UInt16(17)))
+        for draw in (
+            rng -> rand(rng, Float64, 4096),
+            rng -> randn(rng, Float32, 4096),
+            rng -> rand(rng, Int16(-31):Int16(3):Int16(41), 4096),
+        )
+            hlo = String(Reactant.@code_hlo optimize = false draw(carrier))
+            @test !occursin(r"dense<\[[^\]]{1024,}", hlo)
+        end
+    end
+end
+
 @testset "R42 fixed distributions" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
@@ -842,7 +859,9 @@ function _same_fill_snapshot(got, expected)
         size(array) == size(reference) &&
             all(_same_fill_transform_value.(Array(array), reference))
     end
-    return uniform && transformed && Array(got[4]) == expected[4] &&
+    return uniform &&
+           transformed &&
+           Array(got[4]) == expected[4] &&
            _same_value(got[5], expected[5])
 end
 
@@ -876,8 +895,16 @@ function _range_snapshot(rng)
     tupled =
         (rand(rng, Float32, (2, 3)), rand(rng, 1:1000, (3, 2)), rand_next(rng, (4,))...)
     addressed = randat(rng, Float64, 3:7)
-    return narrow, stepped, after_stepped, wide, linear, values, whole, after_whole,
-    tupled..., addressed
+    return narrow,
+    stepped,
+    after_stepped,
+    wide,
+    linear,
+    values,
+    whole,
+    after_whole,
+    tupled...,
+    addressed
 end
 
 _addressed_transforms(rng) = (randnat(rng, Float32, 2:5), randexpat(rng, Float64, 4:9))

@@ -31,8 +31,10 @@ end
 # as a separate kernel, and a two-lane vector form of the same core split a
 # draw into several fusions and ran up to six times slower in a chain.
 @inline _constant_like(::_TracedNumber{T}, value) where {T} = Ops.constant(T(value))
+# A broadcast scalar, not a dense constant: dense constants embed one value
+# per element in the module and are capped at 100 MB.
 @inline _constant_like(x::_TracedArray{T}, value) where {T} =
-    Ops.constant(fill(T(value), size(x)))
+    Reactant.broadcast_to_size(Ops.constant(T(value)), size(x))
 
 @inline _convert(::Type{T}, x::_TracedNumber{T}) where {T} = x
 @inline _convert(::Type{T}, x::_TracedNumber) where {T} = Ops.convert(_TracedNumber{T}, x)
@@ -62,7 +64,7 @@ end
 
 @inline _lift(x::_Lane, value) = _Lane(_constant_like(x.data, value))
 @inline _lift(x::_Lane, ::Type{T}, value) where {T} =
-    _Lane(Ops.constant(fill(T(value), size(x.data))))
+    _Lane(Reactant.broadcast_to_size(Ops.constant(T(value)), size(x.data)))
 @inline _convert(::Type{T}, x::_Lane) where {T} = _Lane(_convert(T, x.data))
 @inline _bitcast(::Type{T}, x::_Lane) where {T} = _Lane(_bitcast(T, x.data))
 @inline _shift_amount(x::_Lane, count::Integer) = _lift(x, count)
@@ -114,7 +116,8 @@ end
 @inline _signed_bits(::Type{Float64}) = Int64
 @inline Base.signbit(a::_Lane{<:_TracedArray{T}}) where {T<:AbstractFloat} =
     _bitcast(_signed_bits(T), a) < 0
-@inline Base.copysign(a::_Lane, sign::_Lane) = ifelse(signbit(sign), -one(a), one(a)) * abs(a)
+@inline Base.copysign(a::_Lane, sign::_Lane) =
+    ifelse(signbit(sign), -one(a), one(a)) * abs(a)
 @inline Base.one(a::_Lane) = _lift(a, 1)
 
 @inline IR._word_constant(::_ReactantWordOps, ::Val{W}, anchor, value) where {W} =
@@ -516,7 +519,7 @@ end
 # in stream order.
 function _stream_words(rng::_ReactantRNG{R}, position, ::Val{B}) where {R,B}
     lo = _lanes(position[1], Val(B))
-    los = Ops.add(lo, Ops.constant(UInt64.(0:B-1)))
+    los = Ops.add(lo, Ops.iota(UInt64, [B]; iota_dimension = 1))
     his = if _position128(R)
         carry = _convert(UInt64, Ops.compare(los, lo; comparison_direction = "LT"))
         Ops.add(_lanes(position[2], Val(B)), carry)
@@ -534,7 +537,7 @@ function _fill_raw(rng::_ReactantRNG{R}, ::Val{W}, n::Int) where {R,W}
     flat = _stream_words(rng, position, Val(_fill_blocks(R, n, Int(W))))
     offsets = Ops.multiply(
         Ops.iota(UInt64, [n]; iota_dimension = 1),
-        Ops.constant(fill(UInt64(W), n)),
+        _lanes(Ops.constant(UInt64(W)), Val(n)),
     )
     starts = _Lane(Ops.add(offsets, _lanes(position[end], Val(n))))
     lane = _shr(starts, 6)
