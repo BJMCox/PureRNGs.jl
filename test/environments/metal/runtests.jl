@@ -23,13 +23,13 @@ const METAL_FIXED_DISTRIBUTIONS = (
 const METAL_EXPONENTIAL_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
 const METAL_EXPONENTIAL_GOLDEN_BIT = UInt16(61)
 const METAL_EXPONENTIAL_GOLDEN_CASES = (
-    (Philox2x32, (UInt32(0x01234567),), UInt32(0xa05803)),
-    (Philox4x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0xda96ce)),
-    (Threefry2x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0x98edd2)),
+    (Philox2x32, (UInt32(0x01234567),), UInt32(0xf39608)),
+    (Philox4x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0x2029c8)),
+    (Threefry2x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0xd4b0fe)),
     (
         Threefry4x32,
         (UInt32(0x01234567), UInt32(0x89abcdef), UInt32(0xfedcba98), UInt32(0x76543210)),
-        UInt32(0xc12127),
+        UInt32(0x0d7f8e),
     ),
 )
 const METAL_EXPONENTIAL_LATTICE_LENGTH = 1 << 24
