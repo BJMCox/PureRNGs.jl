@@ -1,3 +1,8 @@
+# Reactant reserves three quarters of the GPU per process by default. The suite
+# uses a few hundred megabytes, so it allocates on demand and leaves the device
+# to other processes on the same host.
+get!(ENV, "XLA_REACTANT_GPU_PREALLOCATE", "false")
+
 using PureRNGs
 using Distributions
 using Random

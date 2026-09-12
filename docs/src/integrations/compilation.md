@@ -68,6 +68,9 @@ Do not use that path for frequently changing RNG state.
 Select the Reactant backend before conversion. Use `"gpu"` for a supported GPU environment.
 This is not an MLDataDevices `ReactantDevice()` binding.
 
+On a GPU, Reactant reserves three quarters of the device memory for its process by default.
+Compiled draws need a few hundred megabytes. Set `XLA_REACTANT_GPU_PREALLOCATE=false` before loading Reactant when other processes share the device.
+
 ## Compiled scope and limits
 
 Carriers support scalar primitive, range, and supported distribution draws, scalar continuations, addressed draws, static key derivation, and array draws with static sizes: uniform, normal, exponential, integer range, and unweighted `randsample`.
