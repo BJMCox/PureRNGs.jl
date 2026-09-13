@@ -6,7 +6,8 @@ using Printf
 # Load the backend package and set `target_device` before including this
 # file. For example:
 #
-# import CUDA
+# using PureRNGs
+# import CUDA, MLDataDevices
 # target_device = MLDataDevices.CUDADevice()
 # next_fill_function = randexp_next!
 # result_type = Float32
@@ -15,7 +16,7 @@ using Printf
 #
 # AMDGPUDevice, MetalDevice, and CPUDevice work the same way.
 @isdefined(target_device) || (target_device = MLDataDevices.CPUDevice())
-@isdefined(family) || (generator = Philox4x32)
+@isdefined(family) || (family = Philox4x32)
 @isdefined(result_type) || (result_type = UInt64)
 @isdefined(elements) || (elements = 2^22)
 @isdefined(seconds) || (seconds = 10.0)

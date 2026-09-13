@@ -13,14 +13,14 @@ using PureRNGs, Random
 
 # Each draw returns the next generator without changing the original.
 rng = Philox4x32(123456)
-rng, values = rand_next(rng, Float32, 1_000)
-rng, more = rand_next(rng, Float32, 1_000)
+values, rng = rand_next(rng, Float32, 1_000)
+more, rng = rand_next(rng, Float32, 1_000)
 
 # Use the same interface on a GPU.
 using CUDA, MLDataDevices
 
 rng = Philox4x32(123456) |> CUDADevice()
-rng, values = rand_next(rng, Float32, 1_000_000) # CuArray
+values, rng = rand_next(rng, Float32, 1_000_000) # CuArray
 ```
 
 > **Note:** This package is private and is not registered in the Julia General registry. Do not register it.

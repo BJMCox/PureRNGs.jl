@@ -52,11 +52,11 @@ end
 rng = Reactant.to_rarray(Philox4x32(123456))
 compiled_step = Reactant.@compile sync=true step(rng)
 
-rng, value = compiled_step(rng)
-rng, value = compiled_step(rng)
+value, rng = compiled_step(rng)
+value, rng = compiled_step(rng)
 
 other = Reactant.to_rarray(Philox4x32(654321))
-other, value = compiled_step(other)
+value, other = compiled_step(other)
 ```
 
 The converted carrier holds runtime key and position data.

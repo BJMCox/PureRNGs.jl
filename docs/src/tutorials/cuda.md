@@ -1,6 +1,7 @@
 # GPU kernels
 
-This tutorial requires CUDA and a working NVIDIA GPU.
+This tutorial requires CUDA, MLDataDevices, and KernelAbstractions in your Julia environment,
+plus a working NVIDIA GPU.
 The examples are optional and do not run in the CPU documentation build.
 
 ## Generate an array on the GPU

@@ -29,6 +29,7 @@ using Pkg
 Pkg.activate(".")
 Pkg.instantiate()
 Pkg.activate("docs")
+Pkg.develop(path=pwd())
 Pkg.instantiate()
 include("docs/make.jl")
 ```
@@ -69,9 +70,6 @@ Separate allocation, fills, kernel-local draws, and device transfers.
 Preserve benchmark results outside Git.
 
 ## Automation
-
-CPU tests run automatically on pull requests, pushes to `main`, and version tags.
-Manual dispatch remains available. New PR runs cancel older runs for the same PR.
 
 The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded execution,
 Linux/macOS/Windows.
