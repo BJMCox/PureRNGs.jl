@@ -29,8 +29,11 @@ jobs:
       - name: Diagnose continuation
         continue-on-error: true
         run: julia --startup-file=no --check-bounds=yes -O${{ matrix.optimization }} --project test/windows_continuation_diagnostic.jl
-      - name: Unoptimized control on the same machine
-        run: julia --startup-file=no --check-bounds=yes -O0 --project test/windows_continuation_diagnostic.jl
+      - name: Disable only SLP vectorization on the same machine
+        env:
+          JULIA_LLVM_ARGS: '-vectorize-slp=false'
+          DIAGNOSTIC_VARIANT: no-slp
+        run: julia --startup-file=no --check-bounds=yes -O2 --project test/windows_continuation_diagnostic.jl
       - uses: actions/upload-artifact@v7
         if: always()
         with:
