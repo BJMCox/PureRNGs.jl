@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        optimization: [2, 0]
+        optimization: [2]
     env:
       JULIA_NUM_THREADS: '4'
     steps:

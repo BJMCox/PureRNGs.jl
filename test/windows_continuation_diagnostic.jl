@@ -41,7 +41,8 @@ failed = false
 try
     include("uniform_allocating.jl")
 catch err
-    err isa Test.TestSetException || rethrow()
+    cause = err isa LoadError ? err.error : err
+    cause isa Test.TestSetException || rethrow()
     global failed = true
     println("[DEBUG-continuation] Original allocating suite failed")
 end
