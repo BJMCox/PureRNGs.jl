@@ -30,22 +30,22 @@
 @inline _core_block(::Type{F}, key, block::UInt64) where {F<:ChaCha} =
     _chacha(_draw_counter(Val(4), _address32(block)), key, Val(_rounds(F)))
 
-# CPU-bound 64-bit Philox runs through the host word ops for the widening multiply.
+# CPU-bound 64-bit Philox runs through the host word operations.
 @inline function _core_block(
     ::Type{F},
     key,
     block::UInt64,
 ) where {F<:Philox2x64{_CPUBackend}}
-    counter = _host_words(_draw_counter(Val(2), (block,)))
-    return _unwrap_words(_philox2x64(counter, _host_words(key), Val(_rounds(F))))
+    counter = _host_words(_draw_counter(Val(2), (block,)), Val(2))
+    return _unwrap_words(_philox2x64(counter, _host_words(key, Val(2)), Val(_rounds(F))))
 end
 @inline function _core_block(
     ::Type{F},
     key,
     block::NTuple{2,UInt64},
 ) where {F<:Philox4x64{_CPUBackend}}
-    counter = _host_words(_draw_counter(Val(4), block))
-    return _unwrap_words(_philox4x64(counter, _host_words(key), Val(_rounds(F))))
+    counter = _host_words(_draw_counter(Val(4), block), Val(4))
+    return _unwrap_words(_philox4x64(counter, _host_words(key, Val(4)), Val(_rounds(F))))
 end
 
 # `_block` is the bulk-codec seam; word extraction below is for scalar/peel/tail work.

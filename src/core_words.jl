@@ -65,11 +65,9 @@ end
     return _core_word(typeof(a), hi), _core_word(typeof(a), lo)
 end
 
-# Host word operations. The plain `UInt64` core keeps the portable four-product
-# multiply for GPU kernels, where 128-bit integers are not available on every
-# backend. On the host the widening multiply is one instruction, so the 64-bit
-# Philox generators run their core through these ops when bound to the CPU.
-struct _HostWordOps end
+# Four-word Philox needs native x86 multiplication: LLVM 20 can miscompile its
+# paired i128 products. The plain-word core stays portable for accelerators.
+struct _HostWordOps{N} end
 
 @inline _word_constant(::_HostWordOps, ::Val{W}, anchor::Unsigned, value) where {W} =
     typeof(anchor)(value)
@@ -79,11 +77,31 @@ struct _HostWordOps end
 @inline _word_xor(::_HostWordOps, ::Val{W}, a, b) where {W} = a ⊻ b
 @inline _word_rotate(::_HostWordOps, ::Val{W}, value, count) where {W} =
     bitrotate(value, count)
-@inline function _word_mulhilo(::_HostWordOps, ::Val{64}, a::UInt64, b::UInt64)
+@inline function _word_mulhilo(::_HostWordOps{N}, ::Val{64}, a::UInt64, b::UInt64) where {N}
+    @static if Sys.ARCH === :x86_64
+        if N == 4
+            return Core.Intrinsics.llvmcall(
+                raw"""
+                %product = call {i64, i64} asm "mulq $3", "={dx},={ax},1,r,~{flags}"(i64 %0, i64 %1)
+                %hi = extractvalue {i64, i64} %product, 0
+                %lo = extractvalue {i64, i64} %product, 1
+                %first = insertvalue [2 x i64] undef, i64 %hi, 0
+                %both = insertvalue [2 x i64] %first, i64 %lo, 1
+                ret [2 x i64] %both
+                """,
+                NTuple{2,UInt64},
+                Tuple{UInt64,UInt64},
+                a,
+                b,
+            )
+        end
+    end
     product = widemul(a, b)
     return (product >> 64) % UInt64, product % UInt64
 end
 
-@inline _host_word(value::UInt64) = _core_word(Val(64), _HostWordOps(), value)
-@inline _host_words(values::NTuple{N,UInt64}) where {N} = map(_host_word, values)
+@inline _host_word(value::UInt64, ::Val{N}) where {N} =
+    _core_word(Val(64), _HostWordOps{N}(), value)
+@inline _host_words(values::NTuple{N,UInt64}, lanes::Val) where {N} =
+    map(value -> _host_word(value, lanes), values)
 @inline _unwrap_words(words::NTuple{N,_CoreWord}) where {N} = map(word -> word.value, words)
