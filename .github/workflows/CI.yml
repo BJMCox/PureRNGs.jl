@@ -1,101 +1,36 @@
 name: CI
 
-# GPU and statistical release gates stay outside hosted CI.
+# Temporary diagnostic branch. Do not merge this workflow.
 on:
-  # Automatic runs are disabled while the repository is private. Trigger manually if needed.
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
-  test:
-    name: Julia ${{ matrix.julia }} / ${{ matrix.os }} / ${{ matrix.threads }} threads
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: read
-      id-token: write
+  windows:
+    name: Windows Julia 1.13 / O${{ matrix.optimization }}
+    runs-on: windows-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {julia: '1.10', os: ubuntu-latest, threads: '1'}
-          - {julia: '1', os: ubuntu-latest, threads: '4'}
-          - {julia: '1', os: macos-latest, threads: '4'}
-          - {julia: '1', os: windows-latest, threads: '4'}
-    env:
-      JULIA_NUM_THREADS: ${{ matrix.threads }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: julia-actions/setup-julia@v3
-        with:
-          version: ${{ matrix.julia }}
-      - uses: julia-actions/cache@v3
-      - uses: julia-actions/julia-buildpkg@v1
-      - uses: julia-actions/julia-runtest@v1
-        with:
-          coverage: ${{ matrix.julia == '1' && matrix.os == 'ubuntu-latest' }}
-      - uses: julia-actions/julia-processcoverage@v1
-        if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
-        with:
-          directories: src,ext
-      - uses: actions/upload-artifact@v7
-        if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
-        with:
-          name: coverage-core
-          path: lcov.info
-          if-no-files-found: error
-      - uses: codecov/codecov-action@v7
-        if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
-        with:
-          use_oidc: true
-          files: lcov.info
-          disable_search: true
-          fail_ci_if_error: true
-
-  extensions:
-    name: Extension / ${{ matrix.suite }} / CPU
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - {suite: distributions, entry: runtests.jl, args: ''}
-          - {suite: enzyme, entry: runtests.jl, args: ''}
-          - {suite: reactant, entry: test/runtests.jl, args: 'Philox4x32 Threefry4x64'}
+        optimization: [2, 0]
     env:
       JULIA_NUM_THREADS: '4'
-      PURERNGS_REACTANT_BACKEND: cpu
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
         with:
-          version: '1'
+          version: '1.13.0'
       - uses: julia-actions/cache@v3
-      - name: Test extension with coverage
-        run: |
-          julia --startup-file=no --check-bounds=yes --code-coverage=user \
-            --project=test/environments/${{ matrix.suite }} -e \
-            'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); include(popfirst!(ARGS))' \
-            test/environments/${{ matrix.suite }}/${{ matrix.entry }} ${{ matrix.args }}
-      - uses: julia-actions/julia-processcoverage@v1
-        with:
-          directories: src,ext
+      - name: Instantiate the package
+        run: julia --startup-file=no --project -e 'using Pkg; Pkg.instantiate()'
+      - name: Diagnose continuation
+        run: julia --startup-file=no --check-bounds=yes -O${{ matrix.optimization }} --project test/windows_continuation_diagnostic.jl
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          name: coverage-${{ matrix.suite }}
-          path: lcov.info
-          if-no-files-found: error
-      - uses: codecov/codecov-action@v7
-        with:
-          use_oidc: true
-          files: lcov.info
-          disable_search: true
-          fail_ci_if_error: true
+          name: windows-continuation-O${{ matrix.optimization }}
+          path: diagnostics/
+          if-no-files-found: warn
