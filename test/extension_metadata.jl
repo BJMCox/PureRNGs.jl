@@ -30,7 +30,7 @@ using TOML
     @test project["compat"]["Distributions"] == "0.25"
     @test project["compat"]["EnzymeCore"] == "0.8"
     @test project["compat"]["Metal"] == "1.7"
-    @test project["compat"]["Reactant"] == "=0.2.280"
+    @test project["compat"]["Reactant"] == "0.2.280"
 
     @test names(PureRNGs) == [
         :AbstractPureRNG,

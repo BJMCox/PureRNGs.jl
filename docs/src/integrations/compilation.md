@@ -37,7 +37,7 @@ derivatives = only(autodiff(
 
 ## Reactant: pass state as runtime data
 
-Reactant support currently targets version 0.2.280.
+Reactant support requires version 0.2.280 or later in the 0.2 series.
 Convert the generator once before compilation:
 
 ```julia

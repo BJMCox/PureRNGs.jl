@@ -79,6 +79,7 @@ Linux/macOS/Windows.
 The current Julia/Linux core job and independent Distributions, Enzyme, and Reactant CPU jobs
 each upload source and extension coverage to Codecov, which merges their reports.
 Each job retains its `lcov.info` in a separate `coverage-*` artifact.
+The Enzyme test environment requires version 0.13.203 or later for its Julia 1.13 compiler fixes.
 The Reactant job tests Philox4x32 and Threefry4x64.
 Full-family Reactant and GPU validation remain separate release gates.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
