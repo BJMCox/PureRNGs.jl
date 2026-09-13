@@ -1,4 +1,5 @@
 const _WEIGHT_BITS = UInt16(53)
+const _WEIGHTED_LOOKUP_LANES = 16
 
 @noinline function _invalid_weights()
     throw(
@@ -8,25 +9,16 @@ const _WEIGHT_BITS = UInt16(53)
     )
 end
 
-function _convert_weights(weights, ::Val{fold_total}) where {fold_total}
+function _collect_weights(weights)
     converted = Vector{Float64}(undef, length(weights))
-    total = zero(Float64)
     invalid = false
     @inbounds for ordinal in eachindex(converted)
         weight = Float64(_population_value(weights, UInt64(ordinal)))
         converted[ordinal] = weight
         invalid |= !isfinite(weight) || weight < zero(Float64)
-        fold_total && (total += weight)
     end
-    fold_total && (invalid |= !isfinite(total) || total <= zero(Float64))
     invalid && _invalid_weights()
-    return converted, total
-end
-
-@inline _collect_weights(weights) = first(_convert_weights(weights, Val(false)))
-
-function _prepare_weights(rng::_CPUGenerators, weights, agnostic::Bool)
-    return _convert_weights(weights, Val(true))
+    return converted
 end
 
 @inline function _convert_and_fold_weights!(
@@ -52,6 +44,22 @@ end
         invalid_result[1] = invalid
     end
     return converted
+end
+
+function _prepare_weight_scan(rng::_CPUGenerators, weights, _agnostic::Bool)
+    cumulative = Vector{Float64}(undef, length(weights))
+    total_result = Vector{Float64}(undef, 1)
+    invalid_result = Vector{Bool}(undef, 1)
+    _convert_and_fold_weights!(
+        weights,
+        nothing,
+        total_result,
+        invalid_result,
+        cumulative,
+        Val(true),
+    )
+    invalid_result[1] && _invalid_weights()
+    return nothing, total_result[1], cumulative
 end
 
 KernelAbstractions.@kernel function _prepare_weights_kernel!(
@@ -129,18 +137,102 @@ end
     return converted, total, nothing
 end
 
+# `threshold < cumulative[end]`; odd spans overlap one index between both halves.
+@inline function _weighted_cdf_index(cumulative, threshold)
+    lower = 1
+    span = length(cumulative)
+    @inbounds while span > 1
+        half = span >>> 1
+        middle = lower + half - 1
+        lower = ifelse(!(threshold < cumulative[middle]), middle + 1, lower)
+        span -= half
+    end
+    return lower
+end
+
+@inline function _fill_weighted_samples!(
+    ::KernelAbstractions.CPU,
+    rng::_CPUGenerators,
+    population,
+    _weights,
+    total::Float64,
+    cumulative,
+    destination,
+)
+    cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
+    index = firstindex(destination)
+    last = lastindex(destination)
+    if length(destination) >= _WEIGHTED_LOOKUP_LANES
+        thresholds = Vector{Float64}(undef, _WEIGHTED_LOOKUP_LANES)
+        lower = Vector{Int}(undef, _WEIGHTED_LOOKUP_LANES)
+        @inbounds while index <= last - (_WEIGHTED_LOOKUP_LANES - 1)
+            for lane = 1:_WEIGHTED_LOOKUP_LANES
+                raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
+                thresholds[lane] = _weighted_threshold_from_bits(raw, total)
+                lower[lane] = 1
+            end
+            span = length(cumulative)
+            while span > 1
+                half = span >>> 1
+                @inbounds @simd for lane = 1:_WEIGHTED_LOOKUP_LANES
+                    middle = lower[lane] + half - 1
+                    lower[lane] = ifelse(
+                        !(thresholds[lane] < cumulative[middle]),
+                        middle + 1,
+                        lower[lane],
+                    )
+                end
+                span -= half
+            end
+            for lane = 1:_WEIGHTED_LOOKUP_LANES
+                population_index = lower[lane]
+                destination[index+lane-1] =
+                    _population_value(population, UInt64(population_index))
+            end
+            index += _WEIGHTED_LOOKUP_LANES
+        end
+    end
+    @inbounds while index <= last
+        raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
+        threshold = _weighted_threshold_from_bits(raw, total)
+        population_index = _weighted_cdf_index(cumulative, threshold)
+        destination[index] = _population_value(population, UInt64(population_index))
+        index += 1
+    end
+    return destination
+end
+
+@inline function _fill_weighted_samples!(
+    backend,
+    rng,
+    population,
+    weights,
+    total,
+    cumulative,
+    destination,
+)
+    thresholds = _allocate_array(rng.device, Float64, (length(destination),))
+    _fill_weighted_thresholds!(backend, rng, total, thresholds)
+    order = _weighted_sortperm(rng.device, thresholds)
+    return _launch_weighted_scan!(
+        rng.device,
+        backend,
+        population,
+        weights,
+        thresholds,
+        order,
+        cumulative,
+        destination,
+    )
+end
+
 @inline function _weighted_threshold_from_bits(raw::UInt64, total::Float64)
     uniform = Float64(raw) * 0x1p-53
     return min(uniform * total, prevfloat(total))
 end
 
 @inline function _weighted_threshold(rng, position, total::Float64)
-    raw = _extract_bits_unchecked(
-        rng,
-        _position_block(position),
-        position.bit,
-        Val(53),
-    )
+    raw = _extract_bits_unchecked(rng, _position_block(position), position.bit, Val(53))
     return _weighted_threshold_from_bits(raw, total)
 end
 
@@ -163,8 +255,7 @@ end
     thresholds,
 )
     isempty(thresholds) && return thresholds
-    cursor =
-        _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
+    cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
     @inbounds for index in eachindex(thresholds)
         raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
         thresholds[index] = _weighted_threshold_from_bits(raw, total)
@@ -281,17 +372,13 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     destination = _allocate_sampling_result(rng, indexed, count)
     isempty(destination) && return destination, next_rng
 
-    thresholds = _allocate_array(rng.device, Float64, (count,))
-    backend = _fill_backend(thresholds)
-    _fill_weighted_thresholds!(backend, rng, total, thresholds)
-    order = _weighted_sortperm(rng.device, thresholds)
-    _launch_weighted_scan!(
-        rng.device,
+    backend = _fill_backend(destination)
+    _fill_weighted_samples!(
         backend,
+        rng,
         indexed,
         converted,
-        thresholds,
-        order,
+        total,
         cumulative,
         destination,
     )

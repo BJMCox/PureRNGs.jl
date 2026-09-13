@@ -59,7 +59,8 @@ Pass a plain vector of real weights. No weight wrapper is needed.
 Weights follow population positions. They must convert to finite, nonnegative `Float64` values with a finite, positive left-fold total.
 Zero weights exclude elements. Zero requested samples still require valid weights.
 
-A weighted batch sorts its thresholds once, sweeps the weights, then restores draw order.
+On CPU, a weighted batch builds its exact cumulative `Float64` weights once per call and
+looks up samples in draw order. Other backends may sort thresholds for a batch.
 The preparation is shared within that call, not cached across calls.
 
 ## Keep data on the right device

@@ -127,6 +127,12 @@ end
     population = Int32[10, 20, 30, 40]
     weights = Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0]
     @test randsample(rng, population, weights, 1) == Int32[10]
+
+    weights = [0.0, nextfloat(0.0), 0.0, nextfloat(0.0)]
+    expected_next, expected = _weighted_reference(rng, population, weights, 17)
+    values, next_rng = randsample_next(rng, population, weights, 17)
+    @test values == expected
+    @test next_rng === expected_next
 end
 
 @testset "R56 and R59 weighted sampling surface and fixed work" begin
@@ -164,7 +170,7 @@ end
     @test randsample(rng, population, weights) == default_expected
 end
 
-@testset "R59 sorted batch equals chained weighted scalar sampling" begin
+@testset "R59 weighted batch equals chained weighted scalar sampling" begin
     population = collect('a':'f')
     weights = [0.0, 1.0, 7.0, 0.0, 2.0, 4.0]
     rng = Philox4x32(0x9753)
