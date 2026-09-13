@@ -1,3 +1,8 @@
+if haskey(ENV, "PURERNGS_MULTIPLY_BENCHMARK")
+    include("host_multiply_benchmark.jl")
+    exit()
+end
+
 using Test
 using PureRNGs
 

@@ -8,16 +8,16 @@ permissions:
   contents: read
 
 jobs:
-  windows:
-    name: Windows Julia 1.13 / O${{ matrix.optimization }}
-    runs-on: windows-latest
+  multiply:
+    name: CPU multiply / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        optimization: [2]
+        os: [windows-latest, ubuntu-latest]
     env:
-      JULIA_NUM_THREADS: '4'
+      JULIA_NUM_THREADS: '1'
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
@@ -26,17 +26,17 @@ jobs:
       - uses: julia-actions/cache@v3
       - name: Instantiate the package
         run: julia --startup-file=no --project -e 'using Pkg; Pkg.instantiate()'
-      - name: Diagnose continuation
-        continue-on-error: true
-        run: julia --startup-file=no --check-bounds=yes -O${{ matrix.optimization }} --project test/windows_continuation_diagnostic.jl
-      - name: Disable only SLP vectorization on the same machine
+      - name: Measure the exact base without coverage
         env:
-          JULIA_LLVM_ARGS: '-vectorize-slp=false'
-          DIAGNOSTIC_VARIANT: no-slp
-        run: julia --startup-file=no --check-bounds=yes -O2 --project test/windows_continuation_diagnostic.jl
+          PURERNGS_MULTIPLY_BENCHMARK: baseline
+        run: julia --startup-file=no --project -e 'using Pkg; Pkg.test(; julia_args=["-O2"])'
+      - name: Check and measure shared portable arithmetic
+        env:
+          PURERNGS_MULTIPLY_BENCHMARK: portable
+        run: julia --startup-file=no --project -e 'using Pkg; Pkg.test(; julia_args=["-O2"])'
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: windows-continuation-O${{ matrix.optimization }}
+          name: cpu-multiply-${{ matrix.os }}
           path: diagnostics/
           if-no-files-found: warn
