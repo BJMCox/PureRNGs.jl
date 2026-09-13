@@ -36,7 +36,8 @@ function _reference_position(rng, additional_bits::Integer)
 end
 
 versioninfo()
-mkpath("diagnostics")
+const DIAGNOSTIC_DIR = joinpath("diagnostics", "O$(Base.JLOptions().opt_level)")
+mkpath(DIAGNOSTIC_DIR)
 failed = false
 try
     include("uniform_allocating.jl")
@@ -78,7 +79,7 @@ function probe(seed, ::Type{T}) where {T}
     )
 end
 
-open("diagnostics/probes.txt", "w") do io
+open(joinpath(DIAGNOSTIC_DIR, "probes.txt"), "w") do io
     for T in (UInt64, Int64, Float64)
         result = probe(0x62a, T)
         println(io, result)
@@ -88,16 +89,59 @@ open("diagnostics/probes.txt", "w") do io
     end
 end
 
+function dispatched_probe(seed, ::Type{T}) where {T}
+    rng = Philox4x64(seed)
+    _, successor = Base.invokelatest(rand_next, rng, T, 12)
+    expected = foldl(
+        (state, _) -> last(rand_next(state, T)), 1:12; init = rng,
+    )
+    bits = UInt64(12) * UInt64(IR._draw_bits(T))
+    reserved = Base.invokelatest(IR._reserve, rng, bits, UInt64(0))
+    position = successor.position
+    native = Base.invokelatest(
+        IR._core_block, typeof(rng), rng.key, (position.lo, position.hi),
+    )
+    result = (;
+        type = T,
+        state_equal = successor === expected,
+        batch_words = successor.block_words,
+        expected_words = expected.block_words,
+        reserved_words = reserved.block_words,
+        native_words = native,
+        next_batch = first(Base.invokelatest(rand_next, successor, T)),
+        next_expected = first(Base.invokelatest(rand_next, expected, T)),
+    )
+    println("[DEBUG-continuation] dispatched ", result)
+    return result
+end
+
+for T in (UInt64, Int64, Float64)
+    result = dispatched_probe(0x62a, T)
+    global failed |= !result.state_equal
+end
+
 function batch12(rng)
     return rand_next(rng, UInt64, 12)
 end
 
 rng = Philox4x64(0x62a)
-open("diagnostics/batch12.ll", "w") do io
+open(joinpath(DIAGNOSTIC_DIR, "batch12.ll"), "w") do io
     code_llvm(io, batch12, Tuple{typeof(rng)}; debuginfo = :none)
 end
-open("diagnostics/batch12.asm", "w") do io
+open(joinpath(DIAGNOSTIC_DIR, "batch12.asm"), "w") do io
     code_native(io, batch12, Tuple{typeof(rng)}; debuginfo = :none)
+end
+
+for (name, fn, types) in (
+    ("rand_next", rand_next, Tuple{typeof(rng),Type{UInt64},Int}),
+    ("reserve", IR._reserve, Tuple{typeof(rng),UInt64,UInt64}),
+)
+    open(joinpath(DIAGNOSTIC_DIR, "$name.ll"), "w") do io
+        code_llvm(io, fn, types; debuginfo = :none)
+    end
+    open(joinpath(DIAGNOSTIC_DIR, "$name.asm"), "w") do io
+        code_native(io, fn, types; debuginfo = :none)
+    end
 end
 
 failed && error("Continuation diagnostic reproduced a mismatch")

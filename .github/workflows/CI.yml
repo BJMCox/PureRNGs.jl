@@ -27,7 +27,10 @@ jobs:
       - name: Instantiate the package
         run: julia --startup-file=no --project -e 'using Pkg; Pkg.instantiate()'
       - name: Diagnose continuation
+        continue-on-error: true
         run: julia --startup-file=no --check-bounds=yes -O${{ matrix.optimization }} --project test/windows_continuation_diagnostic.jl
+      - name: Unoptimized control on the same machine
+        run: julia --startup-file=no --check-bounds=yes -O0 --project test/windows_continuation_diagnostic.jl
       - uses: actions/upload-artifact@v7
         if: always()
         with:
