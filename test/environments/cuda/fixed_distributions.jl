@@ -9,6 +9,16 @@ const CUDA_FIXED_DISTRIBUTIONS = (
     Bernoulli{Float64}(0.375),
     DiscreteUniform(-11, 17),
 )
+const CUDA_EXPANDED_CONTINUOUS_DISTRIBUTIONS = (
+    LogNormal{Float32}(0.25f0, 0.75f0),
+    LogNormal{Float64}(0.25, 0.75),
+    Weibull{Float32}(1.75f0, 0.75f0),
+    Weibull{Float64}(1.75, 0.75),
+    Rayleigh{Float32}(0.75f0),
+    Rayleigh{Float64}(0.75),
+    Laplace{Float32}(0.25f0, 0.75f0),
+    Laplace{Float64}(0.25, 0.75),
+)
 
 @inline _primitive(rng, ::Normal{T}) where {T} = randn(rng, T)
 @inline _primitive(rng, ::Uniform{T}) where {T} = rand(rng, T)
@@ -124,6 +134,80 @@ function _distribution_fill_functions(distribution)
     return pure, continued
 end
 
+@inline _expanded_result_type(::LogNormal{T}) where {T} = T
+@inline _expanded_result_type(::Weibull{T}) where {T} = T
+@inline _expanded_result_type(::Rayleigh{T}) where {T} = T
+@inline _expanded_result_type(::Laplace{T}) where {T} = T
+
+@inline _expanded_primitive_next(rng, ::LogNormal{T}) where {T} = randn_next(rng, T)
+@inline _expanded_primitive_next(rng, ::Weibull{T}) where {T} = randexp_next(rng, T)
+@inline _expanded_primitive_next(rng, ::Rayleigh{T}) where {T} = randexp_next(rng, T)
+@inline function _expanded_primitive_next(rng, ::Laplace{T}) where {T}
+    magnitude, after_magnitude = randexp_next(rng, T)
+    positive, next_rng = rand_next(after_magnitude, Bool)
+    return (magnitude, positive), next_rng
+end
+
+@inline _expanded_formula(d::LogNormal, primitive) = exp(fma(d.σ, primitive, d.μ))
+@inline _expanded_formula(d::Weibull, primitive) = d.θ * primitive^inv(d.α)
+@inline _expanded_formula(d::Rayleigh{T}, primitive) where {T} =
+    d.σ * sqrt(T(2) * primitive)
+@inline _expanded_formula(d::Laplace, primitive) =
+    fma(ifelse(primitive[2], d.θ, -d.θ), primitive[1], d.μ)
+
+function _expanded_chain(rng, distribution, count)
+    values = Vector{_expanded_result_type(distribution)}(undef, count)
+    cursor = rng
+    for index in eachindex(values)
+        primitive, cursor = _expanded_primitive_next(cursor, distribution)
+        values[index] = _expanded_formula(distribution, primitive)
+    end
+    return cursor, values
+end
+
+function _expanded_formula_kernel!(destination, rng, distribution)
+    if CUDA.threadIdx().x == 1
+        cursor = rng
+        @inbounds for index in eachindex(destination)
+            primitive, cursor = _expanded_primitive_next(cursor, distribution)
+            destination[index] = _expanded_formula(distribution, primitive)
+        end
+    end
+    return nothing
+end
+
+function _expanded_scalar_probe_kernel!(values, expected, rng, distribution)
+    if CUDA.threadIdx().x == 1
+        first_primitive, after_first = _expanded_primitive_next(rng, distribution)
+        second_primitive, _ = _expanded_primitive_next(after_first, distribution)
+        continued, next_rng = rand_next(rng, distribution)
+        first_value = _expanded_formula(distribution, first_primitive)
+        second_value = _expanded_formula(distribution, second_primitive)
+        @inbounds begin
+            values[1] = rand(rng, distribution)
+            values[2] = continued
+            values[3] = randat(rng, distribution, 1)
+            values[4] = rand(next_rng, distribution)
+            values[5] = randat(rng, distribution, 2)
+            expected[1] = first_value
+            expected[2] = first_value
+            expected[3] = first_value
+            expected[4] = second_value
+            expected[5] = second_value
+        end
+    end
+    return nothing
+end
+
+function _expanded_addressed_kernel!(destination, rng, distribution)
+    if CUDA.threadIdx().x == 1
+        @inbounds for index in eachindex(destination)
+            destination[index] = randat(rng, distribution, index)
+        end
+    end
+    return nothing
+end
+
 @testset "CUDA fixed-distribution scalar kernel probes" begin
     rng = device(Philox4x32(0x64c0))
     values32 = CUDA.CuArray{Float32}(undef, 15)
@@ -179,6 +263,57 @@ end
     for (distribution, values, raw) in zip(CUDA_FIXED_DISTRIBUTIONS, observed, primitive)
         expected = map(value -> _distribution_oracle(distribution, value), raw)
         @test isequal(values, expected)
+    end
+end
+
+@testset "CUDA expanded continuous mapped forms" begin
+    rng = device(Philox4x32(0x64c6))
+    for distribution in CUDA_EXPANDED_CONTINUOUS_DISTRIBUTIONS
+        @testset "$distribution" begin
+            T = _expanded_result_type(distribution)
+            scalar_values = CUDA.CuArray{T}(undef, 5)
+            scalar_expected = similar(scalar_values)
+            formula_values = CUDA.CuArray{T}(undef, 2048)
+            addressed = similar(formula_values)
+
+            CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _expanded_scalar_probe_kernel!(
+                scalar_values,
+                scalar_expected,
+                rng,
+                distribution,
+            )
+            @test isequal(Array(scalar_values), Array(scalar_expected))
+
+            CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _expanded_formula_kernel!(
+                formula_values,
+                rng,
+                distribution,
+            )
+            CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _expanded_addressed_kernel!(
+                addressed,
+                rng,
+                distribution,
+            )
+            @test isequal(Array(addressed), Array(formula_values))
+
+            pure_values = rand(rng, distribution, length(formula_values))
+            values, next_rng = rand_next(rng, distribution, length(formula_values))
+            expected_next, _ = _expanded_chain(rng, distribution, length(formula_values))
+            @test isequal(Array(pure_values), Array(formula_values))
+            @test isequal(Array(values), Array(formula_values))
+            @test next_rng.position == expected_next.position
+            @test next_rng.device == expected_next.device
+
+            destination = similar(formula_values)
+            @test rand!(rng, distribution, destination) === destination
+            @test isequal(Array(destination), Array(formula_values))
+
+            returned, fill_next = rand_next!(rng, distribution, destination)
+            @test returned === destination
+            @test isequal(Array(destination), Array(formula_values))
+            @test fill_next.position == expected_next.position
+            @test fill_next.device == expected_next.device
+        end
     end
 end
 

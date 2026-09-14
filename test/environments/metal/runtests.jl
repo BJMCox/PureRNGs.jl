@@ -228,6 +228,21 @@ end
     end
 end
 
+@testset "Metal excludes added device-executing samplers" begin
+    rng = MetalDevice()(Philox4x32(0x91f))
+    for distribution in (
+        LogNormal(0.0f0, 1.0f0),
+        Weibull(2.0f0, 1.0f0),
+        Rayleigh(1.0f0),
+        Laplace(0.0f0, 1.0f0),
+    )
+        T = typeof(rand(rng, distribution))
+        destination = MetalDeviceArrayProbe(T[])
+        _check_metal_error(() -> rand(rng, distribution, 0))
+        _check_metal_error(() -> rand_next!(rng, distribution, destination))
+    end
+end
+
 if Metal.functional()
     @testset "R41 Metal served primitive smoke" begin
         for F in METAL_32_GENERATORS, T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
@@ -256,12 +271,7 @@ if Metal.functional()
         for (F, key, raw) in METAL_EXPONENTIAL_GOLDEN_CASES
             rng = _metal_exponential_golden_rng(F, key)
             block = IR._position_block(rng.position)
-            extracted = IR._extract_bits_unchecked(
-                rng,
-                block,
-                rng.position.bit,
-                Val(24),
-            )
+            extracted = IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(24))
             @test extracted == UInt64(raw)
 
             device_values, next_rng = IR.randexp_next(rng, Float32, 1)

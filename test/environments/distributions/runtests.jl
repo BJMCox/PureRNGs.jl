@@ -297,8 +297,7 @@ end
     rand_next!(rng, bernoulli, bits; threaded = false)
     @test @allocated(rand_next!(rng, bernoulli, bits; threaded = false)) == 0
 
-    ambiguities =
-        Test.detect_ambiguities(PureRNGs, Random, Distributions; recursive = true)
+    ambiguities = Test.detect_ambiguities(PureRNGs, Random, Distributions; recursive = true)
     extension_ambiguities = filter(ambiguities) do pair
         any(method -> method.module === EXT, pair)
     end
@@ -326,3 +325,5 @@ end
     @test rand(mutable_rng, exponential, 11) == batch_expected
     @test parent(mutable_rng) === batch_next
 end
+
+include("distribution_expansion.jl")

@@ -62,7 +62,7 @@ end
     _distribution_span(codec.distribution)
 
 @inline function IR._cooperative_value(
-    codec::_DistributionCodec{Distributions.Normal{T}},
+    codec::_DistributionCodec{<:Union{Distributions.Normal{T},Distributions.LogNormal{T}}},
     ::Type,
     raw,
 ) where {T<:_FloatType}
@@ -78,13 +78,31 @@ end
 end
 
 @inline function IR._cooperative_value(
-    codec::_DistributionCodec{Distributions.Exponential{T}},
+    codec::_DistributionCodec{
+        <:Union{
+            Distributions.Exponential{T},
+            Distributions.Weibull{T},
+            Distributions.Rayleigh{T},
+        },
+    },
     ::Type,
     raw,
 ) where {T<:_FloatType}
     return _map_distribution(
         codec.distribution,
         IR._exponential_from_bits(codec.device, T, raw),
+    )
+end
+
+@inline function IR._cooperative_value(
+    codec::_DistributionCodec{Distributions.Laplace{T}},
+    ::Type,
+    raw,
+) where {T<:_FloatType}
+    return _map_distribution(
+        codec.distribution,
+        IR._exponential_from_bits(codec.device, T, raw >> 1),
+        isodd(raw),
     )
 end
 
@@ -104,7 +122,7 @@ end
 end
 
 @inline function IR._transformed_fill_plan(
-    ::_DistributionCodec{Distributions.Normal{T}},
+    ::_DistributionCodec{<:Union{Distributions.Normal{T},Distributions.LogNormal{T}}},
     backend,
     rng,
     ::Type,
@@ -122,11 +140,20 @@ end
 end
 
 @inline IR._transformed_fill_plan(
-    codec::_DistributionCodec{<:Distributions.Exponential},
+    codec::_DistributionCodec{
+        <:Union{Distributions.Exponential,Distributions.Weibull,Distributions.Rayleigh},
+    },
     backend,
     rng,
     ::Type{T},
 ) where {T<:_FloatType} = IR._transformed_fill_plan(codec.device, backend, rng, T)
+
+@inline IR._transformed_fill_plan(
+    ::_DistributionCodec{<:Distributions.Laplace},
+    backend,
+    rng,
+    ::Type,
+) = nothing
 
 @inline function IR._transformed_fill_plan(
     ::_DistributionCodec{Distributions.Bernoulli{T}},
@@ -221,6 +248,14 @@ for (distribution_type, result_type) in (
     (Distributions.Uniform{Float64}, Float64),
     (Distributions.Exponential{Float32}, Float32),
     (Distributions.Exponential{Float64}, Float64),
+    (Distributions.LogNormal{Float32}, Float32),
+    (Distributions.LogNormal{Float64}, Float64),
+    (Distributions.Weibull{Float32}, Float32),
+    (Distributions.Weibull{Float64}, Float64),
+    (Distributions.Rayleigh{Float32}, Float32),
+    (Distributions.Rayleigh{Float64}, Float64),
+    (Distributions.Laplace{Float32}, Float32),
+    (Distributions.Laplace{Float64}, Float64),
     (Distributions.Bernoulli{Float32}, Bool),
     (Distributions.Bernoulli{Float64}, Bool),
     (Distributions.DiscreteUniform, Int),

@@ -40,6 +40,16 @@ const NORMAL_DISTRIBUTIONS = (
     Normal{Float32}(zero(Float32), nextfloat(zero(Float32))),
     Normal{Float64}(zero(Float64), nextfloat(zero(Float64))),
 )
+const CONTINUOUS_DISTRIBUTIONS = (
+    LogNormal{Float32}(Float32(0.25), Float32(0.75)),
+    LogNormal{Float64}(0.25, 0.75),
+    Weibull{Float32}(Float32(1.75), Float32(0.75)),
+    Weibull{Float64}(1.75, 0.75),
+    Rayleigh{Float32}(Float32(0.75)),
+    Rayleigh{Float64}(0.75),
+    Laplace{Float32}(Float32(0.25), Float32(0.75)),
+    Laplace{Float64}(0.25, 0.75),
+)
 const FIXED_DISTRIBUTIONS = (
     Uniform{Float32}(Float32(-2), Float32(3)),
     Uniform{Float64}(-2, 3),
@@ -353,6 +363,54 @@ end
 _distribution_formula(d::Exponential, primitive) = d.θ * primitive[4]
 _distribution_formula(d::Bernoulli, primitive) = primitive < d.p
 _distribution_formula(::DiscreteUniform, primitive) = primitive
+
+_continuous_primitive_next(rng, ::LogNormal{T}) where {T} = randn_next(rng, T)
+_continuous_primitive_next(rng, ::Weibull{T}) where {T} = randexp_next(rng, T)
+_continuous_primitive_next(rng, ::Rayleigh{T}) where {T} = randexp_next(rng, T)
+function _continuous_primitive_next(rng, ::Laplace{T}) where {T}
+    magnitude, after_magnitude = randexp_next(rng, T)
+    positive, next_rng = rand_next(after_magnitude, Bool)
+    return (magnitude, positive), next_rng
+end
+
+_continuous_formula(d::LogNormal, primitive) = exp(muladd(d.σ, primitive, d.μ))
+_continuous_formula(d::Weibull, primitive) = d.θ * primitive^inv(d.α)
+_continuous_formula(d::Rayleigh{T}, primitive) where {T} = d.σ * sqrt(T(2) * primitive)
+_continuous_formula(d::Laplace, primitive) =
+    muladd(ifelse(primitive[2], d.θ, -d.θ), primitive[1], d.μ)
+
+function _continuous_distribution_snapshot(rng)
+    return map(CONTINUOUS_DISTRIBUTIONS) do distribution
+        primitive, expected_next = _continuous_primitive_next(rng, distribution)
+        addressed = PureRNGs._addressed_rng(
+            rng,
+            REACTANT_DISTRIBUTIONS_EXT._distribution_span(distribution),
+            3,
+        )
+        addressed_primitive, _ = _continuous_primitive_next(addressed, distribution)
+        continued, actual_next = rand_next(rng, distribution)
+        return (
+            rand(rng, distribution),
+            _continuous_formula(distribution, primitive),
+            continued,
+            _continuous_formula(distribution, primitive),
+            actual_next,
+            expected_next,
+            randat(rng, distribution, 3),
+            _continuous_formula(distribution, addressed_primitive),
+        )
+    end
+end
+
+function _same_continuous_mapping(got, expected)
+    return _same_value(got[1], got[2]) &&
+           _same_value(got[3], got[4]) &&
+           _same_value(got[7], got[8]) &&
+           _same_transform_value(got[2], expected[2]) &&
+           _same_transform_value(got[4], expected[4]) &&
+           _same_transform_value(got[8], expected[8]) &&
+           _same_value(got[5], expected[6])
+end
 
 function _distribution_pair(rng, distribution)
     primitive = _distribution_primitive(rng, distribution)
@@ -744,6 +802,20 @@ end
                 second_carrier,
             )
         end
+    end
+end
+
+if Philox4x32 in SELECTED_GENERATORS
+    @testset "R42 added continuous fixed distributions" begin
+        eager = _positioned(Philox4x32(0x123456), UInt64(3), UInt16(17))
+        carrier = Reactant.to_rarray(eager)
+        compiled = Reactant.@compile sync = true _continuous_distribution_snapshot(carrier)
+        got = compiled(carrier)
+        expected = _continuous_distribution_snapshot(eager)
+        for (got_value, expected_value) in zip(got, expected)
+            @test _same_continuous_mapping(got_value, expected_value)
+        end
+        @test _same_value(compiled(carrier), got)
     end
 end
 

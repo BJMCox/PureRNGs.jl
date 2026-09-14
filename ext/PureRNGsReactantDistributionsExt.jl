@@ -22,6 +22,16 @@ struct _ReactantDistributionOps end
     Random.rand(rng, T)
 @inline _primitive(rng, ::Distributions.Exponential{T}) where {T<:_FloatType} =
     Random.randexp(rng, T)
+@inline _primitive(rng, ::Distributions.LogNormal{T}) where {T<:_FloatType} =
+    Random.randn(rng, T)
+@inline _primitive(rng, ::Distributions.Weibull{T}) where {T<:_FloatType} =
+    Random.randexp(rng, T)
+@inline _primitive(rng, ::Distributions.Rayleigh{T}) where {T<:_FloatType} =
+    Random.randexp(rng, T)
+@inline function _primitive(rng, ::Distributions.Laplace{T}) where {T<:_FloatType}
+    magnitude, after_magnitude = IR.randexp_next(rng, T)
+    return magnitude, Random.rand(after_magnitude, Bool)
+end
 @inline _primitive(rng, ::Distributions.Bernoulli{T}) where {T<:_FloatType} =
     Random.rand(rng, T)
 @inline _primitive(rng, d::Distributions.DiscreteUniform) = Random.rand(rng, d.a:d.b)
@@ -32,6 +42,17 @@ struct _ReactantDistributionOps end
     IR.rand_next(rng, T)
 @inline _primitive_next(rng, ::Distributions.Exponential{T}) where {T<:_FloatType} =
     IR.randexp_next(rng, T)
+@inline _primitive_next(rng, ::Distributions.LogNormal{T}) where {T<:_FloatType} =
+    IR.randn_next(rng, T)
+@inline _primitive_next(rng, ::Distributions.Weibull{T}) where {T<:_FloatType} =
+    IR.randexp_next(rng, T)
+@inline _primitive_next(rng, ::Distributions.Rayleigh{T}) where {T<:_FloatType} =
+    IR.randexp_next(rng, T)
+@inline function _primitive_next(rng, ::Distributions.Laplace{T}) where {T<:_FloatType}
+    magnitude, after_magnitude = IR.randexp_next(rng, T)
+    positive, next_rng = IR.rand_next(after_magnitude, Bool)
+    return (magnitude, positive), next_rng
+end
 @inline _primitive_next(rng, ::Distributions.Bernoulli{T}) where {T<:_FloatType} =
     IR.rand_next(rng, T)
 @inline _primitive_next(rng, d::Distributions.DiscreteUniform) = IR.rand_next(rng, d.a:d.b)
@@ -42,6 +63,19 @@ struct _ReactantDistributionOps end
     IR.randat(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Exponential{T}, index) where {T<:_FloatType} =
     IR.randexpat(rng, T, index)
+@inline _primitive_at(rng, ::Distributions.LogNormal{T}, index) where {T<:_FloatType} =
+    IR.randnat(rng, T, index)
+@inline _primitive_at(rng, ::Distributions.Weibull{T}, index) where {T<:_FloatType} =
+    IR.randexpat(rng, T, index)
+@inline _primitive_at(rng, ::Distributions.Rayleigh{T}, index) where {T<:_FloatType} =
+    IR.randexpat(rng, T, index)
+@inline function _primitive_at(
+    rng,
+    d::Distributions.Laplace{T},
+    index,
+) where {T<:_FloatType}
+    return _primitive(IR._addressed_rng(rng, _distribution_span(d), index), d)
+end
 @inline _primitive_at(rng, ::Distributions.Bernoulli{T}, index) where {T<:_FloatType} =
     IR.randat(rng, T, index)
 @inline function _primitive_at(rng, d::Distributions.DiscreteUniform, index)
@@ -55,6 +89,12 @@ end
 @inline _map_primitive(d::Distributions.Uniform, value) =
     _map_distribution(_ReactantDistributionOps(), d, value)
 @inline _map_primitive(d::Distributions.Exponential, value) = _map_distribution(d, value)
+@inline _map_primitive(d::Distributions.LogNormal, value) =
+    _map_distribution(_ReactantDistributionOps(), d, value)
+@inline _map_primitive(d::Distributions.Weibull, value) = _map_distribution(d, value)
+@inline _map_primitive(d::Distributions.Rayleigh, value) = _map_distribution(d, value)
+@inline _map_primitive(d::Distributions.Laplace, payload) =
+    _map_distribution(_ReactantDistributionOps(), d, payload...)
 @inline _map_primitive(d::Distributions.Bernoulli, value) = _map_distribution(d, value)
 @inline _map_primitive(::Distributions.DiscreteUniform, value) = value
 
