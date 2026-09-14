@@ -236,3 +236,64 @@ end
         @test last.position.bit != WeightedIR._EXHAUSTED_BIT
     end
 end
+
+@testset "R67 weighted destination sampling" begin
+    rng = Philox4x32(0x9756)
+    population = Int32[10, 20, 30, 40]
+    weights = Float64[1, 2, 3, 4]
+    expected, after = randsample_next(rng, population, weights, 33)
+    destination = SamplingSerialProbe(similar(expected))
+
+    returned, next_rng =
+        randsample_next!(rng, population, weights, destination; threaded = false)
+    @test returned === destination
+    @test destination.values == expected
+    @test next_rng === after
+
+    @test randsample!(rng, population, weights, destination; threaded = false) ===
+          destination
+    @test destination.values == expected
+
+    last = _last_weighted_rng(Philox4x32)
+    preserved = fill(Int32(-1), 2)
+    before = copy(preserved)
+    @test_throws ArgumentError randsample_next!(last, population, weights, preserved)
+    @test preserved == before
+end
+
+@testset "R67 weighted destination may overlap prepared weights" begin
+    rng = Philox4x32(0x9757)
+    population = Float64.(1:33)
+    weights = Float64.(1:33)
+    expected, after = randsample_next(rng, population, weights, 33)
+
+    returned, next_rng =
+        randsample_next!(rng, population, weights, weights; threaded = false)
+    @test returned === weights
+    @test weights == expected
+    @test next_rng === after
+
+    empty = Float64[]
+    @test randsample_next!(rng, population, ones(33), empty; threaded = false) ==
+          (empty, rng)
+end
+
+@testset "R67 Cartesian destination order" begin
+    rng = Philox4x32(0x9758)
+    population = Int32[10, 20, 30, 40]
+    weights = Float64[1, 2, 3, 4]
+
+    for maybe_weights in (nothing, weights)
+        expected, after =
+            maybe_weights === nothing ? randsample_next(rng, population, 6) :
+            randsample_next(rng, population, maybe_weights, 6)
+        destination = IdentityAxesMatrix(Matrix{Int32}(undef, 2, 3))
+        returned, next_rng =
+            maybe_weights === nothing ?
+            randsample_next!(rng, population, destination; threaded = false) :
+            randsample_next!(rng, population, maybe_weights, destination; threaded = false)
+        @test returned === destination
+        @test vec(destination.data) == expected
+        @test next_rng === after
+    end
+end

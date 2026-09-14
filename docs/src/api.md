@@ -60,6 +60,8 @@ rngposition
 ```@docs
 randsample
 randsample_next
+randsample!
+randsample_next!
 ```
 
 ## Mutable interoperability

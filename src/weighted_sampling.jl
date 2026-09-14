@@ -150,22 +150,21 @@ end
     return lower
 end
 
-@inline function _fill_weighted_samples!(
-    ::KernelAbstractions.CPU,
+@inline function _fill_weighted_samples_cpu_unchecked!(
     rng::_CPUGenerators,
     population,
-    _weights,
     total::Float64,
     cumulative,
     destination,
 )
     cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
-    index = firstindex(destination)
-    last = lastindex(destination)
+    indices = eachindex(destination)
+    ordinal = 1
+    last_ordinal = length(destination)
     if length(destination) >= _WEIGHTED_LOOKUP_LANES
         thresholds = Vector{Float64}(undef, _WEIGHTED_LOOKUP_LANES)
         lower = Vector{Int}(undef, _WEIGHTED_LOOKUP_LANES)
-        @inbounds while index <= last - (_WEIGHTED_LOOKUP_LANES - 1)
+        @inbounds while ordinal <= last_ordinal - (_WEIGHTED_LOOKUP_LANES - 1)
             for lane = 1:_WEIGHTED_LOOKUP_LANES
                 raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
                 thresholds[lane] = _weighted_threshold_from_bits(raw, total)
@@ -186,20 +185,39 @@ end
             end
             for lane = 1:_WEIGHTED_LOOKUP_LANES
                 population_index = lower[lane]
-                destination[index+lane-1] =
-                    _population_value(population, UInt64(population_index))
+                index = _sampling_destination_index(indices, ordinal + lane - 1)
+                destination[index] = _population_value(population, UInt64(population_index))
             end
-            index += _WEIGHTED_LOOKUP_LANES
+            ordinal += _WEIGHTED_LOOKUP_LANES
         end
     end
-    @inbounds while index <= last
+    @inbounds while ordinal <= last_ordinal
         raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
         threshold = _weighted_threshold_from_bits(raw, total)
         population_index = _weighted_cdf_index(cumulative, threshold)
+        index = _sampling_destination_index(indices, ordinal)
         destination[index] = _population_value(population, UInt64(population_index))
-        index += 1
+        ordinal += 1
     end
     return destination
+end
+
+@inline function _fill_weighted_samples!(
+    ::KernelAbstractions.CPU,
+    rng::_CPUGenerators,
+    population,
+    _weights,
+    total::Float64,
+    cumulative,
+    destination,
+)
+    return _fill_weighted_samples_cpu_unchecked!(
+        rng,
+        population,
+        total,
+        cumulative,
+        destination,
+    )
 end
 
 @inline function _fill_weighted_samples!(
@@ -279,12 +297,13 @@ end
 @inline function _scan_weighted!(population, weights, thresholds, order, destination)
     cumulative = zero(Float64)
     ordered_draw = 1
+    indices = eachindex(destination)
     @inbounds for population_index in eachindex(weights)
         cumulative += weights[population_index]
         while ordered_draw <= length(order) && thresholds[order[ordered_draw]] < cumulative
             original_index = order[ordered_draw]
-            destination[original_index] =
-                _population_value(population, UInt64(population_index))
+            index = _sampling_destination_index(indices, original_index)
+            destination[index] = _population_value(population, UInt64(population_index))
             ordered_draw += 1
         end
     end
@@ -385,6 +404,39 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     return destination, next_rng
 end
 
+function _randsample_next_weighted!(rng, population, weights, destination, threaded::Bool)
+    _check_sampling_fill_device(rng, destination)
+    _check_sampling_serviceability(rng)
+    population_agnostic = _check_population_device(rng, population)
+    weights_agnostic = _check_sampling_device(rng, weights, "weights")
+    _check_sampling_population_overlap(destination, population)
+    _prevalidate_sampling_cardinality(population, length(destination))
+    indexed = _prepare_population(rng.device, population, population_agnostic)
+    cardinality = _sampling_cardinality(indexed)
+    UInt64(length(weights)) == cardinality ||
+        throw(ArgumentError("weight length differs from the population cardinality"))
+    _check_sampling_destination_eltype(destination, indexed)
+    !isempty(destination) && iszero(cardinality) && _empty_sampling_population()
+
+    converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
+    next_rng = _sampling_reservation(rng, length(destination), _WEIGHT_BITS)
+    isempty(destination) && return destination, next_rng
+    if !threaded && rng.device isa _CPUBackend
+        _fill_weighted_samples_cpu_unchecked!(rng, indexed, total, cumulative, destination)
+        return destination, next_rng
+    end
+    _fill_weighted_samples!(
+        _fill_backend(destination),
+        rng,
+        indexed,
+        converted,
+        total,
+        cumulative,
+        destination,
+    )
+    return destination, next_rng
+end
+
 @inline function randsample(
     rng::AbstractPureRNG,
     population,
@@ -420,4 +472,26 @@ end
     count::Integer,
 )
     return _randsample_next_weighted(rng, population, weights, count)
+end
+
+@inline function randsample!(
+    rng::AbstractPureRNG,
+    population,
+    weights::AbstractVector{<:Real},
+    destination::AbstractArray;
+    threaded::Bool = true,
+)
+    return first(
+        _randsample_next_weighted!(rng, population, weights, destination, threaded),
+    )
+end
+
+@inline function randsample_next!(
+    rng::AbstractPureRNG,
+    population,
+    weights::AbstractVector{<:Real},
+    destination::AbstractArray;
+    threaded::Bool = true,
+)
+    return _randsample_next_weighted!(rng, population, weights, destination, threaded)
 end

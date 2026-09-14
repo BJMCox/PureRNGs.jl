@@ -241,6 +241,9 @@ end
         _check_metal_error(() -> rand(rng, distribution, 0))
         _check_metal_error(() -> rand_next!(rng, distribution, destination))
     end
+    destination = MetalDeviceArrayProbe(Int[])
+    _check_metal_error(() -> randsample!(rng, 1:3, destination))
+    _check_metal_error(() -> randsample_next!(rng, 1:3, ones(3), destination))
 end
 
 if Metal.functional()

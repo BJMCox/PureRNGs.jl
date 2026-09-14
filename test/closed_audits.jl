@@ -51,6 +51,8 @@ end
         subrng,
         randsample,
         randsample_next,
+        randsample!,
+        randsample_next!,
     )
     @test foreign_functions ==
           Set((rand, rand!, randn, randn!, randexp, randexp!, Random.seed!, copy, parent))
@@ -136,6 +138,10 @@ end
         require(function_, Tuple{R,typeof(population),typeof(weights)})
         require(function_, Tuple{R,typeof(population),typeof(weights),Int})
     end
+    for function_ in (randsample!, randsample_next!)
+        require(function_, Tuple{R,typeof(population),Vector{Int32}})
+        require(function_, Tuple{R,typeof(population),typeof(weights),Vector{Int32}})
+    end
 
     for function_ in owned_functions
         methods_ =
@@ -176,6 +182,10 @@ end
             _audit_methods(function_)
         )
     )
+    @test all(
+        Base.kwarg_decl(method) == [:threaded] for
+        function_ in (randsample!, randsample_next!) for method in _audit_methods(function_)
+    )
 
     cpu = AuditIR.MLDataDevices.CPUDevice()
     device_method = which(cpu, Tuple{R})
@@ -183,8 +193,7 @@ end
     # Julia 1.10 also lists the shadowed AbstractDevice fallback.
     @test Set(
         method for method in methods(cpu) if method.module === AuditIR &&
-            Base.unwrap_unionall(method.sig).parameters[1] <:
-            AuditIR.MLDataDevices.CPUDevice
+        Base.unwrap_unionall(method.sig).parameters[1] <: AuditIR.MLDataDevices.CPUDevice
     ) == Set((device_method,))
     @test isempty(Base.kwarg_decl(device_method))
 end

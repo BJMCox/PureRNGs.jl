@@ -248,12 +248,12 @@ function _as241_kernel!(coefficients32, probes32, coefficients64, probes64)
         _write_coefficients!(coefficients64, IR._as241_coefficients(Float64))
         @inbounds begin
             probes32[1] = IR._normal_midpoint(Float32, UInt64(0))
-            probes32[2] = IR._normal_midpoint(Float32, (UInt64(1)<<23) - UInt64(1))
+            probes32[2] = IR._normal_midpoint(Float32, (UInt64(1) << 23) - UInt64(1))
             probes32[3] = IR._as241(0.5f0)
             probes32[4] = IR._as241(0.95f0)
             probes32[5] = IR._as241(1.0f-12)
             probes64[1] = IR._normal_midpoint(Float64, UInt64(0))
-            probes64[2] = IR._normal_midpoint(Float64, (UInt64(1)<<52) - UInt64(1))
+            probes64[2] = IR._normal_midpoint(Float64, (UInt64(1) << 52) - UInt64(1))
             probes64[3] = IR._as241(0.5)
             probes64[4] = IR._as241(0.95)
             probes64[5] = IR._as241(1.0e-20)
@@ -503,7 +503,7 @@ function _cuda_profile_events(profile)
     window = findall(
         index ->
             profile.device.start[index] >= profile.host.stop[first_sync] &&
-            profile.device.stop[index] <= profile.host.stop[last_sync],
+                profile.device.stop[index] <= profile.host.stop[last_sync],
         eachindex(profile.device.name),
     )
     kernels = filter(index -> !ismissing(profile.device.grid[index]), window)
@@ -1765,6 +1765,40 @@ end
             2,
         )
     end
+end
+
+@testset "R67 CUDA population destination fills" begin
+    rng = device(Philox4x32(0x9767))
+    population = CUDA.CuArray(Int32[11, 13, 17, 19])
+    expected, after = randsample_next(rng, population, 33)
+    storage = CUDA.CuArray{Int32}(undef, 34)
+    destination = @view storage[2:end]
+
+    returned, next_rng = randsample_next!(rng, population, destination)
+    @test returned === destination
+    CUDA.synchronize()
+    @test Array(destination) == Array(expected)
+    @test next_rng.position == after.position
+
+    @test randsample!(rng, population, destination) === destination
+    CUDA.synchronize()
+    @test Array(destination) == Array(expected)
+
+    aliased_population = CUDA.CuArray(Int32[23, 29, 31])
+    before = Array(aliased_population)
+    @test_throws ArgumentError randsample!(rng, aliased_population, aliased_population)
+    @test Array(aliased_population) == before
+
+    weighted_population = CUDA.CuArray(Float64.(1:33))
+    weights = CUDA.CuArray(Float64.(1:33))
+    weighted_expected, weighted_after =
+        randsample_next(rng, weighted_population, weights, 33)
+    weighted_returned, weighted_next =
+        randsample_next!(rng, weighted_population, weights, weights)
+    @test weighted_returned === weights
+    CUDA.synchronize()
+    @test Array(weights) == Array(weighted_expected)
+    @test weighted_next.position == weighted_after.position
 end
 
 include("fixed_distributions.jl")

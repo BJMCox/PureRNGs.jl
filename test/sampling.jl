@@ -1,5 +1,6 @@
 const SamplingIR = PureRNGs
 const SamplingMLD = PureRNGs.MLDataDevices
+const SamplingKA = PureRNGs.KernelAbstractions
 
 const UNWEIGHTED_OFFSET_GOLDEN = (
     Philox2x32 => Int32[104, 105, 102, 101, 105, 101, 105, 105, 106, 103, 106, 102],
@@ -50,6 +51,20 @@ end
 Base.size(population::SamplingCUDAProbe) = size(population.values)
 Base.getindex(population::SamplingCUDAProbe, index::Int) = population.values[index]
 SamplingMLD.get_device(::SamplingCUDAProbe) = SamplingMLD.CUDADevice(:named)
+SamplingMLD.get_device_type(::SamplingCUDAProbe) = SamplingMLD.CUDADevice
+
+struct SamplingSerialProbe{T} <: AbstractVector{T}
+    values::Vector{T}
+end
+
+Base.size(destination::SamplingSerialProbe) = size(destination.values)
+Base.getindex(destination::SamplingSerialProbe, index::Int) = destination.values[index]
+Base.setindex!(destination::SamplingSerialProbe, value, index::Int) =
+    setindex!(destination.values, value, index)
+SamplingMLD.get_device(::SamplingSerialProbe) = SamplingMLD.CPUDevice()
+SamplingMLD.get_device_type(::SamplingSerialProbe) = SamplingMLD.CPUDevice
+SamplingKA.get_backend(::SamplingSerialProbe) =
+    error("serial sampling must not get a backend")
 
 struct CountedPopulation{T} <: AbstractVector{T}
     values::Vector{T}
@@ -175,6 +190,66 @@ end
     end
 end
 
+@testset "R67 threaded destination sampling uses the CPU chunk kernel" begin
+    rng = Philox4x32(0x9061)
+    population = Int32[2, 7, 19]
+    expected, after = randsample_next(rng, population, 8193)
+    destination = similar(expected)
+
+    returned, next_rng = randsample_next!(rng, population, destination)
+    sync_cpu()
+    @test returned === destination
+    @test destination == expected
+    @test next_rng === after
+end
+
+@testset "R67 CPU destination storage does not inspect values" begin
+    rng = Philox4x32(0x9062)
+    symbol_population = Symbol[:red, :green, :blue]
+    symbol_expected, symbol_after = randsample_next(rng, symbol_population, 33)
+    symbol_destination = Vector{Symbol}(undef, 33)
+    symbol_returned, symbol_next =
+        randsample_next!(rng, symbol_population, symbol_destination; threaded = false)
+    @test symbol_returned === symbol_destination
+    @test symbol_destination == symbol_expected
+    @test symbol_next === symbol_after
+
+    symbol_storage = Vector{Symbol}(undef, 34)
+    symbol_view = @view symbol_storage[2:end]
+    symbol_view_returned, symbol_view_next =
+        randsample_next!(rng, symbol_population, symbol_view; threaded = true)
+    sync_cpu()
+    @test symbol_view_returned === symbol_view
+    @test symbol_view == symbol_expected
+    @test symbol_view_next === symbol_after
+
+    any_population = Any[:red, :green, :blue]
+    weights = Float64[1, 2, 3]
+    any_expected, any_after = randsample_next(rng, any_population, weights, 33)
+    any_destination = Vector{Any}(undef, 33)
+    any_returned, any_next =
+        randsample_next!(rng, any_population, weights, any_destination; threaded = false)
+    @test any_returned === any_destination
+    @test any_destination == any_expected
+    @test any_next === any_after
+
+    any_storage = Vector{Any}(undef, 34)
+    any_view = @view any_storage[2:end]
+    any_view_returned, any_view_next =
+        randsample_next!(rng, any_population, weights, any_view; threaded = true)
+    sync_cpu()
+    @test any_view_returned === any_view
+    @test any_view == any_expected
+    @test any_view_next === any_after
+
+    cuda_rng = SamplingMLD.CUDADevice(:discarded)(rng)
+    @test_throws ArgumentError randsample!(
+        cuda_rng,
+        symbol_population,
+        Vector{Symbol}(undef, 1),
+    )
+end
+
 @testset "R60 validation and atomic preflight" begin
     rng = Philox4x32(0x904)
     empty = Int32[]
@@ -213,4 +288,54 @@ end
     @test terminal.position == SamplingIR._terminal64(typemax(UInt64))
     @test_throws ArgumentError randsample_next(last_rng, 1:3, 2)
     @test last_rng.position == SamplingIR._Position64(typemax(UInt64), UInt16(64))
+end
+
+@testset "R67 unweighted destination sampling" begin
+    rng = Philox4x32(0x9067)
+    population = Int32[11, 13, 17, 19]
+    expected, after = randsample_next(rng, population, 33)
+    destination = SamplingSerialProbe(similar(expected))
+
+    returned, next_rng = randsample_next!(rng, population, destination; threaded = false)
+    @test returned === destination
+    @test destination.values == expected
+    @test next_rng === after
+
+    @test randsample!(rng, population, destination; threaded = false) === destination
+    @test destination.values == expected
+end
+
+@testset "R67 destination axes, overlap, and preflight" begin
+    rng = Philox4x32(0x9068)
+    population = Int32[23, 29, 31]
+    expected, after = randsample_next(rng, population, 33)
+    destination = ZeroBasedVector(Vector{Int32}(undef, 33))
+
+    returned, next_rng = randsample_next!(rng, population, destination; threaded = false)
+    @test returned === destination
+    @test collect(destination) == expected
+    @test next_rng === after
+
+    aliased = copy(population)
+    @test_throws ArgumentError randsample!(rng, aliased, aliased; threaded = false)
+    @test aliased == population
+
+    @test_throws ArgumentError randsample!(rng, population, zeros(Int16, 3))
+    @test_throws ArgumentError randsample!(
+        rng,
+        population,
+        SamplingCUDAProbe(Int32[0, 0, 0]),
+    )
+
+    empty = Int32[]
+    @test randsample_next!(rng, population, empty; threaded = false) == (empty, rng)
+
+    terminal = SamplingIR._rebuild(
+        rng,
+        SamplingIR._Position64(typemax(UInt64), UInt16(64)),
+        rng.device,
+    )
+    preserved = fill(Int32(-1), 2)
+    @test_throws ArgumentError randsample_next!(terminal, population, preserved)
+    @test preserved == fill(Int32(-1), 2)
 end

@@ -226,8 +226,7 @@ KernelAbstractions.@kernel function _natural128_packed_kernel!(
     index = KernelAbstractions.@index(Global, Linear)
     stride = KernelAbstractions.@ndrange()[1]
     while index <= length(destination)
-        block_words =
-            IR._block_words(rng, rng.position.block + UInt64(index - 1))
+        block_words = IR._block_words(rng, rng.position.block + UInt64(index - 1))
         # VecElement lanes follow the result type's little-endian memory order.
         @inbounds destination[index] = _natural128_packed(block_words, eltype(destination))
         index += stride
@@ -457,7 +456,11 @@ KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
             lower = middle + 1
         end
     end
-    @inbounds destination[order[index]] = IR._population_value(population, UInt64(lower))
+    indices = eachindex(destination)
+    @inbounds begin
+        destination_index = IR._sampling_destination_index(indices, order[index])
+        destination[destination_index] = IR._population_value(population, UInt64(lower))
+    end
 end
 
 @inline function IR._launch_weighted_scan!(

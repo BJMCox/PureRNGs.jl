@@ -35,6 +35,8 @@ export Philox2x32,
     randexpat,
     randsample,
     randsample_next,
+    randsample!,
+    randsample_next!,
     StatefulRNG
 
 struct _ReactantRNG{R,A}

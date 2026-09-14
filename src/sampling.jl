@@ -17,6 +17,37 @@ end
 
 @inline _check_sampling_serviceability(rng) = nothing
 
+@inline function _check_sampling_fill_device(rng, destination::Array)
+    rng.device isa _CPUBackend || _fill_device_mismatch()
+    return nothing
+end
+
+@inline function _check_sampling_fill_device(rng, destination::AbstractArray)
+    storage = parent(destination)
+    storage === destination && return _check_fill_device(rng, destination)
+    return _check_sampling_fill_device(rng, storage)
+end
+
+@noinline function _sampling_population_overlap()
+    throw(ArgumentError("destination may not overlap the population"))
+end
+
+@noinline function _sampling_destination_eltype_mismatch()
+    throw(ArgumentError("destination eltype differs from the population eltype"))
+end
+
+@inline function _check_sampling_population_overlap(destination, population)
+    population isa AbstractArray &&
+        Base.mightalias(destination, population) &&
+        _sampling_population_overlap()
+    return nothing
+end
+
+@inline function _check_sampling_destination_eltype(destination, population)
+    eltype(destination) === eltype(population) || _sampling_destination_eltype_mismatch()
+    return nothing
+end
+
 @inline _collect_population(population::AbstractArray) =
     [population[index] for index in CartesianIndices(axes(population))]
 @inline _collect_population(population) = collect(population)
@@ -115,6 +146,10 @@ end
     return _allocate_array(rng.device, eltype(population), (count,))
 end
 
+@inline function _sampling_destination_index(indices, ordinal::Int)
+    return @inbounds indices[firstindex(indices)+ordinal-1]
+end
+
 @inline function _population_value(
     population::AbstractRange{T},
     ordinal::UInt64,
@@ -139,11 +174,13 @@ KernelAbstractions.@kernel function _unweighted_sample_kernel!(
     destination,
     width::UInt16,
 )
-    index = @index(Global, Linear)
-    bits_lo, bits_hi = _bit_span(UInt64(index - 1), width)
+    draw_ordinal = @index(Global, Linear)
+    bits_lo, bits_hi = _bit_span(UInt64(draw_ordinal - 1), width)
     position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    ordinal = _range_offset(rng, position, cardinality) + UInt64(1)
-    @inbounds destination[index] = _population_value(population, ordinal)
+    population_ordinal = _range_offset(rng, position, cardinality) + UInt64(1)
+    indices = eachindex(destination)
+    index = _sampling_destination_index(indices, draw_ordinal)
+    @inbounds destination[index] = _population_value(population, population_ordinal)
 end
 
 @inline function _fill_unweighted_cpu_unchecked!(
@@ -153,23 +190,25 @@ end
     cardinality::UInt64,
     destination,
     width::UInt16,
-    indices,
+    ordinals,
 )
-    isempty(indices) && return nothing
+    isempty(ordinals) && return nothing
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
+    indices = eachindex(destination)
     if width == UInt16(64)
-        @inbounds for index in indices
-            candidate, cursor =
-                _take_dense_bits_unchecked(rng, cursor, Val(64))
-            ordinal = _reduce_range_candidate(candidate, cardinality) + UInt64(1)
-            destination[index] = _population_value(population, ordinal)
+        @inbounds for ordinal in ordinals
+            candidate, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+            population_ordinal = _reduce_range_candidate(candidate, cardinality) + UInt64(1)
+            index = _sampling_destination_index(indices, ordinal)
+            destination[index] = _population_value(population, population_ordinal)
         end
     else
-        @inbounds for index in indices
+        @inbounds for ordinal in ordinals
             hi, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
             lo, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
-            ordinal = _reduce_range_candidate(lo, hi, cardinality) + UInt64(1)
-            destination[index] = _population_value(population, ordinal)
+            population_ordinal = _reduce_range_candidate(lo, hi, cardinality) + UInt64(1)
+            index = _sampling_destination_index(indices, ordinal)
+            destination[index] = _population_value(population, population_ordinal)
         end
     end
     return nothing
@@ -181,16 +220,18 @@ end
     population,
     cardinality::UInt64,
     destination,
-    first_index::Int,
+    first_ordinal::Int,
     ::Val{2},
 )
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
+    indices = eachindex(destination)
     @inbounds for offset = 0:1
-        index = first_index + offset
-        index > length(destination) && break
+        ordinal = first_ordinal + offset
+        ordinal > length(destination) && break
         candidate, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
-        ordinal = _reduce_range_candidate(candidate, cardinality) + UInt64(1)
-        destination[index] = _population_value(population, ordinal)
+        population_ordinal = _reduce_range_candidate(candidate, cardinality) + UInt64(1)
+        index = _sampling_destination_index(indices, ordinal)
+        destination[index] = _population_value(population, population_ordinal)
     end
     return nothing
 end
@@ -203,8 +244,8 @@ KernelAbstractions.@kernel function _unweighted_sample_grouped_kernel!(
     group::Val{2},
 )
     workitem = @index(Global, Linear)
-    first_index = (workitem - 1) * 2 + 1
-    bits_lo, bits_hi = _bit_span(UInt64(first_index - 1), UInt16(64))
+    first_ordinal = (workitem - 1) * 2 + 1
+    bits_lo, bits_hi = _bit_span(UInt64(first_ordinal - 1), UInt16(64))
     position = _advance_position_unchecked(rng, bits_lo, bits_hi)
     _fill_unweighted_grouped_unchecked!(
         rng,
@@ -212,7 +253,7 @@ KernelAbstractions.@kernel function _unweighted_sample_grouped_kernel!(
         population,
         cardinality,
         destination,
-        first_index,
+        first_ordinal,
         group,
     )
 end
@@ -292,7 +333,7 @@ end
             cardinality,
             destination,
             width,
-            eachindex(destination),
+            1:length(destination),
         )
         return destination
     end
@@ -307,6 +348,43 @@ end
         workgroupsize = 1,
     )
     return destination
+end
+
+function _randsample_next_unweighted!(rng, population, destination, threaded::Bool)
+    _check_sampling_fill_device(rng, destination)
+    _check_sampling_serviceability(rng)
+    agnostic = _check_population_device(rng, population)
+    _check_sampling_population_overlap(destination, population)
+    _prevalidate_sampling_cardinality(population, length(destination))
+    indexed = _prepare_population(rng.device, population, agnostic)
+    cardinality = _sampling_cardinality(indexed)
+    _check_sampling_destination_eltype(destination, indexed)
+    !isempty(destination) && iszero(cardinality) && _empty_sampling_population()
+
+    width = _range_bits(cardinality)
+    next_rng = _sampling_reservation(rng, length(destination), width)
+    isempty(destination) && return destination, next_rng
+    if !threaded && rng.device isa _CPUBackend
+        _fill_unweighted_cpu_unchecked!(
+            rng,
+            rng.position,
+            indexed,
+            cardinality,
+            destination,
+            width,
+            1:length(destination),
+        )
+        return destination, next_rng
+    end
+    _launch_unweighted_sample!(
+        _fill_backend(destination),
+        rng,
+        indexed,
+        cardinality,
+        destination,
+        width,
+    )
+    return destination, next_rng
 end
 
 @noinline function _empty_sampling_population()
@@ -370,4 +448,42 @@ end
 
 @inline function randsample_next(rng::AbstractPureRNG, population, count::Integer)
     return _randsample_next_unweighted(rng, population, count)
+end
+
+"""
+    randsample!(rng, population[, weights], destination; threaded=true) -> destination
+
+Sample with replacement into `destination`. Its length determines the number of
+draws, and it must have exactly the prepared population element type. Return the
+identical destination. `threaded=false` keeps an unweighted CPU fill on the
+calling task.
+
+Inputs and the complete random span are validated before writing. A destination
+that might alias `population` is rejected; it may alias `weights` after the
+weights have been privately prepared. Empty destinations still validate inputs
+and consume no bits. Weighted fills may allocate preparation scratch space.
+"""
+@inline function randsample!(
+    rng::AbstractPureRNG,
+    population,
+    destination::AbstractArray;
+    threaded::Bool = true,
+)
+    return first(_randsample_next_unweighted!(rng, population, destination, threaded))
+end
+
+"""
+    randsample_next!(rng, population[, weights], destination; threaded=true) -> (destination, next_rng)
+
+Sample with replacement into `destination` and return the advanced immutable
+generator. The fill and validation rules are the same as for [`randsample!`](@ref).
+The input generator is not changed.
+"""
+@inline function randsample_next!(
+    rng::AbstractPureRNG,
+    population,
+    destination::AbstractArray;
+    threaded::Bool = true,
+)
+    return _randsample_next_unweighted!(rng, population, destination, threaded)
 end
