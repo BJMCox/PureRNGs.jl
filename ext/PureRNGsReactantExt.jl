@@ -436,11 +436,16 @@ end
     return ifelse(abs(q) <= T(0.425), central, tail)
 end
 
-@inline function _normal_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}}
+@inline function _midpoint_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}}
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
-    midpoint = _convert(T, (raw * UInt64(2)) | UInt64(1)) * scale
-    return _normal_transform(midpoint, T)
+    return _convert(T, (raw * UInt64(2)) | UInt64(1)) * scale
 end
+
+@inline _normal_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}} =
+    _normal_transform(_midpoint_from_raw(raw, T), T)
+
+@inline IR._midpoint_value(rng::_ReactantRNG, ::Type{T}) where {T<:Union{Float32,Float64}} =
+    _midpoint_from_raw(_raw(rng, Val(IR._normal_bits(T))), T)
 
 @inline _normal_value(rng, ::Type{T}) where {T} =
     _normal_from_raw(_raw(rng, Val(IR._normal_bits(T))), T)

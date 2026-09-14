@@ -235,6 +235,12 @@ end
         Weibull(2.0f0, 1.0f0),
         Rayleigh(1.0f0),
         Laplace(0.0f0, 1.0f0),
+        Logistic(0.0f0, 1.0f0),
+        Gumbel(0.0f0, 1.0f0),
+        Pareto(2.0f0, 1.0f0),
+        Frechet(2.0f0, 1.0f0),
+        Cauchy(0.0f0, 1.0f0),
+        TriangularDist(0.0f0, 1.0f0, 0.5f0),
         Categorical([0.25, 0.75]),
     )
         T = typeof(rand(rng, distribution))

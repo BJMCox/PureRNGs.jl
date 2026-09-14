@@ -112,6 +112,8 @@ end
 @inline _normal_bits(::Type{Float32}) = UInt16(23)
 @inline _normal_bits(::Type{Float64}) = UInt16(52)
 
+function _midpoint_value end
+
 @inline _device_normal_fill_group(::Type{Float32}) = Val(8)
 @inline _device_normal_fill_group(::Type{Float64}) = Val(4)
 

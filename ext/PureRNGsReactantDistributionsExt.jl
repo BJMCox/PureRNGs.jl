@@ -24,10 +24,23 @@ struct _ReactantDistributionOps end
     Random.randexp(rng, T)
 @inline _primitive(rng, ::Distributions.LogNormal{T}) where {T<:_FloatType} =
     Random.randn(rng, T)
+@inline _primitive(
+    rng,
+    ::Union{
+        Distributions.Logistic{T},
+        Distributions.Gumbel{T},
+        Distributions.Frechet{T},
+        Distributions.Cauchy{T},
+    },
+) where {T<:_FloatType} = IR._midpoint_value(rng, T)
 @inline _primitive(rng, ::Distributions.Weibull{T}) where {T<:_FloatType} =
     Random.randexp(rng, T)
 @inline _primitive(rng, ::Distributions.Rayleigh{T}) where {T<:_FloatType} =
     Random.randexp(rng, T)
+@inline _primitive(rng, ::Distributions.Pareto{T}) where {T<:_FloatType} =
+    Random.randexp(rng, T)
+@inline _primitive(rng, ::Distributions.TriangularDist{T}) where {T<:_FloatType} =
+    Random.rand(rng, T)
 @inline function _primitive(rng, ::Distributions.Laplace{T}) where {T<:_FloatType}
     magnitude, after_magnitude = IR.randexp_next(rng, T)
     return magnitude, Random.rand(after_magnitude, Bool)
@@ -44,10 +57,25 @@ end
     IR.randexp_next(rng, T)
 @inline _primitive_next(rng, ::Distributions.LogNormal{T}) where {T<:_FloatType} =
     IR.randn_next(rng, T)
+@inline function _primitive_next(
+    rng,
+    ::Union{
+        Distributions.Logistic{T},
+        Distributions.Gumbel{T},
+        Distributions.Frechet{T},
+        Distributions.Cauchy{T},
+    },
+) where {T<:_FloatType}
+    return IR._midpoint_value(rng, T), IR._addressed_rng(rng, IR._normal_bits(T), 2)
+end
 @inline _primitive_next(rng, ::Distributions.Weibull{T}) where {T<:_FloatType} =
     IR.randexp_next(rng, T)
 @inline _primitive_next(rng, ::Distributions.Rayleigh{T}) where {T<:_FloatType} =
     IR.randexp_next(rng, T)
+@inline _primitive_next(rng, ::Distributions.Pareto{T}) where {T<:_FloatType} =
+    IR.randexp_next(rng, T)
+@inline _primitive_next(rng, ::Distributions.TriangularDist{T}) where {T<:_FloatType} =
+    IR.rand_next(rng, T)
 @inline function _primitive_next(rng, ::Distributions.Laplace{T}) where {T<:_FloatType}
     magnitude, after_magnitude = IR.randexp_next(rng, T)
     positive, next_rng = IR.rand_next(after_magnitude, Bool)
@@ -65,10 +93,26 @@ end
     IR.randexpat(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.LogNormal{T}, index) where {T<:_FloatType} =
     IR.randnat(rng, T, index)
+@inline function _primitive_at(
+    rng,
+    d::Union{
+        Distributions.Logistic{T},
+        Distributions.Gumbel{T},
+        Distributions.Frechet{T},
+        Distributions.Cauchy{T},
+    },
+    index,
+) where {T<:_FloatType}
+    return _primitive(IR._addressed_rng(rng, _distribution_span(d), index), d)
+end
 @inline _primitive_at(rng, ::Distributions.Weibull{T}, index) where {T<:_FloatType} =
     IR.randexpat(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Rayleigh{T}, index) where {T<:_FloatType} =
     IR.randexpat(rng, T, index)
+@inline _primitive_at(rng, ::Distributions.Pareto{T}, index) where {T<:_FloatType} =
+    IR.randexpat(rng, T, index)
+@inline _primitive_at(rng, ::Distributions.TriangularDist{T}, index) where {T<:_FloatType} =
+    IR.randat(rng, T, index)
 @inline function _primitive_at(
     rng,
     d::Distributions.Laplace{T},
@@ -90,6 +134,17 @@ end
     _map_distribution(_ReactantDistributionOps(), d, value)
 @inline _map_primitive(d::Distributions.Exponential, value) = _map_distribution(d, value)
 @inline _map_primitive(d::Distributions.LogNormal, value) =
+    _map_distribution(_ReactantDistributionOps(), d, value)
+@inline _map_primitive(d::Distributions.Logistic, value) =
+    _map_distribution(_ReactantDistributionOps(), d, value)
+@inline _map_primitive(d::Distributions.Gumbel{T}, value) where {T} =
+    _map_distribution(_ReactantDistributionOps(), d, -Base.log(one(T) - value))
+@inline _map_primitive(d::Distributions.Pareto, value) = _map_distribution(d, value)
+@inline _map_primitive(d::Distributions.Frechet{T}, value) where {T} =
+    _map_distribution(d, -Base.log(one(T) - value))
+@inline _map_primitive(d::Distributions.Cauchy, value) =
+    _map_distribution(_ReactantDistributionOps(), d, value)
+@inline _map_primitive(d::Distributions.TriangularDist, value) =
     _map_distribution(_ReactantDistributionOps(), d, value)
 @inline _map_primitive(d::Distributions.Weibull, value) = _map_distribution(d, value)
 @inline _map_primitive(d::Distributions.Rayleigh, value) = _map_distribution(d, value)

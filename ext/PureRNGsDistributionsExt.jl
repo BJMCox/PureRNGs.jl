@@ -70,6 +70,24 @@ end
 end
 
 @inline function IR._cooperative_value(
+    codec::_DistributionCodec{<:Union{Distributions.Logistic{T},Distributions.Cauchy{T}}},
+    ::Type,
+    raw,
+) where {T<:_FloatType}
+    return _map_distribution(codec.distribution, IR._normal_midpoint(T, raw))
+end
+
+@inline function IR._cooperative_value(
+    codec::_DistributionCodec{<:Union{Distributions.Gumbel{T},Distributions.Frechet{T}}},
+    ::Type,
+    raw,
+) where {T<:_FloatType}
+    u = IR._normal_midpoint(T, raw)
+    e = IR._exponential_transform(codec.device, T, one(T) - u)
+    return _map_distribution(codec.distribution, e)
+end
+
+@inline function IR._cooperative_value(
     codec::_DistributionCodec{Distributions.Uniform{T}},
     ::Type,
     raw,
@@ -83,6 +101,7 @@ end
             Distributions.Exponential{T},
             Distributions.Weibull{T},
             Distributions.Rayleigh{T},
+            Distributions.Pareto{T},
         },
     },
     ::Type,
@@ -92,6 +111,14 @@ end
         codec.distribution,
         IR._exponential_from_bits(codec.device, T, raw),
     )
+end
+
+@inline function IR._cooperative_value(
+    codec::_DistributionCodec{Distributions.TriangularDist{T}},
+    ::Type,
+    raw,
+) where {T<:_FloatType}
+    return _map_distribution(codec.distribution, IR._from_bits(T, raw))
 end
 
 @inline function IR._cooperative_value(
@@ -122,7 +149,16 @@ end
 end
 
 @inline function IR._transformed_fill_plan(
-    ::_DistributionCodec{<:Union{Distributions.Normal{T},Distributions.LogNormal{T}}},
+    ::_DistributionCodec{
+        <:Union{
+            Distributions.Normal{T},
+            Distributions.LogNormal{T},
+            Distributions.Logistic{T},
+            Distributions.Gumbel{T},
+            Distributions.Frechet{T},
+            Distributions.Cauchy{T},
+        },
+    },
     backend,
     rng,
     ::Type,
@@ -141,7 +177,12 @@ end
 
 @inline IR._transformed_fill_plan(
     codec::_DistributionCodec{
-        <:Union{Distributions.Exponential,Distributions.Weibull,Distributions.Rayleigh},
+        <:Union{
+            Distributions.Exponential,
+            Distributions.Weibull,
+            Distributions.Rayleigh,
+            Distributions.Pareto,
+        },
     },
     backend,
     rng,
@@ -162,6 +203,15 @@ end
     ::Type{Bool},
 ) where {T<:_FloatType}
     return _scalar_store_plan(IR._device_uniform_fill_plan(backend, rng, T))
+end
+
+@inline function IR._transformed_fill_plan(
+    ::_DistributionCodec{Distributions.TriangularDist{T}},
+    backend,
+    rng,
+    ::Type,
+) where {T<:_FloatType}
+    return IR._device_uniform_fill_plan(backend, rng, T)
 end
 
 @noinline function _metal_distribution_error()
@@ -256,6 +306,18 @@ for (distribution_type, result_type) in (
     (Distributions.Rayleigh{Float64}, Float64),
     (Distributions.Laplace{Float32}, Float32),
     (Distributions.Laplace{Float64}, Float64),
+    (Distributions.Logistic{Float32}, Float32),
+    (Distributions.Logistic{Float64}, Float64),
+    (Distributions.Gumbel{Float32}, Float32),
+    (Distributions.Gumbel{Float64}, Float64),
+    (Distributions.Pareto{Float32}, Float32),
+    (Distributions.Pareto{Float64}, Float64),
+    (Distributions.Frechet{Float32}, Float32),
+    (Distributions.Frechet{Float64}, Float64),
+    (Distributions.Cauchy{Float32}, Float32),
+    (Distributions.Cauchy{Float64}, Float64),
+    (Distributions.TriangularDist{Float32}, Float32),
+    (Distributions.TriangularDist{Float64}, Float64),
     (Distributions.Bernoulli{Float32}, Bool),
     (Distributions.Bernoulli{Float64}, Bool),
     (Distributions.DiscreteUniform, Int),

@@ -4,6 +4,9 @@
 
 Initial development release.
 
+- Add fixed-work `Logistic`, `Gumbel`, `Pareto`, `Frechet`, `Cauchy`, and
+  `TriangularDist` draws, continuations, addressed draws, and fills.
+
 - Eight immutable Philox and Threefry generators with explicit continuation and purpose-based key derivation. Continuation functions return `(value, next_rng)`.
 - Primitive, integer-range, and population sampling, including weighted sampling with replacement. Every draw kind reads one stream of bits at the generator's position.
 - Fixed-work LogNormal, Weibull, Rayleigh, Laplace, and Categorical distribution draws, plus in-place population sampling with `randsample!` and `randsample_next!`.

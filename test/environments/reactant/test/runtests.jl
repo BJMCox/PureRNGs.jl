@@ -806,6 +806,7 @@ end
 end
 
 if Philox4x32 in SELECTED_GENERATORS
+    include("distribution_transforms.jl")
     @testset "R42 added continuous fixed distributions" begin
         eager = _positioned(Philox4x32(0x123456), UInt64(3), UInt16(17))
         carrier = Reactant.to_rarray(eager)

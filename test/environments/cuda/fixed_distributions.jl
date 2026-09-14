@@ -1,3 +1,5 @@
+include(joinpath(@__DIR__, "..", "..", "distribution_transform_cases.jl"))
+
 const CUDA_FIXED_DISTRIBUTIONS = (
     Normal{Float32}(0.75f0, 1.25f0),
     Uniform{Float32}(-1.5f0, 2.75f0),
@@ -18,6 +20,8 @@ const CUDA_EXPANDED_CONTINUOUS_DISTRIBUTIONS = (
     Rayleigh{Float64}(0.75),
     Laplace{Float32}(0.25f0, 0.75f0),
     Laplace{Float64}(0.25, 0.75),
+    six_transform_distributions(Float32)...,
+    six_transform_distributions(Float64)...,
 )
 
 @inline _primitive(rng, ::Normal{T}) where {T} = randn(rng, T)
@@ -138,6 +142,11 @@ end
 @inline _expanded_result_type(::Weibull{T}) where {T} = T
 @inline _expanded_result_type(::Rayleigh{T}) where {T} = T
 @inline _expanded_result_type(::Laplace{T}) where {T} = T
+@inline _expanded_result_type(d::SIX_TRANSFORM_TYPES) = six_transform_result_type(d)
+@inline _expanded_primitive_next(rng, d::SIX_TRANSFORM_TYPES) =
+    six_transform_input_next(rng, d)
+@inline _expanded_formula(d::SIX_TRANSFORM_TYPES, primitive) =
+    six_transform_formula(d, primitive)
 
 @inline _expanded_primitive_next(rng, ::LogNormal{T}) where {T} = randn_next(rng, T)
 @inline _expanded_primitive_next(rng, ::Weibull{T}) where {T} = randexp_next(rng, T)

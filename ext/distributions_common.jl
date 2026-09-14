@@ -14,6 +14,18 @@ const _MappedDistribution = Union{
     Distributions.Rayleigh{Float64},
     Distributions.Laplace{Float32},
     Distributions.Laplace{Float64},
+    Distributions.Logistic{Float32},
+    Distributions.Logistic{Float64},
+    Distributions.Gumbel{Float32},
+    Distributions.Gumbel{Float64},
+    Distributions.Pareto{Float32},
+    Distributions.Pareto{Float64},
+    Distributions.Frechet{Float32},
+    Distributions.Frechet{Float64},
+    Distributions.Cauchy{Float32},
+    Distributions.Cauchy{Float64},
+    Distributions.TriangularDist{Float32},
+    Distributions.TriangularDist{Float64},
     Distributions.Bernoulli{Float32},
     Distributions.Bernoulli{Float64},
 }
@@ -26,6 +38,12 @@ const _FixedDistribution = Union{_MappedDistribution,Distributions.DiscreteUnifo
 @inline _result_type(::Distributions.Weibull{T}) where {T<:_FloatType} = T
 @inline _result_type(::Distributions.Rayleigh{T}) where {T<:_FloatType} = T
 @inline _result_type(::Distributions.Laplace{T}) where {T<:_FloatType} = T
+@inline _result_type(::Distributions.Logistic{T}) where {T<:_FloatType} = T
+@inline _result_type(::Distributions.Gumbel{T}) where {T<:_FloatType} = T
+@inline _result_type(::Distributions.Pareto{T}) where {T<:_FloatType} = T
+@inline _result_type(::Distributions.Frechet{T}) where {T<:_FloatType} = T
+@inline _result_type(::Distributions.Cauchy{T}) where {T<:_FloatType} = T
+@inline _result_type(::Distributions.TriangularDist{T}) where {T<:_FloatType} = T
 @inline _result_type(::Distributions.Bernoulli{T}) where {T<:_FloatType} = Bool
 @inline _result_type(::Distributions.DiscreteUniform) = Int
 
@@ -43,6 +61,18 @@ const _FixedDistribution = Union{_MappedDistribution,Distributions.DiscreteUnifo
     throw(ArgumentError("invalid Rayleigh parameters"))
 @noinline _invalid_parameters(::Distributions.Laplace) =
     throw(ArgumentError("invalid Laplace parameters"))
+@noinline _invalid_parameters(::Distributions.Logistic) =
+    throw(ArgumentError("invalid Logistic parameters"))
+@noinline _invalid_parameters(::Distributions.Gumbel) =
+    throw(ArgumentError("invalid Gumbel parameters"))
+@noinline _invalid_parameters(::Distributions.Pareto) =
+    throw(ArgumentError("invalid Pareto parameters"))
+@noinline _invalid_parameters(::Distributions.Frechet) =
+    throw(ArgumentError("invalid Frechet parameters"))
+@noinline _invalid_parameters(::Distributions.Cauchy) =
+    throw(ArgumentError("invalid Cauchy parameters"))
+@noinline _invalid_parameters(::Distributions.TriangularDist) =
+    throw(ArgumentError("invalid TriangularDist parameters"))
 @noinline _invalid_parameters(::Distributions.Bernoulli) =
     throw(ArgumentError("invalid Bernoulli parameters"))
 @noinline _invalid_parameters(::Distributions.DiscreteUniform) =
@@ -99,6 +129,43 @@ end
     return nothing
 end
 
+@inline function _validate_distribution(
+    d::Union{Distributions.Logistic{T},Distributions.Gumbel{T}},
+) where {T<:_FloatType}
+    isfinite(d.μ) || _invalid_parameters(d)
+    isfinite(d.θ) || _invalid_parameters(d)
+    d.θ > zero(T) || _invalid_parameters(d)
+    return nothing
+end
+
+@inline function _validate_distribution(
+    d::Union{Distributions.Pareto{T},Distributions.Frechet{T}},
+) where {T<:_FloatType}
+    isfinite(d.α) || _invalid_parameters(d)
+    isfinite(d.θ) || _invalid_parameters(d)
+    d.α > zero(T) || _invalid_parameters(d)
+    d.θ > zero(T) || _invalid_parameters(d)
+    return nothing
+end
+
+@inline function _validate_distribution(d::Distributions.Cauchy{T}) where {T<:_FloatType}
+    isfinite(d.μ) || _invalid_parameters(d)
+    isfinite(d.σ) || _invalid_parameters(d)
+    d.σ > zero(T) || _invalid_parameters(d)
+    return nothing
+end
+
+@inline function _validate_distribution(
+    d::Distributions.TriangularDist{T},
+) where {T<:_FloatType}
+    isfinite(d.a) || _invalid_parameters(d)
+    isfinite(d.b) || _invalid_parameters(d)
+    isfinite(d.c) || _invalid_parameters(d)
+    d.a <= d.c <= d.b || _invalid_parameters(d)
+    isfinite(d.b - d.a) || _invalid_parameters(d)
+    return nothing
+end
+
 @inline function _validate_distribution(d::Distributions.Bernoulli{T}) where {T<:_FloatType}
     isfinite(d.p) || _invalid_parameters(d)
     d.p >= zero(T) || _invalid_parameters(d)
@@ -125,6 +192,18 @@ end
     IR._exponential_bits(T)
 @inline _distribution_span(::Distributions.Laplace{T}) where {T<:_FloatType} =
     IR._exponential_bits(T) + UInt16(1)
+@inline _distribution_span(
+    ::Union{
+        Distributions.Logistic{T},
+        Distributions.Gumbel{T},
+        Distributions.Frechet{T},
+        Distributions.Cauchy{T},
+    },
+) where {T<:_FloatType} = IR._normal_bits(T)
+@inline _distribution_span(::Distributions.Pareto{T}) where {T<:_FloatType} =
+    IR._exponential_bits(T)
+@inline _distribution_span(::Distributions.TriangularDist{T}) where {T<:_FloatType} =
+    IR._draw_bits(T)
 @inline _distribution_span(::Distributions.Bernoulli{T}) where {T<:_FloatType} =
     IR._draw_bits(T)
 
@@ -167,4 +246,37 @@ end
 end
 @inline _map_distribution(d::Distributions.Laplace, x, positive) =
     _map_distribution(_NativeDistributionOps(), d, x, positive)
+@inline function _map_distribution(ops, d::Distributions.Logistic, u)
+    return _distribution_muladd(ops, d.θ, log(u) - log1p(-u), d.μ)
+end
+@inline _map_distribution(d::Distributions.Logistic, u) =
+    _map_distribution(_NativeDistributionOps(), d, u)
+@inline function _map_distribution(ops, d::Distributions.Gumbel, e)
+    return _distribution_muladd(ops, -d.θ, log(e), d.μ)
+end
+@inline _map_distribution(d::Distributions.Gumbel, e) =
+    _map_distribution(_NativeDistributionOps(), d, e)
+@inline _map_distribution(d::Distributions.Pareto, x) = d.θ * exp(x / d.α)
+@inline _map_distribution(d::Distributions.Frechet, e) = d.θ * e^(-inv(d.α))
+@inline function _map_distribution(ops, d::Distributions.Cauchy{T}, u) where {T}
+    return _distribution_muladd(ops, d.σ, tanpi(u - T(0.5)), d.μ)
+end
+@inline _map_distribution(d::Distributions.Cauchy, u) =
+    _map_distribution(_NativeDistributionOps(), d, u)
+@inline function _map_distribution(d::Distributions.TriangularDist{T}, v) where {T}
+    d.a == d.b && return d.a
+    p = (d.c - d.a) / (d.b - d.a)
+    iszero(v) && return d.a
+    if v <= p
+        return fma(d.c - d.a, sqrt(v / p), d.a)
+    end
+    return fma(d.c - d.b, sqrt((one(T) - v) / (one(T) - p)), d.b)
+end
+@inline function _map_distribution(ops, d::Distributions.TriangularDist{T}, v) where {T}
+    d.a == d.b && return d.a
+    p = (d.c - d.a) / (d.b - d.a)
+    lower = _distribution_muladd(ops, d.c - d.a, sqrt(v / p), d.a)
+    upper = _distribution_muladd(ops, d.c - d.b, sqrt((one(T) - v) / (one(T) - p)), d.b)
+    return ifelse(iszero(v), d.a, ifelse(v <= p, lower, upper))
+end
 @inline _map_distribution(d::Distributions.Bernoulli, u) = u < d.p
