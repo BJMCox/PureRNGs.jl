@@ -1,5 +1,5 @@
 const _WEIGHT_BITS = UInt16(53)
-const _WEIGHTED_LOOKUP_LANES = 16
+const _WEIGHTED_LOOKUP_LANES = 32
 
 @noinline function _invalid_weights()
     throw(

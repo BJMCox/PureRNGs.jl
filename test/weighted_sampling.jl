@@ -129,8 +129,8 @@ end
     @test randsample(rng, population, weights, 1) == Int32[10]
 
     weights = [0.0, nextfloat(0.0), 0.0, nextfloat(0.0)]
-    expected_next, expected = _weighted_reference(rng, population, weights, 17)
-    values, next_rng = randsample_next(rng, population, weights, 17)
+    expected_next, expected = _weighted_reference(rng, population, weights, 33)
+    values, next_rng = randsample_next(rng, population, weights, 33)
     @test values == expected
     @test next_rng === expected_next
 end
@@ -174,7 +174,7 @@ end
     population = collect('a':'f')
     weights = [0.0, 1.0, 7.0, 0.0, 2.0, 4.0]
     rng = Philox4x32(0x9753)
-    batch, batch_next = randsample_next(rng, population, weights, 17)
+    batch, batch_next = randsample_next(rng, population, weights, 33)
     cursor = rng
     chained = similar(batch)
     for index in eachindex(chained)
