@@ -317,6 +317,36 @@ end
     end
 end
 
+@testset "CUDA Categorical allocating and fill forms" begin
+    rng = device(Philox4x32(0x64c7))
+    probabilities = CUDA.CuArray(Float64[0, 1, 0, 3])
+    distribution = Categorical(probabilities; check_args = false)
+    expected, expected_next =
+        randsample_next(rng, 1:length(probabilities), probabilities, 33)
+
+    values = rand(rng, distribution, 33)
+    @test values isa CUDA.CuArray{Int,1}
+    @test Array(values) == Array(expected)
+
+    continued, continued_next = rand_next(rng, distribution, 33)
+    @test Array(continued) == Array(expected)
+    @test continued_next.position == expected_next.position
+    @test continued_next.device == expected_next.device
+
+    destination = similar(values)
+    @test rand!(rng, distribution, destination) === destination
+    @test Array(destination) == Array(expected)
+    returned, filled_next = rand_next!(rng, distribution, destination)
+    @test returned === destination
+    @test Array(destination) == Array(expected)
+    @test filled_next.position == expected_next.position
+    @test filled_next.device == expected_next.device
+
+    cpu_probabilities = Categorical(Float64[0, 1]; check_args = false)
+    @test_throws ArgumentError rand(rng, cpu_probabilities, 0)
+    @test_throws ArgumentError rand!(rng, cpu_probabilities, CUDA.CuArray{Int}(undef, 0))
+end
+
 @testset "CUDA fixed-distribution arrays and fills" begin
     extension = Base.get_extension(IR, :PureRNGsDistributionsExt)
     # One exact distribution per primitive draw type for the other generators.

@@ -235,6 +235,7 @@ end
         Weibull(2.0f0, 1.0f0),
         Rayleigh(1.0f0),
         Laplace(0.0f0, 1.0f0),
+        Categorical([0.25, 0.75]),
     )
         T = typeof(rand(rng, distribution))
         destination = MetalDeviceArrayProbe(T[])

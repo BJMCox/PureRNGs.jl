@@ -327,3 +327,4 @@ end
 end
 
 include("distribution_expansion.jl")
+include("categorical.jl")

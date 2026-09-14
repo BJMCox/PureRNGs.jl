@@ -282,4 +282,6 @@ for (distribution_type, result_type) in (
     end
 end
 
+include("distributions_categorical.jl")
+
 end
