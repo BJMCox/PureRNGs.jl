@@ -76,6 +76,10 @@ Compiled draws need a few hundred megabytes. Set `XLA_REACTANT_GPU_PREALLOCATE=f
 Carriers support scalar primitive, range, and supported distribution draws, scalar continuations, addressed draws, static key derivation, and array draws with static sizes: uniform, normal, exponential, integer range, and unweighted `randsample`.
 Destination fills into traced arrays replace the destination's value.
 
+Scalar, continuation, and addressed Reactant forms also cover `LogNormal`,
+`Weibull`, `Rayleigh`, and `Laplace`, using native compiled math. Categorical is
+not a carrier operation. These additions do not extend differentiation support.
+
 Weighted `randsample` is not a carrier API.
 
 A carrier holds no output block, so each chained scalar draw evaluates the core again and compiles to its own kernels.

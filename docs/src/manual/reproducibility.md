@@ -39,6 +39,12 @@ Foreign consumers of `StatefulRNG` may use rejection algorithms.
 All draw kinds read one stream of bits at the generator's position.
 Two draws of different kinds at the same position read the same bits. Advance the generator or derive a new key between them.
 
+The fixed distribution mappings retain their stated spans: LogNormal consumes
+the normal 23/52-bit span, Weibull and Rayleigh consume the exponential 24/53-bit
+span, and Laplace consumes an additional Boolean bit for 25/54 bits. Categorical
+uses the weighted 53-bit mapping. See [Distributions](@ref) for parameter and
+backend rules.
+
 ## Failure behavior
 
 Eager package-owned fills check deterministic contract errors before writing.

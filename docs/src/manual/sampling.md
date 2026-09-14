@@ -31,9 +31,9 @@ draws
 ```
 
 Sampling is always **with replacement**. Omitting the count draws as many values as the population contains.
-It does not shuffle the population.
+It does not shuffle the population. The allocating forms return a vector.
 
-Every call returns a vector. Integer ranges have a direct path without materializing the population.
+Integer ranges have a direct allocating path without materializing the population.
 
 ```@example sampling
 indices, rng = randsample_next(rng, 1:1_000_000, 8)
@@ -61,7 +61,33 @@ Zero weights exclude elements. Zero requested samples still require valid weight
 
 On CPU, a weighted batch builds its exact cumulative `Float64` weights once per call and
 looks up samples in draw order. Other backends may sort thresholds for a batch.
-The preparation is shared within that call, not cached across calls.
+The preparation is shared within that call, not cached across calls. It allocates
+weighted scratch space, so an in-place weighted fill does not promise zero
+allocations. CPU weighted fills remain serial for both values of `threaded`.
+
+## Fill an existing destination
+
+```@example sampling
+expected, next_rng = randsample_next(rng, population, weights, 12)
+destination = similar(expected)
+_, rng = randsample_next!(rng, population, weights, destination; threaded=false)
+@assert destination == expected
+@assert rng == next_rng
+destination
+```
+
+`randsample!` returns the identical destination, while `randsample_next!`
+returns `(destination, next_rng)`. The destination length determines the draw
+count; its axes are preserved and values are written in its native `eachindex`
+order. Its element type must exactly equal the prepared population element
+type.
+
+All inputs, including weights and the complete random span, are validated
+before the destination is changed. Empty destinations still validate the
+population and weights, then consume no bits. A destination that might alias
+the population is rejected. It may alias weights only after those weights have
+been validated and privately prepared. On CPU, `threaded=false` uses the
+calling task directly; it does not look up or launch a backend.
 
 ## Keep data on the right device
 
