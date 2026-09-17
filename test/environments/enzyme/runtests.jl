@@ -1,3 +1,4 @@
+using Distributions
 using Enzyme
 using PureRNGs
 using Random
@@ -28,20 +29,23 @@ end
 
 @testset "R65 closed rule surface" begin
     extension = Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt)
-    fill_functions = (
-        Random.rand!,
-        Random.randn!,
-        Random.randexp!,
-        rand_next!,
-        randn_next!,
-        randexp_next!,
+    # rand! carries the immutable, StatefulRNG, distribution and range fills;
+    # rand_next! carries all but the StatefulRNG one.
+    expected_counts = (
+        (Random.rand!, 4),
+        (Random.randn!, 2),
+        (Random.randexp!, 2),
+        (rand_next!, 3),
+        (randn_next!, 1),
+        (randexp_next!, 1),
+        (randsample!, 2),
+        (randsample_next!, 2),
     )
     for rule in (ER.forward, ER.augmented_primal, ER.reverse)
         owned = filter(method -> method.module === extension, methods(rule))
-        @test length(owned) == 9
-        for fill_function in fill_functions
+        @test length(owned) == sum(last, expected_counts)
+        for (fill_function, expected) in expected_counts
             annotation = Enzyme.Const{typeof(fill_function)}
-            expected = fill_function in (rand_next!, randn_next!, randexp_next!) ? 1 : 2
             @test count(
                 method -> Base.unwrap_unionall(method.sig).parameters[3] === annotation,
                 owned,
@@ -313,6 +317,224 @@ end
         @test parent(forward_rng) === expected_rng
         @test iszero(forward_shadow)
         @test forward_derivative ≈ sum(expected_values)
+    end
+end
+
+
+function argument_fill_result!(fill_function, rng, argument, destination, threaded)
+    return fill_function(rng, argument, destination; threaded = threaded)
+end
+
+function argument_fill_objective!(
+    fill_function,
+    rng,
+    argument,
+    destination,
+    scale,
+    threaded,
+)
+    fill_function(rng, argument, destination; threaded = threaded)
+    return scale * sum(destination)
+end
+
+function weighted_fill_result!(
+    fill_function,
+    rng,
+    population,
+    weights,
+    destination,
+    threaded,
+)
+    return fill_function(rng, population, weights, destination; threaded = threaded)
+end
+
+function weighted_fill_objective!(
+    fill_function,
+    rng,
+    population,
+    weights,
+    destination,
+    scale,
+    threaded,
+)
+    fill_function(rng, population, weights, destination; threaded = threaded)
+    return scale * sum(destination)
+end
+
+
+@testset "R65 distribution and population fills carry no tangent" begin
+    population = [2.0, 3.0, 5.0, 7.0]
+    weights = [0.1, 0.2, 0.3, 0.4]
+    # Each shadow is nonzero, so without a rule the fill would propagate it.
+    cases = (
+        (Random.rand!, rand_next!, Normal(0.0, 1.0), Normal(1.0, 0.0)),
+        (randsample!, randsample_next!, population, fill(1.0, 4)),
+    )
+
+    for (fill_function, next_fill_function, argument, argument_shadow) in cases,
+        (function_under_test, continued) in
+        ((fill_function, false), (next_fill_function, true))
+
+        rng = Philox4x32(0x6508)
+        expected, expected_rng = next_fill_function(rng, argument, zeros(12))
+
+        values = zeros(12)
+        shadow = fill(5.0, 12)
+        shadow_result, primal_result = autodiff(
+            ForwardWithPrimal,
+            argument_fill_result!,
+            Duplicated,
+            Const(function_under_test),
+            Const(rng),
+            Duplicated(argument, argument_shadow),
+            Duplicated(values, shadow),
+            Const(true),
+        )
+        if continued
+            @test primal_result[1] === values
+            @test primal_result[2] === expected_rng
+            @test shadow_result[1] === shadow
+        else
+            @test primal_result === values
+            @test shadow_result === shadow
+        end
+        @test values == expected
+        @test iszero(shadow)
+
+        reverse_values = zeros(12)
+        reverse_shadow = fill(9.0, 12)
+        derivative = only(
+            autodiff(
+                Reverse,
+                argument_fill_objective!,
+                Active,
+                Const(function_under_test),
+                Const(rng),
+                Const(argument),
+                Duplicated(reverse_values, reverse_shadow),
+                Active(1.5),
+                Const(true),
+            ),
+        )
+        @test reverse_values == expected
+        @test iszero(reverse_shadow)
+        @test derivative[5] ≈ sum(expected)
+    end
+
+    for (function_under_test, continued) in ((randsample!, false), (randsample_next!, true))
+
+        rng = Philox4x32(0x6509)
+        expected, expected_rng = randsample_next!(rng, population, weights, zeros(12))
+
+        values = zeros(12)
+        shadow = fill(5.0, 12)
+        shadow_result, primal_result = autodiff(
+            ForwardWithPrimal,
+            weighted_fill_result!,
+            Duplicated,
+            Const(function_under_test),
+            Const(rng),
+            Duplicated(population, fill(1.0, 4)),
+            Duplicated(weights, fill(1.0, 4)),
+            Duplicated(values, shadow),
+            Const(true),
+        )
+        if continued
+            @test primal_result[1] === values
+            @test primal_result[2] === expected_rng
+            @test shadow_result[1] === shadow
+        else
+            @test primal_result === values
+            @test shadow_result === shadow
+        end
+        @test values == expected
+        @test iszero(shadow)
+
+        reverse_values = zeros(12)
+        reverse_shadow = fill(9.0, 12)
+        derivative = only(
+            autodiff(
+                Reverse,
+                weighted_fill_objective!,
+                Active,
+                Const(function_under_test),
+                Const(rng),
+                Const(population),
+                Const(weights),
+                Duplicated(reverse_values, reverse_shadow),
+                Active(1.5),
+                Const(true),
+            ),
+        )
+        @test reverse_values == expected
+        @test iszero(reverse_shadow)
+        @test derivative[6] ≈ sum(expected)
+    end
+
+    active_rng = Philox4x32(0x650a)
+    active_expected, _ = rand_next!(active_rng, Normal(0.0, 1.0), zeros(12))
+    active_values = zeros(12)
+    active_shadow = fill(9.0, 12)
+    active_derivative = only(
+        autodiff(
+            Reverse,
+            argument_fill_objective!,
+            Active,
+            Const(Random.rand!),
+            Const(active_rng),
+            Active(Normal(0.0, 1.0)),
+            Duplicated(active_values, active_shadow),
+            Active(1.5),
+            Const(true),
+        ),
+    )
+    @test active_values == active_expected
+    @test iszero(active_shadow)
+    @test active_derivative[3] === Normal{Float64}(0.0, 0.0)
+    @test active_derivative[5] ≈ sum(active_expected)
+
+    bernoulli = Bernoulli(0.3)
+    rng = Philox4x32(0x650b)
+    expected, _ = rand_next!(rng, bernoulli, Vector{Bool}(undef, 12))
+    values = Vector{Bool}(undef, 12)
+    derivative = only(
+        autodiff(
+            Forward,
+            argument_fill_objective!,
+            Const(Random.rand!),
+            Const(rng),
+            Const(bernoulli),
+            Const(values),
+            Duplicated(2.0, 1.0),
+            Const(true),
+        ),
+    )
+    @test values == expected
+    @test derivative ≈ sum(expected)
+end
+
+
+function range_fill_result!(fill_function, rng, destination, range, threaded)
+    return fill_function(rng, destination, range; threaded = threaded)
+end
+
+
+@testset "R65 range fill keeps its destination second" begin
+    rng = Philox4x32(0x650c)
+    expected, _ = rand_next!(rng, Vector{Int}(undef, 8), 3:9)
+    for mode in (Forward, Reverse)
+        values = Vector{Int}(undef, 8)
+        autodiff(
+            mode,
+            range_fill_result!,
+            Const,
+            Const(Random.rand!),
+            Const(rng),
+            Const(values),
+            Const(3:9),
+            Const(true),
+        )
+        @test values == expected
     end
 end
 
