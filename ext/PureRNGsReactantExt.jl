@@ -632,8 +632,8 @@ end
     if IR._range_bits(span) == UInt16(64)
         _mulhi64(_raw(rng, Val(64)), span)
     else
-        lo = _raw(rng, Val(64))
-        hi = _raw(_advance(rng, UInt64(64)), Val(64))
+        hi = _raw(rng, Val(64))
+        lo = _raw(_advance(rng, UInt64(64)), Val(64))
         return iszero(span) ? hi : _mulhi128(lo, hi, span)
     end
 end
