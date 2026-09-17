@@ -41,6 +41,7 @@ Optional GPU and integration examples need their corresponding environments.
 ## Extensions and GPU checks
 
 Separate projects live in `test/environments`.
+Every environment is a package with its entry point at `test/runtests.jl`.
 Activate the relevant project and develop this checkout before running its tests:
 
 ```julia
@@ -48,8 +49,11 @@ using Pkg
 Pkg.activate("test/environments/distributions")
 Pkg.develop(path=pwd())
 Pkg.instantiate()
-include("test/environments/distributions/runtests.jl")
+include("test/environments/distributions/test/runtests.jl")
 ```
+
+`Pkg.test()` runs the same entry point in a fresh subprocess, which is the better
+choice when the suite must not inherit the current session's loaded packages.
 
 The MeasureBase and Turing environments verify host `StatefulRNG` conformance.
 Run them with the same `Pkg.activate` recipe.
