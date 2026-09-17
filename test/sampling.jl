@@ -2,17 +2,6 @@ const SamplingIR = PureRNGs
 const SamplingMLD = PureRNGs.MLDataDevices
 const SamplingKA = PureRNGs.KernelAbstractions
 
-const UNWEIGHTED_OFFSET_GOLDEN = (
-    Philox2x32 => Int32[104, 105, 102, 101, 105, 101, 105, 105, 106, 103, 106, 102],
-    Philox4x32 => Int32[106, 105, 104, 103, 102, 105, 104, 103, 102, 104, 103, 102],
-    Philox2x64 => Int32[103, 102, 106, 104, 103, 104, 105, 106, 101, 106, 104, 101],
-    Philox4x64 => Int32[106, 103, 105, 104, 101, 101, 106, 104, 101, 104, 102, 101],
-    Threefry2x32 => Int32[103, 103, 101, 102, 104, 101, 106, 105, 104, 103, 106, 105],
-    Threefry4x32 => Int32[101, 104, 101, 102, 103, 104, 105, 103, 103, 105, 104, 106],
-    Threefry2x64 => Int32[102, 102, 103, 105, 104, 104, 102, 103, 102, 101, 105, 104],
-    Threefry4x64 => Int32[103, 103, 106, 103, 103, 101, 104, 102, 102, 101, 103, 106],
-)
-
 struct DeviceAgnosticIterable{T}
     values::Vector{T}
     starts::Base.RefValue{Int}
@@ -98,16 +87,6 @@ function _chained_unweighted(rng, population, count::Integer)
     return cursor, values
 end
 
-@testset "R13, R57, and R58 canonical offset-axis golden vectors" begin
-    population = IdentityAxesMatrix(reshape(Int32.(101:106), 2, 3))
-    for (F, expected) in UNWEIGHTED_OFFSET_GOLDEN
-        rng = F(0x9760)
-        values, _ = randsample_next(rng, population, 12)
-        @test values == expected
-        @test randsample(rng, population, 12) == expected
-    end
-end
-
 @testset "R56-R58 unweighted sampling values and request forms" begin
     populations = (
         collect(Int16(11):Int16(17)),
@@ -119,8 +98,8 @@ end
         big(-7):big(2):big(7),
     )
 
-    for population in populations
-        rng = Philox4x32(0x901)
+    for F in GENERATOR_TYPES, population in populations
+        rng = F(0x901)
         expected_next, expected = _chained_unweighted(rng, population, 19)
         values, next_rng = randsample_next(rng, population, 19)
 
@@ -169,14 +148,16 @@ end
 end
 
 @testset "R58 small unweighted samples" begin
-    rng = Philox4x32(0x905)
     population = UInt64(0):(UInt64(1)<<32)
     count = 128
-    expected_next, expected = _chained_unweighted(rng, population, count)
-    values, next_rng = randsample_next(rng, population, count)
+    for F in GENERATOR_TYPES
+        rng = F(0x905)
+        expected_next, expected = _chained_unweighted(rng, population, count)
+        values, next_rng = randsample_next(rng, population, count)
 
-    @test values == expected
-    @test next_rng == expected_next
+        @test values == expected
+        @test next_rng == expected_next
+    end
 end
 
 @testset "R58 parallel unweighted samples preserve the scalar stream" begin

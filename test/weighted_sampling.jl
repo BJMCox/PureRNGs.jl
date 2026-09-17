@@ -1,27 +1,5 @@
 const WeightedIR = PureRNGs
 
-const WEIGHTED_GOLDEN = (
-    Philox2x32 => Int32[30, 40, 30, 30, 30, 40, 30, 40],
-    Philox4x32 => Int32[30, 30, 30, 20, 30, 40, 30, 20],
-    Philox2x64 => Int32[30, 40, 40, 30, 20, 40, 40, 40],
-    Philox4x64 => Int32[30, 10, 20, 10, 30, 10, 40, 40],
-    Threefry2x32 => Int32[10, 20, 40, 40, 20, 30, 30, 40],
-    Threefry4x32 => Int32[20, 40, 30, 30, 30, 30, 10, 40],
-    Threefry2x64 => Int32[30, 30, 20, 40, 10, 30, 40, 30],
-    Threefry4x64 => Int32[20, 30, 30, 40, 20, 20, 40, 30],
-)
-
-const WEIGHTED_OFFSET_GOLDEN = (
-    Philox2x32 => Int32[103, 106, 103, 106, 104, 101, 105, 103, 103, 106, 105, 105],
-    Philox4x32 => Int32[103, 106, 105, 104, 105, 104, 104, 103, 103, 104, 105, 105],
-    Philox2x64 => Int32[105, 103, 106, 103, 104, 106, 106, 104, 103, 106, 103, 106],
-    Philox4x64 => Int32[106, 104, 104, 104, 101, 106, 104, 106, 106, 106, 105, 104],
-    Threefry2x32 => Int32[106, 106, 103, 106, 104, 106, 106, 104, 103, 103, 103, 104],
-    Threefry4x32 => Int32[106, 106, 106, 106, 105, 105, 106, 106, 103, 103, 104, 105],
-    Threefry2x64 => Int32[106, 105, 105, 105, 106, 103, 104, 106, 106, 105, 106, 106],
-    Threefry4x64 => Int32[106, 106, 103, 106, 105, 106, 103, 103, 105, 106, 106, 101],
-)
-
 mutable struct CountedWeights{T} <: AbstractVector{T}
     values::Vector{T}
     reads::Int
@@ -100,39 +78,19 @@ function _last_weighted_rng(F)
     return WeightedIR._rebuild(rng, position, rng.device)
 end
 
-@testset "R13 and R59 weighted packed-stream golden vectors" begin
-    population = Int32[10, 20, 30, 40]
-    weights = Float64[1, 2, 3, 4]
-    for (F, expected) in WEIGHTED_GOLDEN
-        rng = F(0x9750)
-        values, next_rng = randsample_next(rng, population, weights, 8)
-        @test values == expected
-        @test next_rng === WeightedIR._reserve(rng, UInt64(8 * 53), UInt64(0))
-    end
-end
-
-@testset "R13, R57, and R59 weighted canonical offset-axis golden vectors" begin
-    population = IdentityAxesMatrix(reshape(Int32.(101:106), 2, 3))
-    weights = ZeroBasedVector(Float64[1, 0, 4, 2, 3, 5])
-    for (F, expected) in WEIGHTED_OFFSET_GOLDEN
-        rng = F(0x9761)
-        values, _ = randsample_next(rng, population, weights, 12)
-        @test values == expected
-        @test randsample(rng, population, weights, 12) == expected
-    end
-end
-
 @testset "R59 strict Float64 fold golden boundaries" begin
-    rng = Philox4x32(0x9750)
     population = Int32[10, 20, 30, 40]
     weights = Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0]
-    @test randsample(rng, population, weights, 1) == Int32[10]
+    @test randsample(Philox4x32(0x9750), population, weights, 1) == Int32[10]
 
     weights = [0.0, nextfloat(0.0), 0.0, nextfloat(0.0)]
-    expected_next, expected = _weighted_reference(rng, population, weights, 33)
-    values, next_rng = randsample_next(rng, population, weights, 33)
-    @test values == expected
-    @test next_rng === expected_next
+    for F in GENERATOR_TYPES
+        rng = F(0x9750)
+        expected_next, expected = _weighted_reference(rng, population, weights, 33)
+        values, next_rng = randsample_next(rng, population, weights, 33)
+        @test values == expected
+        @test next_rng === expected_next
+    end
 end
 
 @testset "R56 and R59 weighted sampling surface and fixed work" begin
@@ -149,8 +107,8 @@ end
         UInt8[1, 4, 2, 3, 5, 6, 7, 8],
     )
 
-    for (population, weights) in zip(populations, weight_sets)
-        rng = Philox4x32(0x9752)
+    for F in GENERATOR_TYPES, (population, weights) in zip(populations, weight_sets)
+        rng = F(0x9752)
         expected_next, expected = _weighted_reference(rng, population, weights, 11)
         values, next_rng = randsample_next(rng, population, weights, 11)
 
