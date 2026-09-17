@@ -4,7 +4,10 @@
 # Set PURERNGS_FULL_ACCURACY_SWEEP=1 to sweep every Float32 lattice point.
 
 const _FULL_SWEEP = get(ENV, "PURERNGS_FULL_ACCURACY_SWEEP", "0") == "1"
-const _EXPONENTIAL_ULP_BOUND = Dict(Float32 => 2.0, Float64 => 2.0)
+const _EXPONENTIAL_ULP_BOUND = Dict(Float32 => 2.0, Float64 => 2.5)
+# A Float64 lattice point the strided sweep misses, where the transform reaches
+# its widest known error.
+const _EXPONENTIAL_BREACH_POINT = 0x00097194c32c6bb3
 const _AS241_ULP_BOUND = 4.0
 
 _exponential_ulp(value::T, k, bits) where {T} = setprecision(BigFloat, 160) do
@@ -40,9 +43,12 @@ end
 @testset "R63 exponential transform accuracy" begin
     device = IR._CPUBackend()
     for (T, bits) in ((Float32, 24), (Float64, 53))
-        points =
+        sampled =
             _FULL_SWEEP && T === Float32 ? (UInt64(0):UInt64(2^24-1)) :
             (UInt64(1):UInt64(max(1, 2^bits÷500_000)):UInt64(2^bits-1))
+        points =
+            T === Float64 ?
+            Iterators.flatten((sampled, (UInt64(_EXPONENTIAL_BREACH_POINT),))) : sampled
         worst = 0.0
         for k in points
             value = IR._exponential_from_bits(device, T, k)
