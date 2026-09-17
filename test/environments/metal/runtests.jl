@@ -33,6 +33,10 @@ const METAL_EXPONENTIAL_GOLDEN_CASES = (
     ),
 )
 const METAL_EXPONENTIAL_LATTICE_LENGTH = 1 << 24
+const METAL_OFFSET_GENERATORS = (Philox4x32, Threefry2x32)
+const METAL_OFFSET_BITS = (UInt16(0), UInt16(17), UInt16(31), UInt16(63))
+const METAL_OFFSET_TYPES = (Float32, UInt32)
+const METAL_OFFSET_LENGTH = 37
 
 struct MetalDeviceArrayProbe{T} <: AbstractVector{T}
     data::Vector{T}
@@ -48,6 +52,13 @@ MLDataDevices.get_device(::MetalDeviceArrayProbe) = MetalDevice()
 function _check_metal_error(f)
     @test_throws ArgumentError f()
     return nothing
+end
+
+function _positioned(rng, block::UInt64, bit::UInt16)
+    position =
+        rng.position isa IR._Position64 ? IR._Position64(block, bit) :
+        IR._Position128(block, UInt64(2), bit)
+    return IR._rebuild(rng, position, rng.device)
 end
 
 function _metal_exponential_golden_rng(F, key)
@@ -319,6 +330,35 @@ if Metal.functional()
         end
         maximum_ulp = _metal_exponential_max_ulp(lattice)
         @test maximum_ulp <= BigFloat(3)
+    end
+
+    @testset "R41 Metal mid-stream fill parity" begin
+        for F in METAL_OFFSET_GENERATORS
+            for bit in METAL_OFFSET_BITS, T in METAL_OFFSET_TYPES
+                cpu_rng = _positioned(F(0x5150), UInt64(9), bit)
+                rng = MetalDevice()(cpu_rng)
+                expected, expected_next =
+                    IR.rand_next(cpu_rng, T, METAL_OFFSET_LENGTH)
+                values, next_rng = IR.rand_next(rng, T, METAL_OFFSET_LENGTH)
+                @test Array(values) == expected
+                @test next_rng.position == expected_next.position
+            end
+
+            # Metal evaluates the AS241 tail branch with its own Float32 log, so the
+            # normals carry the same 3 ulp budget as the Metal exponential.
+            cpu_rng = _positioned(F(0x5151), UInt64(9), UInt16(17))
+            rng = MetalDevice()(cpu_rng)
+            expected, expected_next =
+                IR.randn_next(cpu_rng, Float32, METAL_OFFSET_LENGTH)
+            values, next_rng = IR.randn_next(rng, Float32, METAL_OFFSET_LENGTH)
+            host = Array(values)
+            @test all(
+                index ->
+                    abs(host[index] - expected[index]) <= 3 * eps(expected[index]),
+                eachindex(expected),
+            )
+            @test next_rng.position == expected_next.position
+        end
     end
 else
     @info "Metal hardware unavailable; served device execution was not run"
