@@ -287,7 +287,8 @@ end
     @test values == last(_chained_unweighted(last_rng, 1:3, 1))
     @test terminal.position == SamplingIR._terminal64(typemax(UInt64))
     @test_throws ArgumentError randsample_next(last_rng, 1:3, 2)
-    @test last_rng.position == SamplingIR._Position64(typemax(UInt64), UInt16(64))
+    again, _ = randsample_next(last_rng, 1:3, 1)
+    @test again == values
 end
 
 @testset "R67 unweighted destination sampling" begin

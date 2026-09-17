@@ -10,12 +10,11 @@ end
 @testset "R23-R26 CPU allocating uniform draws" begin
     for F in GENERATOR_TYPES, T in PURE_UNIFORM_TYPES
         rng = F(0x62a)
-        original_position = rng.position
 
         pure = rand(rng, T, 12)
         continued, next_rng = rand_next(rng, T, 12)
         @test pure == continued
-        @test rng.position == original_position
+        @test rand(rng, T, 12) == pure
         @test next_rng.position ==
               _reference_position(rng, 12 * PureRNGs._draw_bits(T))
 

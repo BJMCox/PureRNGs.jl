@@ -188,7 +188,6 @@ end
 @testset "R59 and R60 weighted validation precedes generation" begin
     rng = Philox4x32(0x9754)
     population = [10, 20, 30]
-    initial_position = rng.position
 
     invalid = (
         ([1.0, 2.0], 1),
@@ -202,7 +201,9 @@ end
     for (weights, count) in invalid
         @test_throws ArgumentError randsample_next(rng, population, weights, count)
     end
-    @test rng.position == initial_position
+    after_rejections, _ = randsample_next(rng, population, ones(3), 4)
+    pristine, _ = randsample_next(Philox4x32(0x9754), population, ones(3), 4)
+    @test after_rejections == pristine
 
     wrong_weights = SamplingCUDAProbe([1.0, 2.0, 3.0])
     @test_throws ArgumentError randsample(rng, population, wrong_weights, -1)
@@ -233,7 +234,8 @@ end
         @test terminal.position.bit == WeightedIR._EXHAUSTED_BIT
         @test_throws ArgumentError randsample(last, population, weights, 2)
         @test_throws ArgumentError randsample_next(last, population, weights, 2)
-        @test last.position.bit != WeightedIR._EXHAUSTED_BIT
+        again, _ = randsample_next(last, population, weights, 1)
+        @test again == value
     end
 end
 
