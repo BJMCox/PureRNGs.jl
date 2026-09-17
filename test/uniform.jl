@@ -600,3 +600,72 @@ end
         @test @allocated(randn_next!(rng, normal)) == 0
     end
 end
+
+@testset "Dynamic chunk scheduler covers every ordinal once" begin
+    seen = zeros(Int, 100_003)
+    IR._run_chunks(100_003, 4096) do first, last
+        for i = first:last
+            seen[i] += 1
+        end
+    end
+    @test all(==(1), seen)
+    rng = Philox4x32(0x5c4)
+    a = Vector{Float64}(undef, 2^20)
+    b = similar(a)
+    rand_next!(rng, a)
+    rand_next!(rng, b; threaded = false)
+    sync_cpu()
+    @test a == b
+end
+
+@testset "Threaded CPU fills keep the serial stream" begin
+    population = collect(1:10)
+    weights = collect(1.0:10.0)
+    weighted_chunk = Int(IR._CPU_FILL_CHUNK_BITS ÷ UInt64(IR._WEIGHT_BITS))
+    weighted_chunk -= weighted_chunk % IR._WEIGHTED_LOOKUP_LANES
+    fills = (
+        (
+            IR._dense_fill_chunk_elements(Float64),
+            (rng, n, threaded) ->
+                rand_next!(rng, Vector{Float64}(undef, n); threaded = threaded),
+        ),
+        (
+            IR._transformed_fill_chunk_elements(Val(:normal), Float64),
+            (rng, n, threaded) ->
+                randn_next!(rng, Vector{Float64}(undef, n); threaded = threaded),
+        ),
+        (
+            Int(IR._CPU_FILL_CHUNK_BITS ÷ UInt64(IR._range_bits(IR._range_span(1:10)))),
+            (rng, n, threaded) ->
+                rand_next!(rng, Vector{Int}(undef, n), 1:10; threaded = threaded),
+        ),
+        (
+            Int(IR._CPU_FILL_CHUNK_BITS ÷ UInt64(IR._range_bits(UInt64(10)))),
+            (rng, n, threaded) -> randsample_next!(
+                rng,
+                population,
+                Vector{Int}(undef, n);
+                threaded = threaded,
+            ),
+        ),
+        (
+            weighted_chunk,
+            (rng, n, threaded) -> randsample_next!(
+                rng,
+                population,
+                weights,
+                Vector{Int}(undef, n);
+                threaded = threaded,
+            ),
+        ),
+    )
+    rng = Philox4x32(0x5c5)
+    # The second count leaves a short final chunk.
+    for (chunk, fill) in fills, count in (8 * chunk, 4 * chunk + 1)
+        threaded, threaded_rng = fill(rng, count, true)
+        sync_cpu()
+        serial, serial_rng = fill(rng, count, false)
+        @test threaded == serial
+        @test threaded_rng.position == serial_rng.position
+    end
+end

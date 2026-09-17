@@ -4,25 +4,17 @@
 end
 
 function _launch_uniform!(
-    backend::KernelAbstractions.CPU,
+    ::KernelAbstractions.CPU,
     rng,
     destination::Union{Array{T},BitArray},
     ::Type{T},
 ) where {T}
     chunk_elements = _dense_fill_chunk_elements(T)
-    workitems = cld(length(destination), chunk_elements)
-    if workitems < _CPU_FILL_MIN_WORKITEMS
-        _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
-        return destination
+    _run_chunks(length(destination), chunk_elements) do first, last
+        bits_lo, bits_hi = _bit_span(UInt64(first - 1), _draw_bits(T))
+        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+        _fill_uniform_dense_cpu!(rng, position, destination, T, first:last)
     end
-    _uniform_fill_dense_kernel!(backend)(
-        rng,
-        destination,
-        Val(T),
-        chunk_elements;
-        ndrange = workitems,
-        workgroupsize = 1,
-    )
     return destination
 end
 

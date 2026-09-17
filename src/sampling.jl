@@ -258,30 +258,6 @@ KernelAbstractions.@kernel function _unweighted_sample_grouped_kernel!(
     )
 end
 
-KernelAbstractions.@kernel function _unweighted_sample_cpu_kernel!(
-    rng,
-    population,
-    cardinality::UInt64,
-    destination,
-    width::UInt16,
-    chunk_elements::Int,
-)
-    workitem = @index(Global, Linear)
-    first_index, last_index =
-        _dense_fill_bounds(workitem, length(destination), chunk_elements)
-    bits_lo, bits_hi = _bit_span(UInt64(first_index - 1), width)
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_unweighted_cpu_unchecked!(
-        rng,
-        position,
-        population,
-        cardinality,
-        destination,
-        width,
-        first_index:last_index,
-    )
-end
-
 @inline function _launch_unweighted_sample!(
     backend,
     rng,
@@ -316,7 +292,7 @@ end
 end
 
 @inline function _launch_unweighted_sample!(
-    backend::KernelAbstractions.CPU,
+    ::KernelAbstractions.CPU,
     rng,
     population,
     cardinality::UInt64,
@@ -324,29 +300,19 @@ end
     width::UInt16,
 )
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(width))
-    workitems = cld(length(destination), chunk_elements)
-    if workitems < _CPU_FILL_MIN_WORKITEMS
+    _run_chunks(length(destination), chunk_elements) do first, last
+        bits_lo, bits_hi = _bit_span(UInt64(first - 1), width)
+        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
         _fill_unweighted_cpu_unchecked!(
             rng,
-            rng.position,
+            position,
             population,
             cardinality,
             destination,
             width,
-            1:length(destination),
+            first:last,
         )
-        return destination
     end
-    _unweighted_sample_cpu_kernel!(backend)(
-        rng,
-        population,
-        cardinality,
-        destination,
-        width,
-        chunk_elements;
-        ndrange = workitems,
-        workgroupsize = 1,
-    )
     return destination
 end
 
