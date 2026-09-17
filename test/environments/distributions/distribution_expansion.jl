@@ -126,3 +126,52 @@ end
 
     @test_throws MethodError rand(rng, LogNormal(Float16(0), Float16(1)))
 end
+
+# Each mapping consumes the variate its sampler produces, so the round trip
+# feeds it the inverse CDF of that variate rather than the uniform itself.
+standard_normal(::Type{T}, u) where {T} = T(quantile(Normal(), Float64(u)))
+standard_exponential(::Type{T}, u) where {T} = T(-log1p(-Float64(u)))
+
+mapped_quantile(d::Union{Normal{T},LogNormal{T}}, u) where {T} =
+    EXT._map_distribution(d, standard_normal(T, u))
+mapped_quantile(
+    d::Union{Exponential{T},Weibull{T},Rayleigh{T},Gumbel{T},Frechet{T},Pareto{T}},
+    u,
+) where {T} = EXT._map_distribution(d, standard_exponential(T, u))
+mapped_quantile(
+    d::Union{Uniform{T},Logistic{T},Cauchy{T},TriangularDist{T}},
+    u,
+) where {T} = EXT._map_distribution(d, u)
+function mapped_quantile(d::Laplace{T}, u) where {T}
+    # Laplace takes a half exponential and the sign bit that places it.
+    upper = u >= T(0.5)
+    tail = upper ? 2 * (one(T) - u) : 2 * u
+    return EXT._map_distribution(d, T(-log(Float64(tail))), upper)
+end
+
+@testset "Mappings invert the CDF" begin
+    for T in (Float32, Float64)
+        for d in (
+            LogNormal(T(0.3), T(1.2)),
+            Weibull(T(1.7), T(2.0)),
+            Rayleigh(T(1.4)),
+            Laplace(T(0.5), T(2.0)),
+            Logistic(T(0.1), T(0.9)),
+            Cauchy(T(0.2), T(1.5)),
+            Gumbel(T(0.0), T(1.0)),
+            Frechet(T(2.0), T(1.0)),
+            Pareto(T(3.0), T(2.0)),
+            TriangularDist(T(0.0), T(4.0), T(1.0)),
+            Uniform(T(-1), T(3)),
+            Exponential(T(2.5)),
+            Normal(T(1), T(2)),
+        )
+            for u in (T(0.001), T(0.5), T(0.999))
+                p = Float64(cdf(d, mapped_quantile(d, u)))
+                # Gumbel and Frechet spend the uniform on the upper tail.
+                @test isapprox(p, Float64(u); atol = 1e-5) ||
+                      isapprox(p, 1 - Float64(u); atol = 1e-5)
+            end
+        end
+    end
+end
