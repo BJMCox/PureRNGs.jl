@@ -69,3 +69,29 @@ end
         (0x452821e638d01377, 0xbe5466cf34e90c6c),
     ) == (0xa528f45403e61d95, 0x38c72dbd566e9788, 0xa5a1610e72fd18b5, 0x57bd43b5e52b7fe6)
 end
+
+# The CPU 64-bit Philox generators run the core on host words so that the
+# four-word core can use the x86 `mulq` sequence. That multiplication is the
+# only thing the host words change, so the blocks must equal the portable ones.
+@testset "CPU host-word Philox cores match the portable core" begin
+    addresses = (
+        (UInt64(0), UInt64(0)),
+        (0x243f6a8885a308d3, 0x13198a2e03707344),
+        (typemax(UInt64), typemax(UInt64)),
+        (0x8000000000000000, UInt64(1)),
+    )
+    key2 = (0x452821e638d01377,)
+    key4 = (0x452821e638d01377, 0xbe5466cf34e90c6c)
+    for address in addresses
+        @test PureRNGs._core_block(
+            PureRNGs.Philox2x64{PureRNGs._CPUBackend,10},
+            key2,
+            address[1],
+        ) == PureRNGs._philox2x64((address[1], UInt64(0)), key2, Val(10))
+        @test PureRNGs._core_block(
+            PureRNGs.Philox4x64{PureRNGs._CPUBackend,10},
+            key4,
+            address,
+        ) == PureRNGs._philox4x64((address..., UInt64(0), UInt64(0)), key4, Val(10))
+    end
+end
