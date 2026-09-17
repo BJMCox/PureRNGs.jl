@@ -193,7 +193,8 @@ end
     # Julia 1.10 also lists the shadowed AbstractDevice fallback.
     @test Set(
         method for method in methods(cpu) if method.module === AuditIR &&
-        Base.unwrap_unionall(method.sig).parameters[1] <: AuditIR.MLDataDevices.CPUDevice
+            Base.unwrap_unionall(method.sig).parameters[1] <:
+            AuditIR.MLDataDevices.CPUDevice
     ) == Set((device_method,))
     @test isempty(Base.kwarg_decl(device_method))
 end

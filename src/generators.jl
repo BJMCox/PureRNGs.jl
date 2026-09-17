@@ -158,8 +158,7 @@ struct Threefry2x32{D<:_BackendToken,R} <: AbstractPureRNG
         position,
         device,
         block_words,
-    ) where {D,R} =
-        new{D,R}(key, position, device, block_words)
+    ) where {D,R} = new{D,R}(key, position, device, block_words)
 end
 
 """
@@ -188,8 +187,7 @@ struct Threefry4x32{D<:_BackendToken,R} <: AbstractPureRNG
         position,
         device,
         block_words,
-    ) where {D,R} =
-        new{D,R}(key, position, device, block_words)
+    ) where {D,R} = new{D,R}(key, position, device, block_words)
 end
 
 """
@@ -217,8 +215,7 @@ struct Threefry2x64{D<:_BackendToken,R} <: AbstractPureRNG
         position,
         device,
         block_words,
-    ) where {D,R} =
-        new{D,R}(key, position, device, block_words)
+    ) where {D,R} = new{D,R}(key, position, device, block_words)
 end
 
 """
@@ -246,8 +243,7 @@ struct Threefry4x64{D<:_BackendToken,R} <: AbstractPureRNG
         position,
         device,
         block_words,
-    ) where {D,R} =
-        new{D,R}(key, position, device, block_words)
+    ) where {D,R} = new{D,R}(key, position, device, block_words)
 end
 
 """
@@ -292,15 +288,8 @@ const _Backend64Generators{D} =
     Union{Philox2x64{D},Philox4x64{D},Threefry2x64{D},Threefry4x64{D}}
 const _BackendGenerators{D} = Union{_Backend32Generators{D},_Backend64Generators{D}}
 
-const _Position64Generators = Union{
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    ChaCha,
-}
+const _Position64Generators =
+    Union{Philox2x32,Philox4x32,Philox2x64,Threefry2x32,Threefry4x32,Threefry2x64,ChaCha}
 const _Position128Generators = Union{Philox4x64,Threefry4x64}
 const _NarrowGenerators = Union{Philox2x32,Threefry2x32}
 @inline _zero_position(::Type{<:_Position64Generators}) = _Position64(0, 0)
@@ -467,8 +456,7 @@ for (Device, token) in (
     (MLDataDevices.AMDGPUDevice, :_AMDGPU_BACKEND),
     (MLDataDevices.MetalDevice, :_METAL_BACKEND),
 )
-    @eval @inline (::$(Device))(rng::AbstractPureRNG) =
-        _rebuild(rng, rng.position, $token)
+    @eval @inline (::$(Device))(rng::AbstractPureRNG) = _rebuild(rng, rng.position, $token)
 end
 
 @noinline function _unsupported_device(device)

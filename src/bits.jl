@@ -173,8 +173,7 @@ end
     else
         next_rng.block_words[1]
     end
-    return ((head & _low_mask(available)) << remaining) |
-           (tail >> (UInt16(64) - remaining))
+    return ((head & _low_mask(available)) << remaining) | (tail >> (UInt16(64) - remaining))
 end
 
 @inline function _extract_bits128_unchecked(rng, block, bit::UInt16)

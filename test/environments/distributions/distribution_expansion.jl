@@ -138,10 +138,8 @@ mapped_quantile(
     d::Union{Exponential{T},Weibull{T},Rayleigh{T},Gumbel{T},Frechet{T},Pareto{T}},
     u,
 ) where {T} = EXT._map_distribution(d, standard_exponential(T, u))
-mapped_quantile(
-    d::Union{Uniform{T},Logistic{T},Cauchy{T},TriangularDist{T}},
-    u,
-) where {T} = EXT._map_distribution(d, u)
+mapped_quantile(d::Union{Uniform{T},Logistic{T},Cauchy{T},TriangularDist{T}}, u) where {T} =
+    EXT._map_distribution(d, u)
 function mapped_quantile(d::Laplace{T}, u) where {T}
     # Laplace takes a half exponential and the sign bit that places it.
     upper = u >= T(0.5)

@@ -18,8 +18,7 @@ end
         continued, next_rng = rand_next(rng, T, 12)
         @test pure == continued
         @test rand(rng, T, 12) == pure
-        @test next_rng.position ==
-              _reference_position(rng, 12 * PureRNGs._draw_bits(T))
+        @test next_rng.position == _reference_position(rng, 12 * PureRNGs._draw_bits(T))
 
         cursor = rng
         chained = Vector{T}(undef, 12)

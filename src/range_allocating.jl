@@ -10,8 +10,7 @@
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     if _range_bits(span) == UInt16(64)
         @inbounds for index in indices
-            candidate, cursor =
-                _take_dense_bits_unchecked(rng, cursor, Val(64))
+            candidate, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
             offset = _reduce_range_candidate(candidate, span)
             destination[index] = _range_value(range, offset)
         end

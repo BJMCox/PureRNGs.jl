@@ -115,8 +115,7 @@ end
         )
         package_ambiguities = filter(ambiguities) do pair
             any(pair) do method
-                method.module === PureRNGs ||
-                    parentmodule(method.module) === PureRNGs
+                method.module === PureRNGs || parentmodule(method.module) === PureRNGs
             end
         end
         @test isempty(package_ambiguities)

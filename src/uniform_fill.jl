@@ -394,7 +394,7 @@ end
 # chunk and stores the draws that end inside it, so every shift is a constant.
 @generated function _store_f64_group!(destination, index, rng::Philox4x32, block::UInt64)
     chunk_of(word) = word >> 3
-    word_ref(word) = :($(Symbol(:chunk_, chunk_of(word)))[$(word - 8chunk_of(word) + 1)])
+    word_ref(word) = :($(Symbol(:chunk_, chunk_of(word)))[$(word-8chunk_of(word)+1)])
     body = Expr[:(mask = _low_mask(UInt16(53)))]
     for chunk = 0:13
         source =

@@ -337,8 +337,7 @@ if Metal.functional()
             for bit in METAL_OFFSET_BITS, T in METAL_OFFSET_TYPES
                 cpu_rng = _positioned(F(0x5150), UInt64(9), bit)
                 rng = MetalDevice()(cpu_rng)
-                expected, expected_next =
-                    IR.rand_next(cpu_rng, T, METAL_OFFSET_LENGTH)
+                expected, expected_next = IR.rand_next(cpu_rng, T, METAL_OFFSET_LENGTH)
                 values, next_rng = IR.rand_next(rng, T, METAL_OFFSET_LENGTH)
                 @test Array(values) == expected
                 @test next_rng.position == expected_next.position
@@ -348,13 +347,11 @@ if Metal.functional()
             # normals carry the same 3 ulp budget as the Metal exponential.
             cpu_rng = _positioned(F(0x5151), UInt64(9), UInt16(17))
             rng = MetalDevice()(cpu_rng)
-            expected, expected_next =
-                IR.randn_next(cpu_rng, Float32, METAL_OFFSET_LENGTH)
+            expected, expected_next = IR.randn_next(cpu_rng, Float32, METAL_OFFSET_LENGTH)
             values, next_rng = IR.randn_next(rng, Float32, METAL_OFFSET_LENGTH)
             host = Array(values)
             @test all(
-                index ->
-                    abs(host[index] - expected[index]) <= 3 * eps(expected[index]),
+                index -> abs(host[index] - expected[index]) <= 3 * eps(expected[index]),
                 eachindex(expected),
             )
             @test next_rng.position == expected_next.position

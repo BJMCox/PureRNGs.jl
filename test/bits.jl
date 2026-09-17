@@ -86,15 +86,12 @@ end
             @test candidate == _reference_extract128(rng, block, bit)
         end
 
-        @test @inferred(
-            BitsIR._extract_bits_unchecked(rng, block, UInt16(0), Val(1))
-        ) isa UInt64
-        @test @inferred(
-            BitsIR._extract_bits_unchecked(rng, block, UInt16(31), Val(64))
-        ) isa UInt64
-        @test @inferred(
-            BitsIR._extract_bits128_unchecked(rng, block, UInt16(63))
-        ) isa Tuple{UInt64,UInt64}
+        @test @inferred(BitsIR._extract_bits_unchecked(rng, block, UInt16(0), Val(1))) isa
+              UInt64
+        @test @inferred(BitsIR._extract_bits_unchecked(rng, block, UInt16(31), Val(64))) isa
+              UInt64
+        @test @inferred(BitsIR._extract_bits128_unchecked(rng, block, UInt16(63))) isa
+              Tuple{UInt64,UInt64}
 
         bits_allocations(rng, block)
         @test bits_allocations(rng, block) == (0, 0)

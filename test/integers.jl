@@ -139,19 +139,12 @@ end
         zip(PACKED_GOLDEN_GENERATORS, expected)
         rng = _packed_golden_rng(F, key)
         block = _reference_position_block(rng.position)
-        @test RangeIR._extract_bits_unchecked(
-            rng,
-            block,
-            rng.position.bit,
-            Val(64),
-        ) === candidate64
+        @test RangeIR._extract_bits_unchecked(rng, block, rng.position.bit, Val(64)) ===
+              candidate64
         @test RangeIR._range_offset(rng, span64) === UInt64(index64)
         @test rand(rng, range64) === value64
-        @test RangeIR._extract_bits128_unchecked(
-            rng,
-            block,
-            rng.position.bit,
-        ) === candidate128
+        @test RangeIR._extract_bits128_unchecked(rng, block, rng.position.bit) ===
+              candidate128
         @test RangeIR._range_offset(rng, span128) === UInt64(index128)
         @test rand(rng, range128) === value128
     end

@@ -19,12 +19,7 @@ const _UniformInteger = Union{_UniformInteger32,_UniformInteger64}
 @inline _position_block(position::_Position128) = (position.lo, position.hi)
 
 @inline function _draw_raw(rng::_ScalarUniformGenerators, position, ::Val{W}) where {W}
-    return _extract_bits_unchecked(
-        rng,
-        _position_block(position),
-        position.bit,
-        Val(W),
-    )
+    return _extract_bits_unchecked(rng, _position_block(position), position.bit, Val(W))
 end
 
 @inline _draw_raw(rng::_ScalarUniformGenerators, width) =

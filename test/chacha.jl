@@ -1,8 +1,7 @@
 # Vectors from draft-strombergson-chacha-test-vectors: 256-bit key, 64-bit
 # nonce in the two words after the 64-bit block counter, keystream bytes given
 # little-endian. Block 1 checks the counter placement.
-_chacha_words(hex::AbstractString) =
-    Tuple(reinterpret(UInt32, hex2bytes(hex)))
+_chacha_words(hex::AbstractString) = Tuple(reinterpret(UInt32, hex2bytes(hex)))
 _chacha_counter(block::Integer, nonce::AbstractString) =
     (UInt32(block), UInt32(0), _chacha_words(nonce)...)
 
@@ -60,10 +59,9 @@ end
 @testset "ChaCha stream layout" begin
     rng = ChaCha(0)
     # The generator's first block is the zero-key, zero-nonce keystream block.
-    @test rng.block_words == PureRNGs._block_words(PureRNGs._chacha(
-        _chacha_counter(0, "0000000000000000"),
-        CHACHA_ZERO_KEY,
-    ))
+    @test rng.block_words == PureRNGs._block_words(
+        PureRNGs._chacha(_chacha_counter(0, "0000000000000000"), CHACHA_ZERO_KEY),
+    )
     @test PureRNGs._block_bits(rng) == 512
     # Draws read the block words from the most significant bit, so the first
     # `UInt64` is the first two little-endian keystream words.

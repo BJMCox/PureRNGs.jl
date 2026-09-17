@@ -57,6 +57,35 @@ jobs:
           disable_search: true
           fail_ci_if_error: true
 
+  quality:
+    name: Format and Aqua
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v3
+      - name: Format check
+        run: |
+          julia --startup-file=no -e '
+            using Pkg
+            Pkg.activate(temp=true)
+            Pkg.add(name="JuliaFormatter", version="2.12.6")
+            using JuliaFormatter
+            format(["src", "ext", "test", "docs", "benchmark"]; verbose=false)'
+          git diff --exit-code
+      - name: Aqua
+        run: |
+          julia --startup-file=no -e '
+            using Pkg
+            Pkg.activate(temp=true)
+            Pkg.develop(path=".")
+            Pkg.add(name="Aqua", version="0.8.16")
+            using Aqua, PureRNGs
+            # unbound_args is off: the NTuple{N,T} core signatures are never called with an empty tuple.
+            Aqua.test_all(PureRNGs; unbound_args = false)'
+
   extensions:
     name: Extension / ${{ matrix.suite }} / Julia ${{ matrix.julia }} / CPU
     runs-on: ubuntu-latest
@@ -67,10 +96,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suite: distributions, entry: runtests.jl, args: '', julia: '1'}
-          - {suite: distributions, entry: runtests.jl, args: '', julia: '1.10'}
-          - {suite: enzyme, entry: runtests.jl, args: '', julia: '1'}
-          - {suite: reactant, entry: test/runtests.jl, args: 'Philox4x32 Threefry4x64 Threefry4x32 ChaCha', julia: '1'}
+          - {suite: distributions, args: '', julia: '1'}
+          - {suite: distributions, args: '', julia: '1.10'}
+          - {suite: enzyme, args: '', julia: '1'}
+          - {suite: reactant, args: 'Philox4x32 Threefry4x64 Threefry4x32 ChaCha', julia: '1'}
     env:
       JULIA_NUM_THREADS: '4'
       PURERNGS_REACTANT_BACKEND: cpu
@@ -85,7 +114,7 @@ jobs:
           julia --startup-file=no --check-bounds=yes --code-coverage=user \
             --project=test/environments/${{ matrix.suite }} -e \
             'using Pkg; Pkg.instantiate(; allow_autoprecomp=false); include(popfirst!(ARGS))' \
-            test/environments/${{ matrix.suite }}/${{ matrix.entry }} ${{ matrix.args }}
+            test/environments/${{ matrix.suite }}/test/runtests.jl ${{ matrix.args }}
       - uses: julia-actions/julia-processcoverage@v1
         with:
           directories: src,ext

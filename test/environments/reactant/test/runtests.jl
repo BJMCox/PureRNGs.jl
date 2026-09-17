@@ -192,7 +192,7 @@ _exponential_probe(rng) =
 function _snapshot(rng)
     range = UInt16(2):UInt16(3):UInt16(74)
     # A span above 2^32 takes the K=128 reduction, which reads two words.
-    wide_range = UInt64(0):(UInt64(1) << 40)
+    wide_range = UInt64(0):(UInt64(1)<<40)
     linrange = LinRange{Int64}(Int64(1) << 53, (Int64(1) << 53) + Int64(4), 5)
     pure_values = (
         rand(rng, Bool),
