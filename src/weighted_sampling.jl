@@ -277,14 +277,12 @@ end
 )
     thresholds = _allocate_array(rng.device, Float64, (length(destination),))
     _fill_weighted_thresholds!(backend, rng, total, thresholds)
-    order = _weighted_sortperm(rng.device, thresholds)
     return _launch_weighted_scan!(
         rng.device,
         backend,
         population,
         weights,
         thresholds,
-        order,
         cumulative,
         destination,
     )
@@ -337,9 +335,6 @@ end
     return thresholds
 end
 
-# `sortperm` is stable, so equal thresholds retain their original-index order.
-@inline _weighted_sortperm(device, thresholds) = sortperm(thresholds)
-
 @inline function _scan_weighted!(population, weights, thresholds, order, destination)
     cumulative = zero(Float64)
     ordered_draw = 1
@@ -385,10 +380,12 @@ end
     population,
     weights,
     thresholds,
-    order,
     cumulative,
     destination,
 )
+    # The single-workitem scan walks the thresholds in ascending order. `sortperm`
+    # is stable, so equal thresholds retain their original-index order.
+    order = sortperm(thresholds)
     return _launch_weighted_scan!(
         backend,
         population,
