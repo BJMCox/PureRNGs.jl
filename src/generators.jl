@@ -395,7 +395,7 @@ for (alias, F, R) in _ROUND_ALIASES
             position = _zero_position($F)
             return $F{_CPUBackend,$R}(_CONSTRUCTION_TOKEN, key, position, _CPU_BACKEND)
         end
-        (::Type{$alias})(seed::Integer) = $alias(rngkey($F(seed)))
+        (::Type{$alias})(seed::Integer) = $alias(_family_key($F, seed))
         function (::Type{$alias})(key::fieldtype($F, :key), position::Integer)
             return $F{_CPUBackend,$R}(
                 _CONSTRUCTION_TOKEN,
@@ -405,7 +405,7 @@ for (alias, F, R) in _ROUND_ALIASES
             )
         end
         (::Type{$alias})(seed::Integer, position::Integer) =
-            $alias(rngkey($F(seed)), position)
+            $alias(_family_key($F, seed), position)
     end
 end
 
@@ -417,15 +417,19 @@ function _seed_key(::Type{T}, ::Val{N}, seed::Integer) where {T<:Unsigned,N}
     return ntuple(i -> (value >> (bits * (i - 1))) % T, Val(N))
 end
 
-Philox2x32(seed::Integer) = Philox2x32(_seed_key(UInt32, Val(1), seed))
-Philox4x32(seed::Integer) = Philox4x32(_seed_key(UInt32, Val(2), seed))
-Philox2x64(seed::Integer) = Philox2x64(_seed_key(UInt64, Val(1), seed))
-Philox4x64(seed::Integer) = Philox4x64(_seed_key(UInt64, Val(2), seed))
-Threefry2x32(seed::Integer) = Threefry2x32(_seed_key(UInt32, Val(2), seed))
-Threefry4x32(seed::Integer) = Threefry4x32(_seed_key(UInt32, Val(4), seed))
-Threefry2x64(seed::Integer) = Threefry2x64(_seed_key(UInt64, Val(2), seed))
-Threefry4x64(seed::Integer) = Threefry4x64(_seed_key(UInt64, Val(4), seed))
-ChaCha(seed::Integer) = ChaCha(_seed_key(UInt32, Val(8), seed))
+@inline _family_key(::Type{<:Philox2x32}, seed::Integer) = _seed_key(UInt32, Val(1), seed)
+@inline _family_key(::Type{<:Philox4x32}, seed::Integer) = _seed_key(UInt32, Val(2), seed)
+@inline _family_key(::Type{<:Philox2x64}, seed::Integer) = _seed_key(UInt64, Val(1), seed)
+@inline _family_key(::Type{<:Philox4x64}, seed::Integer) = _seed_key(UInt64, Val(2), seed)
+@inline _family_key(::Type{<:Threefry2x32}, seed::Integer) = _seed_key(UInt32, Val(2), seed)
+@inline _family_key(::Type{<:Threefry4x32}, seed::Integer) = _seed_key(UInt32, Val(4), seed)
+@inline _family_key(::Type{<:Threefry2x64}, seed::Integer) = _seed_key(UInt64, Val(2), seed)
+@inline _family_key(::Type{<:Threefry4x64}, seed::Integer) = _seed_key(UInt64, Val(4), seed)
+@inline _family_key(::Type{<:ChaCha}, seed::Integer) = _seed_key(UInt32, Val(8), seed)
+
+for F in _GENERATOR_SYMBOLS
+    @eval $F(seed::Integer) = $F(_family_key($F, seed))
+end
 
 # Every generator carries the decoded block at its position, so equal key and
 # position always give identical values. The four-argument token constructor
@@ -719,6 +723,6 @@ for F in _GENERATOR_SYMBOLS
                 _CPU_BACKEND,
             )
         end
-        $F(seed::Integer, position::Integer) = $F(rngkey($F(seed)), position)
+        $F(seed::Integer, position::Integer) = $F(_family_key($F, seed), position)
     end
 end

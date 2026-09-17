@@ -303,6 +303,14 @@ end
         @test rand(mutable_rng, UInt32) === first(rand_next(F(0x80f), UInt32))
     end
 
+    for A in (Philox4x32R7, Threefry4x64R13, ChaCha8, ChaCha20)
+        mutable_rng = StatefulRNG(A(0x80e))
+        rand(mutable_rng, UInt32)
+        @test Random.seed!(mutable_rng, 0x80f) === mutable_rng
+        @test mutable_rng.rng === A(0x80f)
+        @test rand(mutable_rng, UInt32) === first(rand_next(A(0x80f), UInt32))
+    end
+
     mutable_rng = StatefulRNG(Philox2x32(0x810))
     rand(mutable_rng, UInt32)
     replay = copy(mutable_rng)

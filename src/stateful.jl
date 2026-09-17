@@ -164,7 +164,13 @@ const _StatefulUniform = Union{Bool,UInt32,Int32,UInt64,Int64,Float32,Float64}
 )
 
 for F in _GENERATOR_SYMBOLS
-    @eval @inline _fresh_bridge_rng(::$F, seed::Integer) = $F(seed)
+    @eval @inline _fresh_bridge_rng(::$F{_CPUBackend,R}, seed::Integer) where {R} =
+        $F{_CPUBackend,R}(
+            _CONSTRUCTION_TOKEN,
+            _family_key($F, seed),
+            _zero_position($F),
+            _CPU_BACKEND,
+        )
 end
 
 @inline function Random.seed!(mutable_rng::StatefulRNG, seed::Integer)

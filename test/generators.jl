@@ -174,3 +174,21 @@ end
         @test_throws ArgumentError F(rngkey(rng), rngposition(terminal) + 1)
     end
 end
+
+@testset "Seeded constructors equal key constructors" begin
+    for F in GENERATOR_TYPES
+        seeded = F(0x5eed)
+        @test F(rngkey(seeded)) === seeded
+        @test F(0x5eed, 77) === F(rngkey(seeded), 77)
+        @test PureRNGs._family_key(F, 0x5eed) === rngkey(seeded)
+    end
+    for (A, F) in (
+        (Philox4x32R7, Philox4x32),
+        (Threefry4x64R13, Threefry4x64),
+        (ChaCha8, ChaCha),
+        (ChaCha20, ChaCha),
+    )
+        @test A(0x5eed) === A(PureRNGs._family_key(F, 0x5eed))
+        @test A(0x5eed, 9) === A(PureRNGs._family_key(F, 0x5eed), 9)
+    end
+end
