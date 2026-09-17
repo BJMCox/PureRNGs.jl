@@ -443,6 +443,19 @@ end
     return ifelse(abs(q) <= T(0.425), central, tail)
 end
 
+# A Float32 midpoint caps the tail radius at r = 4.08, so the far-tail branch of
+# the generic method never fires. Omitting it drops two traced polynomials.
+@inline function _normal_transform(u, ::Type{Float32})
+    A, B, C, D, _, _ = IR._as241_coefficients(Float32)
+    q = u - 0.5f0
+    central_r = 0.180625f0 - IR._rounded_product(q, q, q)
+    central = q * (_horner(central_r, A) / _horner(central_r, B))
+    tail_r = sqrt(-log(ifelse(q < 0.0f0, u, 1.0f0 - u))) - 1.6f0
+    tail = _horner(tail_r, C) / _horner(tail_r, D)
+    tail = ifelse(q < 0.0f0, -tail, tail)
+    return ifelse(abs(q) <= 0.425f0, central, tail)
+end
+
 @inline function _midpoint_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}}
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     return _convert(T, (raw * UInt64(2)) | UInt64(1)) * scale

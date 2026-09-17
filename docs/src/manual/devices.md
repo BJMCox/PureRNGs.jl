@@ -46,10 +46,15 @@ Use allocating draws, fills, or [GPU kernels](@ref) to generate values on the de
 | AMDGPU | Preview | Backend extension, not a required release gate |
 | Metal | Experimental | Restricted primitive draws and fills |
 
+Weighted population sampling on AMDGPU runs the selection scan on a single
+work-item and scales with the population size.
+
 Metal device execution supports 32-bit generators with `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, and `Float32` results.
 Normal and exponential results must be `Float32`.
 
-Metal excludes allocating ranges, population sampling, and distribution fills.
+Metal excludes allocating integer-range draws, population sampling, and every
+fixed-distribution and `Categorical` form that executes on the device,
+allocating draws and fills alike.
 Host scalar operations are not restricted by the Metal token.
 Unsupported host-called operations throw even for empty outputs.
 

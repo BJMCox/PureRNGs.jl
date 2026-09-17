@@ -1,8 +1,8 @@
 # A draw counter is the block address zero-extended to the core's counter width.
 # Key derivation in derive.jl writes a nonzero tag into the extension words, so
-# derived keys never coincide with a draw address. The two-word generators reserve
-# the top byte of the second word for that tag, which is why their block counter
-# is 56 bits wide.
+# derived keys never coincide with a draw address. The two-word 32-bit generators
+# reserve the top byte of the second word for that tag, which is why their block
+# counter is 56 bits wide. The 64-bit two-word cores use a whole tag word instead.
 @inline _draw_counter(::Val{N}, address::NTuple{K,T}) where {N,K,T} =
     (address..., ntuple(_ -> zero(T), Val(N - K))...)
 @inline _address32(block::UInt64) = (block % UInt32, (block >> 32) % UInt32)

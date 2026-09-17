@@ -58,6 +58,16 @@ under Reactant. This avoids singular input endpoints without retries.
 TriangularDist uses an ordinary uniform draw and a normalized inverse CDF that
 avoids products of interval widths. Even a point mass consumes its full span.
 
+| Precision | Normal range | Exponential range |
+| --- | --- | --- |
+| `Float32` | ±5.2947 | 0 to 16.636 |
+| `Float64` | ±8.2095 | 0 to 36.737 |
+
+Every derived distribution inherits these bounds through its transform.
+The smallest exponential draw is a negative zero, which `Exponential`, `Rayleigh`, and `Weibull` with unit shape return unchanged.
+`Bernoulli(p)` realizes `ceil(p * 2^w) / 2^w` with `w` equal to 24 or 53, so probabilities below `2^-w` round up to `2^-w`. Use `Float64` parameters for `p` below about `1e-7`.
+`Categorical` shares the weighted sampling resolution described in [Sampling](@ref).
+
 ```julia
 distribution = Logistic(0.0, 1.0)
 values, rng = rand_next(rng, distribution, 128)

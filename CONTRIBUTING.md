@@ -51,6 +51,9 @@ Pkg.instantiate()
 include("test/environments/distributions/runtests.jl")
 ```
 
+The MeasureBase and Turing environments verify host `StatefulRNG` conformance.
+Run them with the same `Pkg.activate` recipe.
+
 CUDA is a local release gate, not a hosted CI job.
 Run it on a supported CUDA device and record the exact source revision.
 The CUDA environment requires Julia 1.11, so it does not run on the 1.10 floor the

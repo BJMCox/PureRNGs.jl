@@ -76,9 +76,10 @@ Compiled draws need a few hundred megabytes. Set `XLA_REACTANT_GPU_PREALLOCATE=f
 Carriers support scalar primitive, range, and supported distribution draws, scalar continuations, addressed draws, static key derivation, and array draws with static sizes: uniform, normal, exponential, integer range, and unweighted `randsample`.
 Destination fills into traced arrays replace the destination's value.
 
-Scalar, continuation, and addressed Reactant forms also cover `LogNormal`,
-`Weibull`, `Rayleigh`, and `Laplace`, using native compiled math. Categorical is
-not a carrier operation. These additions do not extend differentiation support.
+Scalar, continuation, and addressed Reactant forms cover every fixed
+distribution listed in [Distributions](@ref), using native compiled math.
+`Categorical` is not a carrier operation. These additions do not extend
+differentiation support.
 
 Weighted `randsample` is not a carrier API.
 
@@ -90,6 +91,7 @@ Changing static inputs can require recompilation.
 !!! warning "Capacity is the caller's responsibility"
     Compiled carriers omit exhaustion checks. Keep every compiled draw within the generator's per-key capacity.
     Ordinary eager generators retain their checks.
+    On the two-word 32-bit generators the counter wraps, so a compiled draw past capacity repeats the start of the stream.
 
 Primitive integer and uniform streams retain their exact value contract.
 Compiled normal and exponential transforms may differ from eager GPU values without an eager-relative ULP bound.

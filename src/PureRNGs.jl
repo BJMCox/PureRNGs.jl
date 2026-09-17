@@ -39,6 +39,7 @@ export Philox2x32,
     randsample_next!,
     StatefulRNG
 
+# Both Reactant extensions dispatch on this type, so the core owns the declaration.
 struct _ReactantRNG{R,A}
     state::A
 end
