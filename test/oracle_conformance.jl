@@ -1,8 +1,8 @@
 # This fixture contains only R2 raw cores, counter layouts, and key derivation.
 # It intentionally contains no draw conversion or packed-stream value. Every draw
 # kind reads the same counter region, so one block output per generator suffices.
+# Captured from commit 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d.
 const PINNED_TESTBED_ORACLE = (
-    commit = "7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d",
     constants = (
         derive_tag = UInt32(0xc0ffee00),
         split_subtag = UInt32(0),
@@ -65,7 +65,6 @@ end
 
 @testset "R2 pinned testbed agreement" begin
     oracle = PINNED_TESTBED_ORACLE
-    @test oracle.commit == "7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d"
 
     constants = oracle.constants
     @test PureRNGs._DERIVE_TAG === constants.derive_tag

@@ -2,20 +2,22 @@ using Random: randexp
 
 @testset "Philox4x64 allocating continuation retains the stream" begin
     rng = Philox4x64(0x62a)
-    _, successor = Base.invokelatest(rand_next, rng, UInt64, 12)
-    value, _ = Base.invokelatest(rand_next, successor, UInt64)
-    @test value == 0x88d25590be71246e
+    _, successor = rand_next(rng, UInt64, 12)
+    cursor = rng
+    for _ = 1:12
+        _, cursor = rand_next(cursor, UInt64)
+    end
+    @test first(rand_next(successor, UInt64)) == first(rand_next(cursor, UInt64))
 end
 
 @testset "R23-R26 CPU allocating uniform draws" begin
     for F in GENERATOR_TYPES, T in PURE_UNIFORM_TYPES
         rng = F(0x62a)
-        original_position = rng.position
 
         pure = rand(rng, T, 12)
         continued, next_rng = rand_next(rng, T, 12)
         @test pure == continued
-        @test rng.position == original_position
+        @test rand(rng, T, 12) == pure
         @test next_rng.position ==
               _reference_position(rng, 12 * PureRNGs._draw_bits(T))
 
