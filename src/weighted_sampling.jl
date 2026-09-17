@@ -46,7 +46,7 @@ end
     return converted
 end
 
-function _prepare_weight_scan(rng::_CPUGenerators, weights, _agnostic::Bool)
+@inline function _fold_weights_cpu(weights)
     cumulative = Vector{Float64}(undef, length(weights))
     total_result = Vector{Float64}(undef, 1)
     invalid_result = Vector{Bool}(undef, 1)
@@ -59,8 +59,46 @@ function _prepare_weight_scan(rng::_CPUGenerators, weights, _agnostic::Bool)
         Val(true),
     )
     invalid_result[1] && _invalid_weights()
-    return nothing, total_result[1], cumulative
+    return total_result[1], cumulative
 end
+
+"""
+    WeightTable(weights)
+
+Prepared weights for repeated weighted sampling. Holds the cumulative table the
+weighted forms build on every call, so a caller with fixed weights pays that cost
+once. Accepted wherever a weight vector is. Draws with a table equal draws with the
+weights it was built from. A table is CPU data; a device generator rejects it.
+"""
+struct WeightTable
+    total::Float64
+    cumulative::Vector{Float64}
+end
+
+function WeightTable(weights)
+    total, cumulative = _fold_weights_cpu(weights)
+    return WeightTable(total, cumulative)
+end
+
+@noinline function _device_weight_table()
+    throw(ArgumentError("WeightTable is a CPU value"))
+end
+
+@inline function _check_sampling_device(rng, table::WeightTable, _noun)
+    rng.device isa _CPUBackend || _device_weight_table()
+    return false
+end
+
+@inline _weight_count(weights) = UInt64(length(weights))
+@inline _weight_count(table::WeightTable) = UInt64(length(table.cumulative))
+
+function _prepare_weight_scan(rng::_CPUGenerators, weights, _agnostic::Bool)
+    total, cumulative = _fold_weights_cpu(weights)
+    return nothing, total, cumulative
+end
+
+@inline _prepare_weight_scan(rng::_CPUGenerators, table::WeightTable, _agnostic::Bool) =
+    (nothing, table.total, table.cumulative)
 
 KernelAbstractions.@kernel function _prepare_weights_kernel!(
     source,
@@ -392,7 +430,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     cardinality = _sampling_cardinality(indexed)
     count === nothing && (count = _sampling_count(cardinality, nothing))
     count > 0 && iszero(cardinality) && _empty_sampling_population()
-    UInt64(length(weights)) == cardinality ||
+    _weight_count(weights) == cardinality ||
         throw(ArgumentError("weight length differs from the population cardinality"))
 
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
@@ -422,7 +460,7 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
     _prevalidate_sampling_cardinality(population, length(destination))
     indexed = _prepare_population(rng.device, population, population_agnostic)
     cardinality = _sampling_cardinality(indexed)
-    UInt64(length(weights)) == cardinality ||
+    _weight_count(weights) == cardinality ||
         throw(ArgumentError("weight length differs from the population cardinality"))
     _check_sampling_destination_eltype(destination, indexed)
     !isempty(destination) && iszero(cardinality) && _empty_sampling_population()
@@ -457,7 +495,7 @@ end
 @inline function randsample(
     rng::AbstractPureRNG,
     population,
-    weights::AbstractVector{<:Real},
+    weights::Union{AbstractVector{<:Real},WeightTable},
 )
     return first(_randsample_next_weighted(rng, population, weights, nothing))
 end
@@ -466,7 +504,7 @@ end
 @inline function randsample(
     rng::AbstractPureRNG,
     population,
-    weights::AbstractVector{<:Real},
+    weights::Union{AbstractVector{<:Real},WeightTable},
     count::Integer,
 )
     return first(_randsample_next_weighted(rng, population, weights, count))
@@ -476,7 +514,7 @@ end
 @inline function randsample_next(
     rng::AbstractPureRNG,
     population,
-    weights::AbstractVector{<:Real},
+    weights::Union{AbstractVector{<:Real},WeightTable},
 )
     return _randsample_next_weighted(rng, population, weights, nothing)
 end
@@ -485,7 +523,7 @@ end
 @inline function randsample_next(
     rng::AbstractPureRNG,
     population,
-    weights::AbstractVector{<:Real},
+    weights::Union{AbstractVector{<:Real},WeightTable},
     count::Integer,
 )
     return _randsample_next_weighted(rng, population, weights, count)
@@ -494,7 +532,7 @@ end
 @inline function randsample!(
     rng::AbstractPureRNG,
     population,
-    weights::AbstractVector{<:Real},
+    weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
     threaded::Bool = true,
 )
@@ -506,7 +544,7 @@ end
 @inline function randsample_next!(
     rng::AbstractPureRNG,
     population,
-    weights::AbstractVector{<:Real},
+    weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
     threaded::Bool = true,
 )

@@ -176,6 +176,9 @@ end
     end
     _check_metal_error(() -> randsample(rng, population, weights))
     _check_metal_error(() -> randsample_next(rng, population, weights))
+    table = WeightTable(Float64[1, 2, 3])
+    _check_metal_error(() -> randsample(rng, population, table, 1))
+    _check_metal_error(() -> randsample_next(rng, population, table, 1))
 
     for F in METAL_32_GENERATORS
         rng = MetalDevice()(F(0x81b))

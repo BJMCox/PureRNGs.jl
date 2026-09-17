@@ -283,3 +283,45 @@ end
     sync_cpu()
     @test ragged == ragged_serial
 end
+
+@testset "WeightTable draws equal weight-vector draws" begin
+    population = Int32[10, 20, 30, 40]
+    weights = Float64[1, 2, 3, 4]
+    table = WeightTable(weights)
+    for F in GENERATOR_TYPES
+        rng = F(0x9770)
+        @test randsample(rng, population, table, 9) ==
+              randsample(rng, population, weights, 9)
+        a, next_a = randsample_next(rng, population, table, 9)
+        b, next_b = randsample_next(rng, population, weights, 9)
+        @test a == b && next_a === next_b
+        dest_a = Vector{Int32}(undef, 9)
+        dest_b = similar(dest_a)
+        randsample!(rng, population, table, dest_a)
+        randsample!(rng, population, weights, dest_b)
+        @test dest_a == dest_b
+        _, n1 = randsample_next!(rng, population, table, dest_a; threaded = false)
+        _, n2 = randsample_next!(rng, population, weights, dest_b; threaded = false)
+        @test dest_a == dest_b && n1 === n2
+    end
+    @test_throws ArgumentError WeightTable([1.0, -1.0])
+    @test_throws ArgumentError WeightTable([1.0, NaN])
+    @test_throws ArgumentError WeightTable(zeros(3))
+    @test_throws ArgumentError randsample(
+        Philox4x32(1),
+        population,
+        WeightTable([1.0, 1.0]),
+        1,
+    )
+    # A top-level `@allocated` also counts the boxed return tuple, so measure in a
+    # function where only the fill's own allocations remain.
+    serial_fill_bytes(rng, weights, destination) = @allocated(
+        randsample_next!(rng, population, weights, destination; threaded = false)
+    )
+    rng = Philox4x32(0x9771)
+    destination = Vector{Int32}(undef, 64)
+    serial_fill_bytes(rng, table, destination)
+    serial_fill_bytes(rng, weights, destination)
+    @test serial_fill_bytes(rng, table, destination) == 0
+    @test serial_fill_bytes(rng, weights, destination) == 8 * length(weights) + 64
+end

@@ -132,15 +132,21 @@ end
     require(subrng, Tuple{R,Int})
     population = Int32[1, 2, 3]
     weights = Float64[1, 2, 3]
+    # A table reaches the same method as a weight vector, so the required sets stay
+    # the same size and the union is pinned on every weighted position.
     for function_ in (randsample, randsample_next)
         require(function_, Tuple{R,typeof(population)})
         require(function_, Tuple{R,typeof(population),Int})
-        require(function_, Tuple{R,typeof(population),typeof(weights)})
-        require(function_, Tuple{R,typeof(population),typeof(weights),Int})
+        for W in (typeof(weights), WeightTable)
+            require(function_, Tuple{R,typeof(population),W})
+            require(function_, Tuple{R,typeof(population),W,Int})
+        end
     end
     for function_ in (randsample!, randsample_next!)
         require(function_, Tuple{R,typeof(population),Vector{Int32}})
-        require(function_, Tuple{R,typeof(population),typeof(weights),Vector{Int32}})
+        for W in (typeof(weights), WeightTable)
+            require(function_, Tuple{R,typeof(population),W,Vector{Int32}})
+        end
     end
 
     for function_ in owned_functions

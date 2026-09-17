@@ -49,6 +49,7 @@ using TOML
         :Threefry4x32,
         :Threefry4x64,
         :Threefry4x64R13,
+        :WeightTable,
         :rand_next,
         :rand_next!,
         :randat,

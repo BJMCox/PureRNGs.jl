@@ -366,6 +366,12 @@ end
         require(Random.rand!, Tuple{M,Vector{T}})
     end
     require(Random.rand!, Tuple{M,Vector{UInt16},AbstractRange{UInt16}})
+    for T in (Float32, Float64)
+        require(
+            Random.rand!,
+            Tuple{M,Vector{T},Random.SamplerTrivial{Random.CloseOpen01{T}}},
+        )
+    end
     require(Random.rand!, Tuple{M,BitArray})
     for T in NORMAL_TYPES
         require(Random.randn!, Tuple{M,Vector{T}})
@@ -418,5 +424,16 @@ end
             @test rand(mutable_rng, wide) === expected
         end
         @test mutable_rng.rng === cursor
+    end
+end
+
+@testset "rand(m, T, n) reaches the package fill" begin
+    for T in (Float32, Float64)
+        m = StatefulRNG(Philox4x32(0x9772))
+        expected = first(rand_next(Philox4x32(0x9772), T, 1000))
+        @test rand(m, T, 1000) == expected
+        @test m.rng === last(rand_next(Philox4x32(0x9772), T, 1000))
+        m2 = StatefulRNG(Philox4x32(0x9772))
+        @test rand(m2, T, 10, 100) == reshape(expected, 10, 100)
     end
 end

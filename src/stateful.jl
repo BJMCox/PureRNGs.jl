@@ -143,6 +143,15 @@ const _StatefulUniform = Union{Bool,UInt32,Int32,UInt64,Int64,Float32,Float64}
 ) where {T<:_StatefulUniform} =
     _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
 
+# Without this hook `rand(m, T, n)` falls to Random's scalar loop instead of the
+# package fill.
+@inline Random.rand!(
+    mutable_rng::StatefulRNG,
+    destination::Array{T},
+    ::Random.SamplerTrivial{Random.CloseOpen01{T}},
+) where {T<:Union{Float32,Float64}} =
+    _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
+
 @inline Random.rand!(mutable_rng::StatefulRNG, destination::BitArray) =
     _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
 
