@@ -152,15 +152,17 @@ end
 
 @inline function _fill_weighted_samples_cpu_unchecked!(
     rng::_CPUGenerators,
+    position,
     population,
     total::Float64,
     cumulative,
     destination,
+    ordinals::UnitRange{Int},
 )
-    cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
+    cursor = _dense_cursor(rng, _position_block(position), position.bit)
     indices = eachindex(destination)
-    ordinal = 1
-    last_ordinal = length(destination)
+    ordinal = first(ordinals)
+    last_ordinal = last(ordinals)
     if length(destination) >= _WEIGHTED_LOOKUP_LANES
         thresholds = Vector{Float64}(undef, _WEIGHTED_LOOKUP_LANES)
         lower = Vector{Int}(undef, _WEIGHTED_LOOKUP_LANES)
@@ -202,8 +204,32 @@ end
     return destination
 end
 
+KernelAbstractions.@kernel function _weighted_sample_cpu_kernel!(
+    rng,
+    population,
+    total::Float64,
+    cumulative,
+    destination,
+    chunk_elements::Int,
+)
+    workitem = @index(Global, Linear)
+    first_index, last_index =
+        _dense_fill_bounds(workitem, length(destination), chunk_elements)
+    bits_lo, bits_hi = _bit_span(UInt64(first_index - 1), _WEIGHT_BITS)
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    _fill_weighted_samples_cpu_unchecked!(
+        rng,
+        position,
+        population,
+        total,
+        cumulative,
+        destination,
+        first_index:last_index,
+    )
+end
+
 @inline function _fill_weighted_samples!(
-    ::KernelAbstractions.CPU,
+    backend::KernelAbstractions.CPU,
     rng::_CPUGenerators,
     population,
     _weights,
@@ -211,13 +237,33 @@ end
     cumulative,
     destination,
 )
-    return _fill_weighted_samples_cpu_unchecked!(
+    # Lane-aligned chunks keep every workitem on the vectorized lookup path.
+    chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_WEIGHT_BITS))
+    chunk_elements -= chunk_elements % _WEIGHTED_LOOKUP_LANES
+    workitems = cld(length(destination), chunk_elements)
+    if workitems < _CPU_FILL_MIN_WORKITEMS
+        _fill_weighted_samples_cpu_unchecked!(
+            rng,
+            rng.position,
+            population,
+            total,
+            cumulative,
+            destination,
+            1:length(destination),
+        )
+        return destination
+    end
+    _weighted_sample_cpu_kernel!(backend)(
         rng,
         population,
         total,
         cumulative,
         destination,
+        chunk_elements;
+        ndrange = workitems,
+        workgroupsize = 1,
     )
+    return destination
 end
 
 @inline function _fill_weighted_samples!(
@@ -422,7 +468,15 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
     next_rng = _sampling_reservation(rng, length(destination), _WEIGHT_BITS)
     isempty(destination) && return destination, next_rng
     if !threaded && rng.device isa _CPUBackend
-        _fill_weighted_samples_cpu_unchecked!(rng, indexed, total, cumulative, destination)
+        _fill_weighted_samples_cpu_unchecked!(
+            rng,
+            rng.position,
+            indexed,
+            total,
+            cumulative,
+            destination,
+            1:length(destination),
+        )
         return destination, next_rng
     end
     _fill_weighted_samples!(
