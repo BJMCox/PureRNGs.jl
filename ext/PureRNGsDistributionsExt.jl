@@ -187,7 +187,8 @@ end
     backend,
     rng,
     ::Type{T},
-) where {T<:_FloatType} = IR._transformed_fill_plan(codec.device, backend, rng, T)
+) where {T<:_FloatType} =
+    IR._transformed_fill_plan(IR._ExponentialCodec(codec.device), backend, rng, T)
 
 @inline IR._transformed_fill_plan(
     ::_DistributionCodec{<:Distributions.Laplace},

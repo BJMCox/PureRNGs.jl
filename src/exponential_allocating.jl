@@ -3,7 +3,7 @@
     ::Type{T},
     dims::Tuple,
 ) where {T}
-    return _rand_transformed_next_array(rng, T, dims, rng.device)
+    return _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device))
 end
 
 @inline function randexp_next(

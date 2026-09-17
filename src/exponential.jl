@@ -183,18 +183,23 @@ Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
 """ randexpat
 
-@inline _transformed_fill_plan(::_BackendToken, backend, rng, T) = nothing
+@inline _transformed_fill_plan(::_ExponentialCodec, backend, rng, T) = nothing
 
-@inline _cooperative_value(device::_BackendToken, ::Type{T}, raw) where {T} =
-    _exponential_from_bits(device, T, raw)
-@inline _fill_width(::_BackendToken, ::Type{T}) where {T} = _exponential_bits(T)
+@inline _cooperative_value(codec::_ExponentialCodec, ::Type{T}, raw) where {T} =
+    _exponential_from_bits(codec.backend, T, raw)
+@inline _fill_width(::_ExponentialCodec, ::Type{T}) where {T} = _exponential_bits(T)
 
 @inline function _randexp_next_fill!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     threaded::Bool,
 ) where {T}
-    return _rand_transformed_next_fill!(rng, destination, threaded, rng.device)
+    return _rand_transformed_next_fill!(
+        rng,
+        destination,
+        threaded,
+        _ExponentialCodec(rng.device),
+    )
 end
 
 for T in (Float32, Float64)

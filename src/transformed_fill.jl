@@ -1,10 +1,14 @@
 # A codec selects the width, mapping, and fill plan through dispatch.
 abstract type _MappedFillCodec end
-const _TransformedFillCodec = Union{Val{:normal},_BackendToken,_MappedFillCodec}
+# The exponential codec carries the backend because the log approximation is per backend.
+struct _ExponentialCodec{B<:_BackendToken}
+    backend::B
+end
+const _TransformedFillCodec = Union{Val{:normal},_ExponentialCodec,_MappedFillCodec}
 
 @inline _transformed_draw_unchecked(::Val{:normal}, rng, position, T) =
     _draw_normal_unchecked(rng, position, T)
-@inline _transformed_draw_unchecked(::_BackendToken, rng, position, T) =
+@inline _transformed_draw_unchecked(::_ExponentialCodec, rng, position, T) =
     _draw_exponential_unchecked(rng, position, T)
 @inline function _transformed_draw_unchecked(
     codec::_MappedFillCodec,

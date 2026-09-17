@@ -348,3 +348,16 @@ end
     end
 
 end
+
+@testset "A backend token is not a fill codec" begin
+    rng = Philox4x32(0x3e9)
+    destination = Vector{Float64}(undef, 8)
+    @test_throws MethodError PureRNGs._rand_transformed_next_fill!(
+        rng,
+        destination,
+        false,
+        rng.device,
+    )
+    randexp_next!(rng, destination)
+    @test destination == first(randexp_next(rng, Float64, 8))
+end
