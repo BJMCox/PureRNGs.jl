@@ -1708,7 +1708,6 @@ end
         scan_population,
         scan_weights,
         CUDA.CuArray(Float64[0x1p53]),
-        CUDA.CuArray([1]),
         scan_cumulative,
         scan_destination,
     )
