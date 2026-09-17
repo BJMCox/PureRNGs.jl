@@ -204,32 +204,8 @@ end
     return destination
 end
 
-KernelAbstractions.@kernel function _weighted_sample_cpu_kernel!(
-    rng,
-    population,
-    total::Float64,
-    cumulative,
-    destination,
-    chunk_elements::Int,
-)
-    workitem = @index(Global, Linear)
-    first_index, last_index =
-        _dense_fill_bounds(workitem, length(destination), chunk_elements)
-    bits_lo, bits_hi = _bit_span(UInt64(first_index - 1), _WEIGHT_BITS)
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_weighted_samples_cpu_unchecked!(
-        rng,
-        position,
-        population,
-        total,
-        cumulative,
-        destination,
-        first_index:last_index,
-    )
-end
-
 @inline function _fill_weighted_samples!(
-    backend::KernelAbstractions.CPU,
+    ::KernelAbstractions.CPU,
     rng::_CPUGenerators,
     population,
     _weights,
@@ -240,29 +216,19 @@ end
     # Lane-aligned chunks keep every workitem on the vectorized lookup path.
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_WEIGHT_BITS))
     chunk_elements -= chunk_elements % _WEIGHTED_LOOKUP_LANES
-    workitems = cld(length(destination), chunk_elements)
-    if workitems < _CPU_FILL_MIN_WORKITEMS
+    _run_chunks(length(destination), chunk_elements) do first, last
+        bits_lo, bits_hi = _bit_span(UInt64(first - 1), _WEIGHT_BITS)
+        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
         _fill_weighted_samples_cpu_unchecked!(
             rng,
-            rng.position,
+            position,
             population,
             total,
             cumulative,
             destination,
-            1:length(destination),
+            first:last,
         )
-        return destination
     end
-    _weighted_sample_cpu_kernel!(backend)(
-        rng,
-        population,
-        total,
-        cumulative,
-        destination,
-        chunk_elements;
-        ndrange = workitems,
-        workgroupsize = 1,
-    )
     return destination
 end
 

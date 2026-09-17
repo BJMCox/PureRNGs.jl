@@ -136,20 +136,6 @@ const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
 @inline _transformed_fill_chunk_elements(codec, ::Type{T}) where {T} =
     Int(_CPU_TRANSFORMED_FILL_CHUNK_BITS ÷ UInt64(_fill_width(codec, T)))
 
-KernelAbstractions.@kernel function _transformed_fill_dense_kernel!(
-    rng,
-    destination,
-    ::Val{T},
-    chunk_elements,
-    codec,
-) where {T}
-    workitem = @index(Global, Linear)
-    first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
-    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _fill_width(codec, T))
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_transformed_dense_cpu!(rng, position, destination, T, first:last, codec)
-end
-
 @inline function _launch_transformed!(
     backend,
     rng,
@@ -162,34 +148,18 @@ end
 end
 
 function _launch_transformed!(
-    backend::KernelAbstractions.CPU,
+    ::KernelAbstractions.CPU,
     rng,
     destination::Array{T},
     ::Type{T},
     codec::_TransformedFillCodec,
 ) where {T}
     chunk_elements = _transformed_fill_chunk_elements(codec, T)
-    workitems = cld(length(destination), chunk_elements)
-    if workitems < _CPU_FILL_MIN_WORKITEMS
-        _fill_transformed_dense_cpu!(
-            rng,
-            rng.position,
-            destination,
-            T,
-            eachindex(destination),
-            codec,
-        )
-        return destination
+    _run_chunks(length(destination), chunk_elements) do first, last
+        bits_lo, bits_hi = _bit_span(UInt64(first - 1), _fill_width(codec, T))
+        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+        _fill_transformed_dense_cpu!(rng, position, destination, T, first:last, codec)
     end
-    _transformed_fill_dense_kernel!(backend)(
-        rng,
-        destination,
-        Val(T),
-        chunk_elements,
-        codec;
-        ndrange = workitems,
-        workgroupsize = 1,
-    )
     return destination
 end
 

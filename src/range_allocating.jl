@@ -49,21 +49,6 @@ end
 end
 
 
-KernelAbstractions.@kernel function _range_fill_cpu_kernel!(
-    rng,
-    destination,
-    range,
-    span,
-    chunk_elements,
-)
-    workitem = @index(Global, Linear)
-    first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
-    width = _range_bits(span)
-    bits_lo, bits_hi = _bit_span(UInt64(first - 1), width)
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_range_cpu_unchecked!(rng, position, destination, range, span, first:last)
-end
-
 KernelAbstractions.@kernel function _range_fill_kernel!(rng, destination, range, span)
     index = @index(Global, Linear)
     width = _range_bits(span)
@@ -114,34 +99,19 @@ end
 
 
 @inline function _launch_range!(
-    backend::KernelAbstractions.CPU,
+    ::KernelAbstractions.CPU,
     rng::_CPUGenerators,
     destination::Array,
     range,
     span,
 )
-    chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_range_bits(span)))
-    workitems = cld(length(destination), chunk_elements)
-    if workitems < _CPU_FILL_MIN_WORKITEMS
-        _fill_range_cpu_unchecked!(
-            rng,
-            rng.position,
-            destination,
-            range,
-            span,
-            eachindex(destination),
-        )
-        return destination
+    width = _range_bits(span)
+    chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(width))
+    _run_chunks(length(destination), chunk_elements) do first, last
+        bits_lo, bits_hi = _bit_span(UInt64(first - 1), width)
+        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+        _fill_range_cpu_unchecked!(rng, position, destination, range, span, first:last)
     end
-    _range_fill_cpu_kernel!(backend)(
-        rng,
-        destination,
-        range,
-        span,
-        chunk_elements;
-        ndrange = workitems,
-        workgroupsize = 1,
-    )
     return destination
 end
 

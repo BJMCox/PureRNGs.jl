@@ -36,6 +36,27 @@ IR.MLDataDevices.get_device(::CategoricalDeviceProbe) = IR.MLDataDevices.CUDADev
     @test filled_next === expected_next
 end
 
+@testset "R68 Categorical serial and threaded fills agree above the threshold" begin
+    probabilities = Float64[1, 2, 0, 3, 4]
+    distribution = Categorical(probabilities; check_args = false)
+    rng = Philox4x32(0x9d6)
+    chunk = Int(IR._CPU_FILL_CHUNK_BITS ÷ UInt64(IR._WEIGHT_BITS))
+    chunk -= chunk % IR._WEIGHTED_LOOKUP_LANES
+    # Four chunks clear the threading threshold, and the fifth is one element.
+    count = 4 * chunk + 1
+    expected, expected_next = rand_next(rng, distribution, count)
+
+    threaded = fill(-1, count)
+    _, threaded_next = rand_next!(rng, distribution, threaded)
+    @test threaded == expected
+    @test threaded_next === expected_next
+
+    serial = fill(-1, count)
+    _, serial_next = rand_next!(rng, distribution, serial; threaded = false)
+    @test serial == expected
+    @test serial_next === expected_next
+end
+
 @testset "R68 Categorical scalar calls retain a rebound binding" begin
     probabilities = Float64[0, 1, 0, 3]
     distribution = Categorical(probabilities; check_args = false)

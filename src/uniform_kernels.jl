@@ -179,19 +179,6 @@ end
     return first, first + chunk_count - 1
 end
 
-KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
-    rng,
-    destination,
-    ::Val{T},
-    chunk_elements,
-) where {T}
-    workitem = @index(Global, Linear)
-    first, last = _dense_fill_bounds(workitem, length(destination), chunk_elements)
-    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _draw_bits(T))
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_uniform_dense_cpu!(rng, position, destination, T, first:last)
-end
-
 @inline _fill_backend(destination) = KernelAbstractions.get_backend(destination)
 @inline _fill_backend(destination::BitArray) =
     KernelAbstractions.get_backend(destination.chunks)
