@@ -41,7 +41,7 @@ Buffer reuse avoids repeated allocation. Continuing the returned state preserves
 
 ## Control CPU threading
 
-Large CPU fills use threads automatically. Small fills use a serial path.
+Large CPU fills use threads. Fills too small to split run serially on the calling task.
 Inside your own threaded loop, disable internal threading:
 
 ```@example arrays
