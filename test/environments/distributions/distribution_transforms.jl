@@ -3,7 +3,7 @@ include(joinpath(@__DIR__, "..", "..", "distribution_transform_cases.jl"))
 function midpoint_reference_next(rng, ::Type{T}) where {T}
     value = UInt64(0)
     cursor = rng
-    for _ = 1:(T === Float32 ? 23 : 52)
+    for _ = 1:(T===Float32 ? 23 : 52)
         bit, cursor = rand_next(cursor, Bool)
         value = (value << 1) | UInt64(bit)
     end

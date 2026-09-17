@@ -50,9 +50,8 @@ end
         big"0x123456789abcdef00fedcba987654321112233445566778899aabbccddeeff00",
     ).key ==
           (0x99aabbccddeeff00, 0x1122334455667788, 0x0fedcba987654321, 0x123456789abcdef0)
-    @test ChaCha(
-        big"0x123456789abcdef00fedcba987654321112233445566778899aabbccddeeff00",
-    ).key == (
+    @test ChaCha(big"0x123456789abcdef00fedcba987654321112233445566778899aabbccddeeff00").key ==
+          (
         0xddeeff00,
         0x99aabbcc,
         0x55667788,
@@ -85,11 +84,7 @@ end
             PureRNGs._AMDGPU_BACKEND,
             MLDataDevices.AMDGPUDevice,
         ),
-        (
-            MLDataDevices.MetalDevice(),
-            PureRNGs._METAL_BACKEND,
-            MLDataDevices.MetalDevice,
-        ),
+        (MLDataDevices.MetalDevice(), PureRNGs._METAL_BACKEND, MLDataDevices.MetalDevice),
     )
 
     for (device, token, device_type) in devices

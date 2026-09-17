@@ -55,13 +55,7 @@ end
     return _forward_return(config, result, destination)
 end
 
-@inline function _augmented_pure(
-    config,
-    function_annotation,
-    rng,
-    destination,
-    threaded,
-)
+@inline function _augmented_pure(config, function_annotation, rng, destination, threaded)
     result = function_annotation.val(rng.val, destination.val; threaded = threaded)
     _zero_shadow!(destination)
     primal = ER.needs_primal(config) ? result : nothing
@@ -100,13 +94,7 @@ for fill_function in (
             destination::EnzymeCore.Annotation{<:_FloatAbstractArray};
             threaded::Bool = true,
         )
-            return _forward_pure(
-                config,
-                function_annotation,
-                rng,
-                destination,
-                threaded,
-            )
+            return _forward_pure(config, function_annotation, rng, destination, threaded)
         end
 
         @inline function ER.augmented_primal(
@@ -117,13 +105,7 @@ for fill_function in (
             destination::EnzymeCore.Annotation{<:_FloatAbstractArray};
             threaded::Bool = true,
         )
-            return _augmented_pure(
-                config,
-                function_annotation,
-                rng,
-                destination,
-                threaded,
-            )
+            return _augmented_pure(config, function_annotation, rng, destination, threaded)
         end
 
         @inline function ER.reverse(

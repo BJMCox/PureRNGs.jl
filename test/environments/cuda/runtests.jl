@@ -491,7 +491,7 @@ function _cuda_profile_events(profile)
     window = findall(
         index ->
             profile.device.start[index] >= profile.host.stop[first_sync] &&
-                profile.device.stop[index] <= profile.host.stop[last_sync],
+            profile.device.stop[index] <= profile.host.stop[last_sync],
         eachindex(profile.device.name),
     )
     kernels = filter(index -> !ismissing(profile.device.grid[index]), window)

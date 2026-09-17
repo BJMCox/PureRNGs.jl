@@ -17,8 +17,7 @@ function Base.setindex!(array::CountingVector, value, index::Int)
     array.writes[] += 1
     return setindex!(array.data, value, index)
 end
-PureRNGs.MLDataDevices.get_device(::CountingVector) =
-    PureRNGs.MLDataDevices.CPUDevice()
+PureRNGs.MLDataDevices.get_device(::CountingVector) = PureRNGs.MLDataDevices.CPUDevice()
 PureRNGs.KernelAbstractions.get_backend(::CountingVector) =
     PureRNGs.KernelAbstractions.CPU()
 
@@ -273,11 +272,8 @@ end
 
 @testset "R65 failed primal preserves shadows" begin
     rng = Philox4x32(0x6505)
-    exhausted = PureRNGs._rebuild(
-        rng,
-        PureRNGs._terminal64(PureRNGs._max_block(rng)),
-        rng.device,
-    )
+    exhausted =
+        PureRNGs._rebuild(rng, PureRNGs._terminal64(PureRNGs._max_block(rng)), rng.device)
     destination = zeros(8)
     shadow = fill(6.0, 8)
     @test_throws ArgumentError autodiff(

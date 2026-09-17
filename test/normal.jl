@@ -236,18 +236,8 @@ end
         zip(PACKED_GOLDEN_GENERATORS, expected)
         rng = _packed_golden_rng(F, key)
         block = _reference_position_block(rng.position)
-        got32 = IR._extract_bits_unchecked(
-            rng,
-            block,
-            rng.position.bit,
-            Val(23),
-        )
-        got64 = IR._extract_bits_unchecked(
-            rng,
-            block,
-            rng.position.bit,
-            Val(52),
-        )
+        got32 = IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(23))
+        got64 = IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(52))
         @test got32 === UInt64(raw32)
         @test got64 === UInt64(raw64)
         @test reinterpret(UInt32, IR._normal_midpoint(Float32, got32)) === midpoint32

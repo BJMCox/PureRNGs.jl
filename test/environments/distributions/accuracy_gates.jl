@@ -41,8 +41,8 @@ end
     device = IR._CPUBackend()
     for (T, bits) in ((Float32, 24), (Float64, 53))
         points =
-            _FULL_SWEEP && T === Float32 ? (UInt64(0):UInt64(2^24 - 1)) :
-            (UInt64(1):UInt64(max(1, 2^bits ÷ 500_000)):UInt64(2^bits - 1))
+            _FULL_SWEEP && T === Float32 ? (UInt64(0):UInt64(2^24-1)) :
+            (UInt64(1):UInt64(max(1, 2^bits÷500_000)):UInt64(2^bits-1))
         worst = 0.0
         for k in points
             value = IR._exponential_from_bits(device, T, k)

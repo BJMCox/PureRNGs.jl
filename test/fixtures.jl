@@ -149,8 +149,7 @@ end
 
 function _reference_advance(rng, block, bit::UInt16, count::Int)
     block_bits =
-        8sizeof(first(_reference_block(rng, block))) *
-        length(_reference_block(rng, block))
+        8sizeof(first(_reference_block(rng, block))) * length(_reference_block(rng, block))
     total = Int(bit) + count
     while total >= block_bits
         block = _reference_next(block)

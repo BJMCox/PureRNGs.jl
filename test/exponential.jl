@@ -59,10 +59,8 @@ end
     for ((F, key), (raw32, raw64, cpu32, cpu64)) in zip(PACKED_GOLDEN_GENERATORS, expected)
         rng = _packed_golden_rng(F, key)
         block = _reference_position_block(rng.position)
-        got32 =
-            IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(24))
-        got64 =
-            IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(53))
+        got32 = IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(24))
+        got64 = IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(53))
         @test got32 === UInt64(raw32)
         @test got64 === UInt64(raw64)
         @test reinterpret(UInt32, randexp(rng, Float32)) === cpu32

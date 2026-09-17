@@ -399,7 +399,7 @@ end
 end
 
 @testset "R32-R35 bridge draws across block boundaries" begin
-    wide = UInt64(1):(UInt64(1) << 40)
+    wide = UInt64(1):(UInt64(1)<<40)
     for F in (Philox2x32, Philox4x32, Threefry4x64)
         cursor = F(0x811)
         mutable_rng = StatefulRNG(cursor)

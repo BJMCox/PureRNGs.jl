@@ -53,8 +53,7 @@ const PINNED_TESTBED_ORACLE = (
 )
 
 _testbed_core(::Type{Philox4x32}, counter, key) = PureRNGs._philox4x32(counter, key)
-_testbed_core(::Type{Threefry2x32}, counter, key) =
-    PureRNGs._threefry2x32(counter, key)
+_testbed_core(::Type{Threefry2x32}, counter, key) = PureRNGs._threefry2x32(counter, key)
 
 function _testbed_draw_counter(::Type{Philox4x32}, block::UInt64)
     return block % UInt32, (block >> 32) % UInt32, UInt32(0), UInt32(0)
@@ -88,8 +87,7 @@ end
             ntuple(i -> PureRNGs._derive_child(rng, UInt64(i - 1)), Val(4)),
             :key,
         ) == case.split_keys
-        @test PureRNGs._derive_child(rng, case.far_split.index).key ==
-              case.far_split.key
+        @test PureRNGs._derive_child(rng, case.far_split.index).key == case.far_split.key
         @test subrng(rng, 0).key == case.subrng_keys.zero
         @test subrng(rng, purpose).key == case.subrng_keys.purpose
     end

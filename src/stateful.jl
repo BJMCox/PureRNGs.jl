@@ -23,8 +23,7 @@ end
 @inline _stateful_rng(rng::R) where {R<:AbstractPureRNG} =
     StatefulRNG{R}(_CONSTRUCTION_TOKEN, rng)
 
-@inline StatefulRNG(rng::AbstractPureRNG) =
-    _stateful_rng(MLDataDevices.CPUDevice()(rng))
+@inline StatefulRNG(rng::AbstractPureRNG) = _stateful_rng(MLDataDevices.CPUDevice()(rng))
 
 @inline Base.parent(mutable_rng::StatefulRNG) = mutable_rng.rng
 

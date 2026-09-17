@@ -286,9 +286,7 @@ end
 end
 
 @testset "Philox4x32 four-block dense fills" begin
-    for T in PURE_UNIFORM_TYPES,
-        bit in (UInt16(0), UInt16(127)),
-        delta in (-1, 0, 1)
+    for T in PURE_UNIFORM_TYPES, bit in (UInt16(0), UInt16(127)), delta in (-1, 0, 1)
 
         x4_group =
             T === Bool ? 512 :
