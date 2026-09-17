@@ -149,6 +149,10 @@ function mapped_quantile(d::Laplace{T}, u) where {T}
     return EXT._map_distribution(d, T(-log(Float64(tail))), upper)
 end
 
+# Gumbel and Frechet read their exponential as the upper tail of the uniform.
+mapped_probability(::Union{Gumbel,Frechet}, u) = 1 - u
+mapped_probability(d, u) = u
+
 @testset "Mappings invert the CDF" begin
     for T in (Float32, Float64)
         for d in (
@@ -168,9 +172,7 @@ end
         )
             for u in (T(0.001), T(0.5), T(0.999))
                 p = Float64(cdf(d, mapped_quantile(d, u)))
-                # Gumbel and Frechet spend the uniform on the upper tail.
-                @test isapprox(p, Float64(u); atol = 1e-5) ||
-                      isapprox(p, 1 - Float64(u); atol = 1e-5)
+                @test isapprox(p, mapped_probability(d, Float64(u)); atol = 1e-5)
             end
         end
     end

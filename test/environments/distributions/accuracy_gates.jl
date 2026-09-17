@@ -13,15 +13,15 @@ _exponential_ulp(value::T, k, bits) where {T} = setprecision(BigFloat, 160) do
     return abs(BigFloat(value) - reference) / denominator
 end
 
-# Scaled series for erf. Every term is positive, so the working precision
-# carries into the tail instead of cancelling there.
+# Scaled series for erf. Every term carries the sign of t, so the working
+# precision reaches the tail instead of cancelling there.
 function _big_erf(t::BigFloat)
     term = 2 * t * exp(-t * t) / sqrt(big(pi))
     total = term
     for n = 1:10_000
         term *= 2 * t * t / (2 * n + 1)
         total += term
-        term > total * eps(BigFloat) || break
+        abs(term) > abs(total) * eps(BigFloat) || break
     end
     return total
 end
