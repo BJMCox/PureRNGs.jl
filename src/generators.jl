@@ -320,7 +320,6 @@ for F in _GENERATOR_SYMBOLS
         @inline _rounds(::Type{<:$F{<:_BackendToken,R}}) where {R} = R
         @inline _with_device(::Type{<:$F{<:_BackendToken,R}}, ::Type{D}) where {R,D} =
             $F{D,R}
-        @inline _with_rounds(::Type{<:$F}, ::Val{R}) where {R} = $F{_CPUBackend,R}
 
         function $F(key::fieldtype($F, :key))
             return $F{_CPUBackend,_default_rounds($F)}(
