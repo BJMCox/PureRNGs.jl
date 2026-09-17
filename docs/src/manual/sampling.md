@@ -71,7 +71,8 @@ On CPU, a weighted batch builds its exact cumulative `Float64` weights once per 
 looks up samples in draw order. Other backends may sort thresholds for a batch.
 The preparation is shared within that call, not cached across calls. It allocates
 weighted scratch space, so an in-place weighted fill does not promise zero
-allocations. CPU weighted fills remain serial for both values of `threaded`.
+allocations. CPU weighted fills follow the `threaded` keyword like the other
+fills.
 
 Each category's realized share is a whole number of `2^-53` cells of the
 cumulative total. Shares below about `1e-16` of the total are not represented
