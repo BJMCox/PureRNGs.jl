@@ -83,7 +83,8 @@ jobs:
             Pkg.develop(path=".")
             Pkg.add(name="Aqua", version="0.8.16")
             using Aqua, PureRNGs
-            Aqua.test_all(PureRNGs)'
+            # unbound_args is off: the NTuple{N,T} core signatures are never called with an empty tuple.
+            Aqua.test_all(PureRNGs; unbound_args = false)'
 
   extensions:
     name: Extension / ${{ matrix.suite }} / Julia ${{ matrix.julia }} / CPU
