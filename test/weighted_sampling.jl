@@ -257,3 +257,20 @@ end
         @test next_rng === after
     end
 end
+
+@testset "R67 threaded weighted fill matches the serial fill" begin
+    rng = Philox4x32(0x77e)
+    population = collect(1:64)
+    weights = Float64.(1:64)
+    serial = Vector{Int}(undef, 300_000)
+    threaded = similar(serial)
+    _, after_serial = randsample_next!(rng, population, weights, serial; threaded = false)
+    _, after_threaded =
+        randsample_next!(rng, population, weights, threaded; threaded = true)
+    sync_cpu()
+    @test serial == threaded
+    @test after_serial === after_threaded
+    # The cumulative vector is the only allocation the serial fill keeps.
+    @test @allocated(randsample_next!(rng, population, weights, serial; threaded = false)) ==
+          8 * length(weights) + 64
+end
