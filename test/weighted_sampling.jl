@@ -273,4 +273,12 @@ end
     # The cumulative vector is the only allocation the serial fill keeps.
     @test @allocated(randsample_next!(rng, population, weights, serial; threaded = false)) ==
           8 * length(weights) + 64
+
+    # A length of four whole chunks plus five leaves a final chunk under one lane width.
+    ragged = Vector{Int}(undef, 4 * 2464 + 5)
+    ragged_serial = similar(ragged)
+    randsample_next!(rng, population, weights, ragged_serial; threaded = false)
+    randsample_next!(rng, population, weights, ragged; threaded = true)
+    sync_cpu()
+    @test ragged == ragged_serial
 end
