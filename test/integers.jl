@@ -5,16 +5,9 @@ integer_allocations(rng, range) =
     (@allocated(rand(rng, range)), @allocated(rand_next(rng, range)))
 
 const RangeIR = PureRNGs
-const RANGE_INTS = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-
-_range_reference_block(position::RangeIR._Position64) = position.block
-_range_reference_block(position::RangeIR._Position128) = (position.lo, position.hi)
-
-_range_reference_width(span::UInt64) =
-    span != UInt64(0) && span <= UInt64(1) << 32 ? 64 : 128
 
 function _range_reference_offset(rng, span::UInt64)
-    block = _range_reference_block(rng.position)
+    block = _reference_position_block(rng.position)
     bit = rng.position.bit
     if _range_reference_width(span) == 64
         candidate = _reference_extract(rng, block, bit, 64)
@@ -51,33 +44,6 @@ function _range_reference_position(rng, additional_bits::Integer)
         UInt64(block >> 64),
         UInt16(bit),
     )
-end
-
-function _range_positioned(F, seed, block::UInt64, bit::UInt16)
-    base = F(seed)
-    position =
-        base.position isa RangeIR._Position64 ? RangeIR._Position64(block, bit) :
-        RangeIR._Position128(block, UInt64(7), bit)
-    return RangeIR._rebuild(base, position, base.device)
-end
-
-function _range_position_from_absolute(rng, absolute::BigInt)
-    block, bit = divrem(absolute, BigInt(RangeIR._block_bits(rng)))
-    if rng.position isa RangeIR._Position64
-        return RangeIR._Position64(UInt64(block), UInt16(bit))
-    end
-    return RangeIR._Position128(
-        UInt64(block & typemax(UInt64)),
-        UInt64(block >> 64),
-        UInt16(bit),
-    )
-end
-
-function _range_capacity(rng)
-    blocks =
-        rng.position isa RangeIR._Position64 ? BigInt(RangeIR._max_block(rng)) + 1 :
-        big(1) << 128
-    return blocks * BigInt(RangeIR._block_bits(rng))
 end
 
 @testset "R13 and R55 packed range golden vectors" begin
@@ -172,7 +138,7 @@ end
     for ((F, key), (candidate64, index64, value64, candidate128, index128, value128)) in
         zip(PACKED_GOLDEN_GENERATORS, expected)
         rng = _packed_golden_rng(F, key)
-        block = _range_reference_block(rng.position)
+        block = _reference_position_block(rng.position)
         @test RangeIR._extract_bits_unchecked(
             rng,
             block,
@@ -213,7 +179,7 @@ end
         block_bits = Int(RangeIR._block_bits(F(0)))
         bit = UInt16(block_bits - 1)
         for range in ranges
-            rng = _range_positioned(F, 0x551, UInt64(9), bit)
+            rng = _positioned(F, 0x551, UInt64(9), bit)
             expected = _range_reference_draw(rng, range)
             position = rng.position
             @test rand(rng, range) === expected
@@ -231,7 +197,7 @@ end
     small = UInt16(3):UInt16(41)
     wide = UInt64(0):(UInt64(1)<<32)
     for F in GENERATOR_TYPES
-        rng = _range_positioned(F, 0x552, UInt64(11), UInt16(63))
+        rng = _positioned(F, 0x552, UInt64(11), UInt16(63))
         first_expected = _reference_uniform(rng, UInt32)
         first_value, rng = rand_next(rng, UInt32)
         @test first_value === first_expected

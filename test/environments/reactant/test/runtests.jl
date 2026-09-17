@@ -9,24 +9,14 @@ using Random
 using Reactant
 using Test
 
-const GENERATORS = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-    ChaCha,
-)
+include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
 
 function _select_generators(names)
-    isempty(names) && return GENERATORS
+    isempty(names) && return GENERATOR_TYPES
     return Tuple(map(names) do name
-        index = findfirst(F -> string(nameof(F)) == name, GENERATORS)
+        index = findfirst(F -> string(nameof(F)) == name, GENERATOR_TYPES)
         index === nothing && throw(ArgumentError("unknown generator: $name"))
-        return GENERATORS[index]
+        return GENERATOR_TYPES[index]
     end)
 end
 
@@ -270,9 +260,9 @@ function _snapshot(rng)
     return nonnormal, (normals..., continuation_normals...)
 end
 
-_positioned(rng, block::UInt64, bit::UInt16) = _positioned(rng, block, UInt64(2), bit)
+_positioned_at(rng, block::UInt64, bit::UInt16) = _positioned_at(rng, block, UInt64(2), bit)
 
-function _positioned(rng, block::UInt64, high::UInt64, bit::UInt16)
+function _positioned_at(rng, block::UInt64, high::UInt64, bit::UInt16)
     position =
         rng.position isa PureRNGs._Position64 ? PureRNGs._Position64(block, bit) :
         PureRNGs._Position128(block, high, bit)
@@ -652,8 +642,8 @@ end
 
 if Philox2x64 in SELECTED_GENERATORS
     @testset "R43 Reactant normal primitive conformance" begin
-        compile_rng = _positioned(Philox2x64(0x123456), UInt64(3), UInt16(17))
-        central_rng = _positioned(Philox2x64(0x654321), UInt64(7), UInt16(29))
+        compile_rng = _positioned_at(Philox2x64(0x123456), UInt64(3), UInt16(17))
+        central_rng = _positioned_at(Philox2x64(0x654321), UInt64(7), UInt16(29))
         tail_rng = Philox2x64(0x5)
         compile_carrier = Reactant.to_rarray(compile_rng)
         compiled = Reactant.@compile sync = true _normal_probe64(compile_carrier)
@@ -676,8 +666,8 @@ end
 @testset "R42 Reactant primitive and state conformance" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
-            first = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
-            second = _positioned(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
+            first = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
+            second = _positioned_at(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
             first_carrier = Reactant.to_rarray(first)
             second_carrier = Reactant.to_rarray(second)
             compiled = Reactant.@compile sync = true _snapshot(first_carrier)
@@ -721,7 +711,7 @@ end
 
     for (F, state_length) in cases
         F in SELECTED_GENERATORS || continue
-        carrier = Reactant.to_rarray(_positioned(F(0x123456), UInt64(3), UInt16(17)))
+        carrier = Reactant.to_rarray(_positioned_at(F(0x123456), UInt64(3), UInt16(17)))
         hlo = String(Reactant.@code_hlo optimize = false rand_next(carrier, UInt64))
         state_type = "tensor<$(state_length)xui64>"
 
@@ -743,7 +733,7 @@ end
     # A dense literal with one entry per element grows with the fill and
     # fails Reactant's constant size cap above 13 million elements.
     for F in SELECTED_GENERATORS
-        carrier = Reactant.to_rarray(_positioned(F(0x123456), UInt64(3), UInt16(17)))
+        carrier = Reactant.to_rarray(_positioned_at(F(0x123456), UInt64(3), UInt16(17)))
         for draw in (
             rng -> rand(rng, Float64, 4096),
             rng -> randn(rng, Float32, 4096),
@@ -758,8 +748,8 @@ end
 @testset "R42 fixed distributions" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
-            first = _positioned(F(0x123456), UInt64(3), UInt16(17))
-            second = _positioned(F(0x654321), UInt64(7), UInt16(29))
+            first = _positioned_at(F(0x123456), UInt64(3), UInt16(17))
+            second = _positioned_at(F(0x654321), UInt64(7), UInt16(29))
             first_carrier = Reactant.to_rarray(first)
             second_carrier = Reactant.to_rarray(second)
 
@@ -812,7 +802,7 @@ end
 if Philox4x32 in SELECTED_GENERATORS
     include("distribution_transforms.jl")
     @testset "R42 added continuous fixed distributions" begin
-        eager = _positioned(Philox4x32(0x123456), UInt64(3), UInt16(17))
+        eager = _positioned_at(Philox4x32(0x123456), UInt64(3), UInt16(17))
         carrier = Reactant.to_rarray(eager)
         compiled = Reactant.@compile sync = true _continuous_distribution_snapshot(carrier)
         got = compiled(carrier)
@@ -826,7 +816,7 @@ end
 
 if Philox2x32 in SELECTED_GENERATORS
     @testset "R42 subnormal and cancellation mappings" begin
-        root = _positioned(Philox2x32(0x123456), UInt64(3), UInt64(2), UInt16(17))
+        root = _positioned_at(Philox2x32(0x123456), UInt64(3), UInt64(2), UInt16(17))
         carrier = Reactant.to_rarray(root)
         compiled =
             Reactant.@compile sync = true _cancellation_distribution_snapshot(carrier)
@@ -842,7 +832,7 @@ if Philox2x32 in SELECTED_GENERATORS
         end
 
         bernoulli_root =
-            _positioned(Philox2x32(0x123456), UInt64(0x01852ed9), UInt64(2), UInt16(0))
+            _positioned_at(Philox2x32(0x123456), UInt64(0x01852ed9), UInt64(2), UInt16(0))
         bernoulli_carrier = Reactant.to_rarray(bernoulli_root)
         bernoulli_compiled =
             Reactant.@compile sync = true _subnormal_bernoulli_snapshot(bernoulli_carrier)
@@ -861,7 +851,7 @@ end
 if Philox4x32 in SELECTED_GENERATORS
     @testset "R42 integer range method surface" begin
         carrier =
-            Reactant.to_rarray(_positioned(Philox4x32(0x123456), UInt64(3), UInt16(17)))
+            Reactant.to_rarray(_positioned_at(Philox4x32(0x123456), UInt64(3), UInt16(17)))
         unsupported = NegativeIntegerRange(-5, -2, 4)
         @test !applicable(rand, carrier, unsupported)
         @test !applicable(rand_next, carrier, unsupported)
@@ -945,8 +935,8 @@ end
 @testset "R42 array fills" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
-            first = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
-            second = _positioned(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
+            first = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
+            second = _positioned_at(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
             first_carrier = Reactant.to_rarray(first)
             compiled = Reactant.@compile sync = true _fill_snapshot(first_carrier)
             @test _same_fill_snapshot(compiled(first_carrier), _fill_snapshot(first))
@@ -1001,7 +991,7 @@ end
 @testset "R42 range arrays, samples, and destination fills" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
-            eager = _positioned(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
+            eager = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
             carrier = Reactant.to_rarray(eager)
             compiled = Reactant.@compile sync = true _range_snapshot(carrier)
             @test all(_same_snapshot_item.(compiled(carrier), _range_snapshot(eager)))

@@ -16,7 +16,7 @@ end
 @testset "R23-R26 and R55 CPU allocating range draws" begin
     for F in GENERATOR_TYPES, T in RANGE_INTS
         range = _small_allocating_range(T)
-        rng = _range_positioned(F, 0x65a, UInt64(7), UInt16(61))
+        rng = _positioned(F, 0x65a, UInt64(7), UInt16(61))
         original_position = rng.position
         expected_next, expected = _chained_range(rng, range, 12)
 
@@ -43,7 +43,7 @@ end
         UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd),
     )
     for F in GENERATOR_TYPES, range in ranges
-        rng = _range_positioned(F, 0x65b, UInt64(9), UInt16(63))
+        rng = _positioned(F, 0x65b, UInt64(9), UInt16(63))
         expected_next, expected = _chained_range(rng, range, 9)
         values, next_rng = rand_next(rng, range, 3, 3)
         @test vec(values) == expected
@@ -56,7 +56,7 @@ end
     for F in (Philox2x32, Philox4x32, Philox4x64),
         range in (UInt16(2):UInt16(17), UInt64(0):(UInt64(1)<<32))
 
-        rng = _range_positioned(F, 0x65b1, UInt64(11), UInt16(61))
+        rng = _positioned(F, 0x65b1, UInt64(11), UInt16(61))
         width = RangeAllocIR._range_bits(length(range) % UInt64)
         count = 3 * Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width)) + 3
         expected_next, expected = _chained_range(rng, range, count)
@@ -83,7 +83,7 @@ end
 end
 
 @testset "R26 packed small range arrays" begin
-    rng = _range_positioned(Philox4x32, 0x65b3, UInt64(13), UInt16(61))
+    rng = _positioned(Philox4x32, 0x65b3, UInt64(13), UInt16(61))
     range = UInt64(0):(UInt64(1)<<32)
     count = 128
     expected_next, expected = _chained_range(rng, range, count)
@@ -174,7 +174,7 @@ end
 end
 
 @testset "R23-R26 range tuple dimensions and destination fills" begin
-    rng = _range_positioned(Philox4x32, 0x65b, UInt64(7), UInt16(61))
+    rng = _positioned(Philox4x32, 0x65b, UInt64(7), UInt16(61))
     range = Int16(-31):Int16(3):Int16(41)
     expected, expected_next = rand_next(rng, range, 3, 4)
     @test rand(rng, range, (3, 4)) == expected

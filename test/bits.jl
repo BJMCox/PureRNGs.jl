@@ -17,61 +17,8 @@ const BIT_GENERATORS = (
     ChaCha(0x1234),
 )
 
-_reference_block(rng::BitsIR._Position64Generators, block::UInt64) =
-    BitsIR._block(rng, block)
-_reference_block(rng::BitsIR._Position128Generators, block::NTuple{2,UInt64}) =
-    BitsIR._block(rng, block...)
-
-_reference_next(block::UInt64) = block + UInt64(1)
-function _reference_next(block::NTuple{2,UInt64})
-    lo = block[1] + UInt64(1)
-    return lo, block[2] + UInt64(iszero(lo))
-end
-
 _reference_index(::BitsIR._Position64Generators) = UInt64(9)
 _reference_index(::BitsIR._Position128Generators) = (UInt64(9), UInt64(7))
-
-function _reference_extract(rng, block, bit::UInt16, width::Int)
-    value = UInt64(0)
-    remaining = width
-    offset = Int(bit)
-    while remaining != 0
-        words = _reference_block(rng, block)
-        word_bits = 8sizeof(first(words))
-        block_bits = word_bits * length(words)
-        word_lane, word_bit = divrem(offset, word_bits)
-        take = min(remaining, word_bits - word_bit)
-        mask = (UInt64(1) << take) - UInt64(1)
-        piece = (UInt64(words[word_lane+1]) >> (word_bits - word_bit - take)) & mask
-        value = (value << take) | piece
-        remaining -= take
-        offset += take
-        if offset == block_bits
-            block = _reference_next(block)
-            offset = 0
-        end
-    end
-    return value
-end
-
-function _reference_advance(rng, block, bit::UInt16, count::Int)
-    block_bits =
-        8sizeof(first(_reference_block(rng, block))) *
-        length(_reference_block(rng, block))
-    total = Int(bit) + count
-    while total >= block_bits
-        block = _reference_next(block)
-        total -= block_bits
-    end
-    return block, UInt16(total)
-end
-
-function _reference_extract128(rng, block, bit)
-    hi = _reference_extract(rng, block, bit, 64)
-    next_block, next_bit = _reference_advance(rng, block, bit, 64)
-    lo = _reference_extract(rng, next_block, next_bit, 64)
-    return lo, hi
-end
 
 function _boundary_offsets(block_bits)
     candidates = (

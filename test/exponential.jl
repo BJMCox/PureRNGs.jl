@@ -2,8 +2,6 @@ using MLDataDevices
 using InteractiveUtils: code_llvm
 using Random: randexp, randexp!
 
-const EXPONENTIAL_TYPES = (Float32, Float64)
-
 _exponential_width(::Type{Float32}) = 24
 _exponential_width(::Type{Float64}) = 53
 

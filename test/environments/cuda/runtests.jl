@@ -6,21 +6,9 @@ using MLDataDevices
 using Random
 using Test
 
-const IR = PureRNGs
-const MLD = MLDataDevices
-const GENERATORS = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-    ChaCha,
-)
+include(joinpath(@__DIR__, "..", "..", "fixtures.jl"))
+
 const UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-const NORMAL_TYPES = (Float32, Float64)
 const RANGE_TYPES = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
 const PACKED_INTEGER_CASES = (
     (Philox2x64, UInt32, 1 << 20),
@@ -531,7 +519,7 @@ CUDA.device!(primary)
 device = MLD.CUDADevice(primary)
 
 @testset "CUDA Bool packed paths preserve every generator stream" begin
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         rng = device(F(0x787))
         block_bits = Int(IR._block_bits(rng))
 
@@ -601,7 +589,7 @@ end
 end
 
 @testset "CUDA non-Philox float vector stores preserve the dense stream" begin
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         F === Philox4x32 && continue
         for T in (Float32, Float64)
             rng = device(F(0x788))
@@ -766,7 +754,7 @@ end
 end
 
 @testset "grouped public fallbacks cover every remaining generator and type" begin
-    for F in GENERATORS, T in UNIFORM_TYPES
+    for F in GENERATOR_TYPES, T in UNIFORM_TYPES
         F === Philox4x32 && T in COOPERATIVE_UNIFORM_TYPES && continue
         rng = device(F(0x782))
         block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
@@ -774,7 +762,7 @@ end
         _check_public_packed_fill(positioned, T, 9, rand_next, rand_next!)
     end
 
-    for F in GENERATORS, T in NORMAL_TYPES
+    for F in GENERATOR_TYPES, T in NORMAL_TYPES
         F === Philox4x32 && continue
         rng = device(F(0x783))
         block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
@@ -792,7 +780,7 @@ end
 
 @testset "non-Philox normal packed fills preserve every generator stream" begin
     backend = CUDA.CUDABackend()
-    for F in GENERATORS, T in NORMAL_TYPES
+    for F in GENERATOR_TYPES, T in NORMAL_TYPES
         F === Philox4x32 && continue
         rng = device(F(0x782))
         plan = IR._device_normal_fill_plan(backend, rng, T)
@@ -895,7 +883,7 @@ end
 end
 
 @testset "public K=64 grouped and K=128 generic ranges" begin
-    for F in GENERATORS, range in (K64_RANGE, K128_RANGE)
+    for F in GENERATOR_TYPES, range in (K64_RANGE, K128_RANGE)
         rng = device(F(0x785))
         block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(11)
         positioned = _positioned_at_bit(rng, block, IR._block_bits(rng) - UInt16(5))
@@ -924,7 +912,7 @@ end
 @testset "all array draws: residency, parity, shape, and fixed work" begin
     uniform_cases = (
         ((Philox4x32, T) for T in UNIFORM_TYPES)...,
-        ((F, UInt64) for F in GENERATORS if F !== Philox4x32)...,
+        ((F, UInt64) for F in GENERATOR_TYPES if F !== Philox4x32)...,
     )
     for (F, T) in uniform_cases
         cpu_rng = F(0x123456)
@@ -957,7 +945,7 @@ end
 
     normal_cases = (
         ((Philox4x32, T) for T in NORMAL_TYPES)...,
-        ((F, Float64) for F in GENERATORS if F !== Philox4x32)...,
+        ((F, Float64) for F in GENERATOR_TYPES if F !== Philox4x32)...,
     )
     for (F, T) in normal_cases
         cpu_rng = F(0x123456)
@@ -989,7 +977,7 @@ end
 
     range_cases = (
         ((Philox4x32, T) for T in RANGE_TYPES)...,
-        ((F, UInt64) for F in GENERATORS if F !== Philox4x32)...,
+        ((F, UInt64) for F in GENERATOR_TYPES if F !== Philox4x32)...,
     )
     for (F, T) in range_cases
         cpu_rng = F(0x123456)
@@ -999,7 +987,7 @@ end
     # The matrix above covers every type on Philox4x32 and one type on the
     # other generators. One further type per generator checks that the
     # continuation does not depend on the type the matrix chose.
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         F === Philox4x32 && continue
         _check_array_continuation(device(F(0x123459)), Float32, rand_next)
         _check_array_continuation(device(F(0x12345a)), Float32, randn_next)
@@ -1007,7 +995,7 @@ end
     end
 
     wide = UInt64(0):UInt64(1):(UInt64(1)<<40)
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         cpu_rng = F(0x123456)
         @test Array(rand(device(cpu_rng), wide, 17)) == rand(cpu_rng, wide, 17)
     end
@@ -1084,7 +1072,7 @@ end
     end
 
     bool_kernel = IR._uniform_fill_bool_blocks_kernel!(backend)
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         bool_rng = device(F(0x787))
         plan = IR._device_uniform_fill_plan(backend, bool_rng, Bool)
         expected = F === Philox4x32 ? Val(:cooperative) : Val(:bool_blocks)
@@ -1143,7 +1131,7 @@ end
         )
     end
 
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         F === Philox4x32 && continue
         for T in (Float32, Float64)
             rng = device(F(0x788))
@@ -1195,7 +1183,7 @@ end
         )
     end
 
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         rng = device(F(0x123456))
         signed32 = CUDA.zeros(Int32, 3)
         signed64 = CUDA.zeros(Int64, 3)
@@ -1266,7 +1254,7 @@ end
     exponential_cases = (
         (Philox4x32, Float32),
         (Philox4x32, Float64),
-        ((F, Float64) for F in GENERATORS if F !== Philox4x32)...,
+        ((F, Float64) for F in GENERATOR_TYPES if F !== Philox4x32)...,
     )
     for (F, T) in exponential_cases
         cpu_rng = F(0x123456)
@@ -1338,7 +1326,7 @@ end
 end
 
 @testset "CUDA exponential packed stores match grouped fallback" begin
-    for F in GENERATORS, T in (Float32, Float64)
+    for F in GENERATOR_TYPES, T in (Float32, Float64)
         F === Philox4x32 && T === Float64 && continue
         base = device(F(0x78a))
         outputs_per_store = T === Float32 ? 4 : 2
@@ -1360,7 +1348,7 @@ end
     block_bits = (64, 128, 128, 256, 64, 128, 128, 256)
     capacity_exponents = (62, 71, 71, 136, 62, 71, 71, 136)
     for (F, expected_block_bits, capacity_exponent) in
-        zip(GENERATORS, block_bits, capacity_exponents)
+        zip(GENERATOR_TYPES, block_bits, capacity_exponents)
 
         cpu_rng = F(0x123456)
         gpu_rng = device(cpu_rng)
@@ -1519,7 +1507,7 @@ end
 end
 
 @testset "R56-R58 and R60 CUDA unweighted sampling" begin
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         cpu_rng = F(0x91a)
         gpu_rng = device(cpu_rng)
         host_population = reshape(collect(Int32(-11):Int32(12)), 4, 6)
@@ -1598,7 +1586,7 @@ end
 end
 
 @testset "R30 GPU-bound scalar allocation" begin
-    for F in GENERATORS
+    for F in GENERATOR_TYPES
         rng = device(F(0x123456))
         range = UInt32(2):UInt32(3):UInt32(74)
         _check_scalar_allocation(() -> rand_next(rng, UInt32))

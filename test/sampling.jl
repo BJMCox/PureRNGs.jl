@@ -1,6 +1,5 @@
 const SamplingIR = PureRNGs
 const SamplingMLD = PureRNGs.MLDataDevices
-const SamplingKA = PureRNGs.KernelAbstractions
 
 struct DeviceAgnosticIterable{T}
     values::Vector{T}
@@ -32,28 +31,6 @@ struct UnknownDeviceIterable{T}
 end
 
 Base.iterate(iter::UnknownDeviceIterable, state...) = iterate(iter.values, state...)
-
-struct SamplingCUDAProbe{T} <: AbstractVector{T}
-    values::Vector{T}
-end
-
-Base.size(population::SamplingCUDAProbe) = size(population.values)
-Base.getindex(population::SamplingCUDAProbe, index::Int) = population.values[index]
-SamplingMLD.get_device(::SamplingCUDAProbe) = SamplingMLD.CUDADevice(:named)
-SamplingMLD.get_device_type(::SamplingCUDAProbe) = SamplingMLD.CUDADevice
-
-struct SamplingSerialProbe{T} <: AbstractVector{T}
-    values::Vector{T}
-end
-
-Base.size(destination::SamplingSerialProbe) = size(destination.values)
-Base.getindex(destination::SamplingSerialProbe, index::Int) = destination.values[index]
-Base.setindex!(destination::SamplingSerialProbe, value, index::Int) =
-    setindex!(destination.values, value, index)
-SamplingMLD.get_device(::SamplingSerialProbe) = SamplingMLD.CPUDevice()
-SamplingMLD.get_device_type(::SamplingSerialProbe) = SamplingMLD.CPUDevice
-SamplingKA.get_backend(::SamplingSerialProbe) =
-    error("serial sampling must not get a backend")
 
 struct CountedPopulation{T} <: AbstractVector{T}
     values::Vector{T}
