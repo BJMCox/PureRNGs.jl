@@ -163,7 +163,7 @@ end
     indices = eachindex(destination)
     ordinal = first(ordinals)
     last_ordinal = last(ordinals)
-    if length(destination) >= _WEIGHTED_LOOKUP_LANES
+    if length(ordinals) >= _WEIGHTED_LOOKUP_LANES
         thresholds = Vector{Float64}(undef, _WEIGHTED_LOOKUP_LANES)
         lower = Vector{Int}(undef, _WEIGHTED_LOOKUP_LANES)
         @inbounds while ordinal <= last_ordinal - (_WEIGHTED_LOOKUP_LANES - 1)
