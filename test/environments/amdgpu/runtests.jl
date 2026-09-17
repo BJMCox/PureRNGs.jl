@@ -6,18 +6,8 @@ using MLDataDevices
 using Random
 using Test
 
-const IR = PureRNGs
-const AMDGPU_GENERATORS = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-    ChaCha,
-)
+include(joinpath(@__DIR__, "..", "..", "fixtures.jl"))
+
 function _fixed_distributions(::Type{T}) where {T}
     return (
         Normal(T(1.25), T(0.75)),
@@ -206,7 +196,7 @@ function _check_distribution_preview(F, distribution, active_device)
 end
 
 @testset "R37 AMDGPU public host surface" begin
-    for F in AMDGPU_GENERATORS
+    for F in GENERATOR_TYPES
         cpu_rng = F(0x814)
         rng = AMDGPUDevice(:discarded)(cpu_rng)
         @test rng.device === IR._AMDGPU_BACKEND
@@ -227,7 +217,7 @@ if AMDGPU.functional()
     @info "AMDGPU preview software identity" identity = _software_identity()
 
     @testset "R39 AMDGPU allocation smoke" begin
-        for F in AMDGPU_GENERATORS,
+        for F in GENERATOR_TYPES,
             T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 
             cpu_rng = F(0x815)
@@ -252,7 +242,7 @@ if AMDGPU.functional()
     end
 
     @testset "R25, R30, R43, and R63 AMDGPU signed and exponential probes" begin
-        for F in AMDGPU_GENERATORS
+        for F in GENERATOR_TYPES
             cpu_rng = F(0x816)
             rng = AMDGPUDevice()(cpu_rng)
             signed32 = AMDGPU.ROCArray{Int32}(undef, 4)
@@ -331,7 +321,7 @@ if AMDGPU.functional()
     end
 
     @testset "R43 and R64 AMDGPU fixed-distribution probes" begin
-        for F in AMDGPU_GENERATORS, distribution in _fixed_distributions(Float32)
+        for F in GENERATOR_TYPES, distribution in _fixed_distributions(Float32)
             _check_distribution_preview(F, distribution, active_device)
         end
         for distribution in _fixed_distributions(Float64)
@@ -413,7 +403,7 @@ if AMDGPU.functional()
     end
 
     @testset "R56-R58 AMDGPU unweighted sampling smoke" begin
-        for F in AMDGPU_GENERATORS
+        for F in GENERATOR_TYPES
             cpu_rng = F(0x91b)
             rng = AMDGPUDevice()(cpu_rng)
             host_population = collect(Int32(-5):Int32(17))

@@ -1,124 +1,7 @@
 using InteractiveUtils: code_llvm
 using Random: rand!
 
-const IR = PureRNGs
-const KA = PureRNGs.KernelAbstractions
-const MLD = PureRNGs.MLDataDevices
-
 const SCALAR_UNIFORM_TYPES = (Bool, UInt32, UInt64, Float32, Float64)
-const PURE_UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-
-const PACKED_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
-const PACKED_GOLDEN_BIT = UInt16(61)
-const PACKED_GOLDEN_GENERATORS = (
-    (Philox2x32, (UInt32(0x01234567),)),
-    (Philox4x32, (UInt32(0x01234567), UInt32(0x89abcdef))),
-    (Philox2x64, (UInt64(0x0000000001234567),)),
-    (Philox4x64, (UInt64(0x0000000001234567), UInt64(0x0000000089abcdef))),
-    (Threefry2x32, (UInt32(0x01234567), UInt32(0x89abcdef))),
-    (
-        Threefry4x32,
-        (UInt32(0x01234567), UInt32(0x89abcdef), UInt32(0xfedcba98), UInt32(0x76543210)),
-    ),
-    (Threefry2x64, (UInt64(0x0000000001234567), UInt64(0x0000000089abcdef))),
-    (
-        Threefry4x64,
-        (
-            UInt64(0x0000000001234567),
-            UInt64(0x0000000089abcdef),
-            UInt64(0x00000000fedcba98),
-            UInt64(0x0000000076543210),
-        ),
-    ),
-)
-
-function _packed_golden_rng(F, key)
-    base = F(key)
-    position =
-        base.position isa IR._Position64 ?
-        IR._Position64(PACKED_GOLDEN_BLOCK, PACKED_GOLDEN_BIT) :
-        IR._Position128(PACKED_GOLDEN_BLOCK, UInt64(0), PACKED_GOLDEN_BIT)
-    return IR._rebuild(base, position, base.device)
-end
-
-_uniform_width(::Type{Bool}) = 1
-_uniform_width(::Type{Float32}) = 24
-_uniform_width(::Type{UInt32}) = 32
-_uniform_width(::Type{Int32}) = 32
-_uniform_width(::Type{Float64}) = 53
-_uniform_width(::Type{UInt64}) = 64
-_uniform_width(::Type{Int64}) = 64
-
-mutable struct TaskWriteProbe{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
-    data::A
-    writers::Array{Task,N}
-end
-
-TaskWriteProbe(data::AbstractArray{T,N}) where {T,N} =
-    TaskWriteProbe(data, Array{Task}(undef, size(data)))
-Base.size(array::TaskWriteProbe) = size(array.data)
-Base.axes(array::TaskWriteProbe) = axes(array.data)
-Base.IndexStyle(::Type{<:TaskWriteProbe{T,N,A}}) where {T,N,A} = IndexStyle(A)
-Base.getindex(array::TaskWriteProbe, indices...) = getindex(array.data, indices...)
-function Base.setindex!(array::TaskWriteProbe, value, indices...)
-    array.writers[indices...] = current_task()
-    return setindex!(array.data, value, indices...)
-end
-MLD.get_device(array::TaskWriteProbe) = MLD.get_device(array.data)
-KA.get_backend(array::TaskWriteProbe) = KA.get_backend(array.data)
-
-struct WrongDeviceArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
-    data::A
-end
-
-Base.size(array::WrongDeviceArray) = size(array.data)
-Base.axes(array::WrongDeviceArray) = axes(array.data)
-Base.IndexStyle(::Type{<:WrongDeviceArray{T,N,A}}) where {T,N,A} = IndexStyle(A)
-Base.getindex(array::WrongDeviceArray, indices...) = getindex(array.data, indices...)
-Base.setindex!(array::WrongDeviceArray, value, indices...) =
-    setindex!(array.data, value, indices...)
-MLD.get_device_type(::WrongDeviceArray) = MLD.UnknownDevice
-
-_reference_position_block(position::IR._Position64) = position.block
-_reference_position_block(position::IR._Position128) = (position.lo, position.hi)
-
-_reference_convert(::Type{Bool}, value::UInt64) = isone(value)
-_reference_convert(::Type{UInt32}, value::UInt64) = value % UInt32
-_reference_convert(::Type{Int32}, value::UInt64) = reinterpret(Int32, value % UInt32)
-_reference_convert(::Type{UInt64}, value::UInt64) = value
-_reference_convert(::Type{Int64}, value::UInt64) = reinterpret(Int64, value)
-_reference_convert(::Type{Float32}, value::UInt64) =
-    Float32(value % UInt32) * Float32(0x1p-24)
-_reference_convert(::Type{Float64}, value::UInt64) = Float64(value) * 0x1p-53
-
-function _reference_uniform(rng, ::Type{T}) where {T}
-    raw = _reference_extract(
-        rng,
-        _reference_position_block(rng.position),
-        rng.position.bit,
-        _uniform_width(T),
-    )
-    return _reference_convert(T, raw)
-end
-
-function _reference_position(rng, additional_bits::Integer)
-    block_bits = BigInt(IR._block_bits(rng))
-    position = rng.position
-    block =
-        position isa IR._Position64 ? BigInt(position.block) :
-        (BigInt(position.hi) << 64) + BigInt(position.lo)
-    total = BigInt(position.bit) + BigInt(additional_bits)
-    block_delta, bit = divrem(total, block_bits)
-    block += block_delta
-    if position isa IR._Position64
-        return IR._Position64(UInt64(block), UInt16(bit))
-    end
-    return IR._Position128(
-        UInt64(block & typemax(UInt64)),
-        UInt64(block >> 64),
-        UInt16(bit),
-    )
-end
 
 function _reference_chain(rng, ::Type{T}, count::Int) where {T}
     values = Vector{T}(undef, count)
@@ -134,14 +17,6 @@ function _reference_chain(rng, ::Type{T}, count::Int) where {T}
     return cursor, values
 end
 
-function _positioned(F, seed, block::UInt64, bit::UInt16)
-    base = F(seed)
-    position =
-        base.position isa IR._Position64 ? IR._Position64(block, bit) :
-        IR._Position128(block, UInt64(7), bit)
-    return IR._rebuild(base, position, base.device)
-end
-
 uniform_allocations(rng, ::Type{T}) where {T} =
     (@allocated(rand(rng, T)), @allocated(rand_next(rng, T)), @allocated(randat(rng, T, 3)))
 
@@ -149,8 +24,6 @@ function _serial_fill_allocations(rng, destination)
     rand_next!(rng, destination; threaded = false)
     return @allocated rand_next!(rng, destination; threaded = false)
 end
-
-sync_cpu() = KA.synchronize(KA.CPU())
 
 @testset "R13 packed uniform golden vectors" begin
     # Independent C++17 oracle using DEShawResearch/random123 v1.14.0:

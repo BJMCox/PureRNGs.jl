@@ -1,8 +1,6 @@
 using InteractiveUtils: code_llvm
 using Random: randn, randn!
 
-const NORMAL_TYPES = (Float32, Float64)
-
 _normal_width(::Type{Float32}) = 23
 _normal_width(::Type{Float64}) = 52
 

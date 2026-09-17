@@ -1,6 +1,8 @@
 using Test
 using PureRNGs
 
+include("fixtures.jl")
+
 include("philox.jl")
 include("threefry.jl")
 include("chacha.jl")

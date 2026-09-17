@@ -3,36 +3,9 @@ using PureRNGs
 using Random
 using Test
 
-const IR = PureRNGs
+include(joinpath(@__DIR__, "..", "..", "fixtures.jl"))
+
 const EXT = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
-const GENERATOR_TYPES = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-    ChaCha,
-)
-
-mutable struct TaskWriteProbe{T,A<:AbstractVector{T}} <: AbstractVector{T}
-    data::A
-    writers::Vector{Task}
-end
-
-TaskWriteProbe(data::AbstractVector{T}) where {T} =
-    TaskWriteProbe(data, Vector{Task}(undef, length(data)))
-Base.size(array::TaskWriteProbe) = size(array.data)
-Base.getindex(array::TaskWriteProbe, index::Int) = array.data[index]
-function Base.setindex!(array::TaskWriteProbe, value, index::Int)
-    array.writers[index] = current_task()
-    return setindex!(array.data, value, index)
-end
-IR.MLDataDevices.get_device(array::TaskWriteProbe) = IR.MLDataDevices.get_device(array.data)
-IR.KernelAbstractions.get_backend(array::TaskWriteProbe) =
-    IR.KernelAbstractions.get_backend(array.data)
 
 function fixed_distributions(::Type{T}) where {T}
     return (

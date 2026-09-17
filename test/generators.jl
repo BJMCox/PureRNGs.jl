@@ -1,16 +1,5 @@
 using MLDataDevices
 
-const GENERATOR_TYPES = (
-    Philox2x32,
-    Philox4x32,
-    Philox2x64,
-    Philox4x64,
-    Threefry2x32,
-    Threefry4x32,
-    Threefry2x64,
-    Threefry4x64,
-    ChaCha,
-)
 const BACKEND_TOKENS = (
     PureRNGs._CPU_BACKEND,
     PureRNGs._CUDA_BACKEND,
