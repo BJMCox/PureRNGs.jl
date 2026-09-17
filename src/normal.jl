@@ -89,6 +89,7 @@ end
     end
 
     r = sqrt(-log(q < zero(T) ? u : one(T) - u))
+    # Float32 inputs never exceed r = 4.08, so the far-tail branch is reachable for Float64 only.
     if r <= T(5)
         r = r - T(1.6)
         z = _as241_horner(r, C) / _as241_horner(r, D)

@@ -55,11 +55,11 @@ KernelAbstractions.@kernel function _fill_cooperative_kernel!(
     group = @index(Group, Linear)
     lane = @index(Local, Linear)
     shared = @localmem UInt64 (
-        S ? 2 * cld(O * W, 128) : _cooperative_shared_words(block_width, Val(O), Val(W)),
+        S ? 2 * cld(O * W, B) : _cooperative_shared_words(block_width, Val(O), Val(W)),
     )
     if S
-        blocks = cld(O * W, 128)
-        first_block = rng.position.block + UInt64((group - 1) * blocks)
+        blocks = cld(O * W, B)
+        first_block = _position_block(rng.position) + UInt64((group - 1) * blocks)
         block_offset = lane - 1
         while block_offset < blocks
             block_words = _block_words(rng, first_block + UInt64(block_offset))
