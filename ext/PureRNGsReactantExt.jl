@@ -216,13 +216,16 @@ end
     R <: Union{IR.Philox4x64,IR.Threefry4x64} ? UInt64(256) :
     R <: IR.ChaCha ? UInt64(512) : UInt64(128)
 
-@inline _core_word(::Type{R}, value) where {R} =
-    IR._core_word(_word_width(R), _ReactantWordOps{_lane_barriers(R)}(), value)
+# `barriers` carries `_lane_barriers` as a type. Every trace entry point
+# resolves it once and passes it down, so the word type is a constant here
+# while the choice still follows the default client of that trace.
+@inline _core_word(::Type{R}, ::Val{B}, value) where {R,B} =
+    IR._core_word(_word_width(R), _ReactantWordOps{B}(), value)
 
-@inline function _key(rng::_ReactantRNG{R}) where {R}
+@inline function _key(rng::_ReactantRNG{R}, barriers::Val) where {R}
     T = _key_type(R)
     return ntuple(
-        index -> _core_word(R, _convert(T, _state_value(rng, index))),
+        index -> _core_word(R, barriers, _convert(T, _state_value(rng, index))),
         Val(_key_count(R)),
     )
 end
@@ -246,8 +249,8 @@ end
 # block address zero-extended to the core's counter width, matching `_block`
 # in src/bits.jl, and 32-bit outputs pair into 64-bit block words as in
 # `_block_words` there.
-@inline function _core_words(::Type{R}, key, lo, hi) where {R}
-    word(value) = _core_word(R, value)
+@inline function _core_words(::Type{R}, barriers::Val, key, lo, hi) where {R}
+    word(value) = _core_word(R, barriers, value)
     pad = IR._core_constant(key[1], 0)
     rounds = Val(IR._rounds(R))
     if R <: Union{IR.Philox2x32,IR.Threefry2x32}
@@ -292,23 +295,27 @@ end
 # inliner restores the inline form before XLA sees the module, so the kernels
 # are unchanged, while the passes that scale with module size run on the
 # shared body.
-function _core_body(::Type{R}, lo, hi, key_values...) where {R}
-    return _core_words(R, map(value -> _core_word(R, value), key_values), lo, hi)
+function _core_body(::Type{R}, barriers::Val, lo, hi, key_values...) where {R}
+    key = map(value -> _core_word(R, barriers, value), key_values)
+    return _core_words(R, barriers, key, lo, hi)
 end
 
-@inline function _shared_words(::Type{R}, key, lo, hi) where {R}
-    return Ops.call(_core_body, R, lo, hi, _unwrap(key)...)
+@inline function _shared_words(::Type{R}, barriers::Val, key, lo, hi) where {R}
+    return Ops.call(_core_body, R, barriers, lo, hi, _unwrap(key)...)
 end
 
 # The block at the position and its successor, in stream order. A draw may
 # straddle the two, and the traced program has no branch to skip the second.
-@inline function _window_words(rng::_ReactantRNG{R}, position) where {R}
-    key = _key(rng)
+@inline function _window_words(rng::_ReactantRNG{R}, position, barriers::Val) where {R}
+    key = _key(rng, barriers)
     lo = position[1]
     hi = _position128(R) ? position[2] : lo
     next_lo = lo + UInt64(1)
     next_hi = _position128(R) ? hi + ifelse(iszero(next_lo), UInt64(1), UInt64(0)) : next_lo
-    return (_shared_words(R, key, lo, hi)..., _shared_words(R, key, next_lo, next_hi)...)
+    return (
+        _shared_words(R, barriers, key, lo, hi)...,
+        _shared_words(R, barriers, key, next_lo, next_hi)...,
+    )
 end
 
 # `values[index + 1]` through a select chain. A dynamic slice would trace
@@ -332,10 +339,10 @@ end
     return ifelse(UInt64(W) <= available, single, crossed)
 end
 
-@inline function _raw(rng::_ReactantRNG, ::Val{W}) where {W}
+@inline function _raw(rng::_ReactantRNG{R}, ::Val{W}) where {R,W}
     position = _position(rng)
     bit = position[end]
-    words = _window_words(rng, position)
+    words = _window_words(rng, position, Val(_lane_barriers(R)))
     lane = _shr(bit, 6)
     first = _select(words, lane)
     second = _select(words[2:end], lane)
@@ -522,7 +529,7 @@ end
 
 # The block words of `B` consecutive blocks from the position, as one vector
 # in stream order.
-function _stream_words(rng::_ReactantRNG{R}, position, ::Val{B}) where {R,B}
+function _stream_words(rng::_ReactantRNG{R}, position, ::Val{B}, barriers::Val) where {R,B}
     lo = _lanes(position[1], Val(B))
     los = Ops.add(lo, Ops.iota(UInt64, [B]; iota_dimension = 1))
     his = if _position128(R)
@@ -531,15 +538,23 @@ function _stream_words(rng::_ReactantRNG{R}, position, ::Val{B}) where {R,B}
     else
         los
     end
-    key = map(word -> _core_word(R, _lanes(word.value, Val(B))), _key(rng))
-    words = _core_words(R, key, los, his)
+    key = map(
+        word -> _core_word(R, barriers, _lanes(word.value, Val(B))),
+        _key(rng, barriers),
+    )
+    words = _core_words(R, barriers, key, los, his)
     rows = [Ops.broadcast_in_dim(word, [2], [1, B]) for word in words]
     return Ops.reshape(Ops.concatenate(rows, 1), length(words) * B)
 end
 
 function _fill_raw(rng::_ReactantRNG{R}, ::Val{W}, n::Int) where {R,W}
     position = _position(rng)
-    flat = _stream_words(rng, position, Val(_fill_blocks(R, n, Int(W))))
+    flat = _stream_words(
+        rng,
+        position,
+        Val(_fill_blocks(R, n, Int(W))),
+        Val(_lane_barriers(R)),
+    )
     offsets = Ops.multiply(
         Ops.iota(UInt64, [n]; iota_dimension = 1),
         _lanes(Ops.constant(UInt64(W)), Val(n)),
@@ -860,8 +875,8 @@ end
     return _ReactantRNG{R,typeof(state)}(state)
 end
 
-@inline function _derive_child(rng::_ReactantRNG{R}, index::UInt64) where {R}
-    return _child(rng, IR._derive_key(R, _key(rng), index))
+@inline function _derive_child(rng::_ReactantRNG{R}, index::UInt64, barriers::Val) where {R}
+    return _child(rng, IR._derive_key(R, _key(rng, barriers), index))
 end
 
 IR.splitrng(rng::_ReactantRNG) = IR.splitrng(rng, Val(2))
@@ -872,10 +887,14 @@ IR.splitrng(rng::_ReactantRNG) = IR.splitrng(rng, Val(2))
         N <= IR._NARROW_SPLIT_COUNT ||
             throw(ArgumentError("two-word generator child index enters the fold namespace"))
     end
-    return ntuple(index -> _derive_child(rng, UInt64(index - 1)), Val(N))
+    barriers = Val(_lane_barriers(R))
+    return ntuple(index -> _derive_child(rng, UInt64(index - 1), barriers), Val(N))
 end
 
 @inline IR.subrng(rng::_ReactantRNG{R}, purpose::Integer) where {R} =
-    _child(rng, IR._subrng_key(R, _key(rng), purpose % UInt64))
+    _purpose_child(rng, purpose % UInt64, Val(_lane_barriers(R)))
+
+@inline _purpose_child(rng::_ReactantRNG{R}, purpose::UInt64, barriers::Val) where {R} =
+    _child(rng, IR._subrng_key(R, _key(rng, barriers), purpose))
 
 end
