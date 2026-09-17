@@ -14,7 +14,7 @@ PureRNGs = {path = "../../.."}
 
 [compat]
 Distributions = "0.25"
-Enzyme = "0.13.203"
+Enzyme = "0.13"
 Random = "1"
 Test = "1"
 julia = "1.10"

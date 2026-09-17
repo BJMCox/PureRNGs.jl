@@ -60,8 +60,6 @@ Run them with the same `Pkg.activate` recipe.
 
 CUDA is a local release gate, not a hosted CI job.
 Run it on a supported CUDA device and record the exact source revision.
-The CUDA environment requires Julia 1.11, so it does not run on the 1.10 floor the
-other suites keep.
 AMDGPU remains preview support. Metal remains experimental.
 
 Reactant and Enzyme have separate checks. Neither replaces the CPU or CUDA gates.
@@ -86,8 +84,7 @@ Linux/macOS/Windows.
 The current Julia/Linux core job and independent Distributions, Enzyme, and Reactant CPU jobs
 each upload source and extension coverage to Codecov, which merges their reports.
 Each job retains its `lcov.info` in a separate `coverage-*` artifact.
-The Enzyme test environment requires version 0.13.203 or later for its Julia 1.13 compiler fixes.
-The Distributions suite also runs on Julia 1.10.
+Extension suites run on current stable Julia only. The core job also covers the 1.10 LTS floor.
 The Reactant job tests Philox4x32, Threefry4x64, Threefry4x32, and ChaCha.
 Full-family Reactant and GPU validation remain separate release gates.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.

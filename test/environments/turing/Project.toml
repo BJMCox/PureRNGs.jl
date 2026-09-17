@@ -15,10 +15,10 @@ Turing = "fce5fe82-541a-59a6-adf8-730c64b5f9a0"
 PureRNGs = {path = "../../.."}
 
 [compat]
-AbstractMCMC = "=5.16.0"
-Distributions = "=0.25.131"
+AbstractMCMC = "5"
+Distributions = "0.25"
 Pkg = "1"
 Random = "1"
 Test = "1"
-Turing = "=0.46.1"
+Turing = "0.46"
 julia = "1.10"

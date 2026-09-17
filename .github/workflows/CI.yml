@@ -87,7 +87,7 @@ jobs:
             Aqua.test_all(PureRNGs; unbound_args = false)'
 
   extensions:
-    name: Extension / ${{ matrix.suite }} / Julia ${{ matrix.julia }} / CPU
+    name: Extension / ${{ matrix.suite }} / CPU
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -96,10 +96,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {suite: distributions, args: '', julia: '1'}
-          - {suite: distributions, args: '', julia: '1.10'}
-          - {suite: enzyme, args: '', julia: '1'}
-          - {suite: reactant, args: 'Philox4x32 Threefry4x64 Threefry4x32 ChaCha', julia: '1'}
+          - {suite: distributions, args: ''}
+          - {suite: enzyme, args: ''}
+          - {suite: reactant, args: 'Philox4x32 Threefry4x64 Threefry4x32 ChaCha'}
     env:
       JULIA_NUM_THREADS: '4'
       PURERNGS_REACTANT_BACKEND: cpu
@@ -107,7 +106,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v3
         with:
-          version: ${{ matrix.julia }}
+          version: '1'
       - uses: julia-actions/cache@v3
       - name: Test extension with coverage
         run: |
@@ -120,7 +119,7 @@ jobs:
           directories: src,ext
       - uses: actions/upload-artifact@v7
         with:
-          name: coverage-${{ matrix.suite }}-${{ matrix.julia }}
+          name: coverage-${{ matrix.suite }}
           path: lcov.info
           if-no-files-found: error
       - uses: codecov/codecov-action@v7
