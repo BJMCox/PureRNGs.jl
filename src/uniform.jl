@@ -177,4 +177,6 @@ types are `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, `Float32`, and
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
+
+The distribution form of `randat` takes a single index.
 """ randat

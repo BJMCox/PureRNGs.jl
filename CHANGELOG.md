@@ -16,5 +16,7 @@ Initial development release.
 - A host-only `Random.AbstractRNG` bridge.
 - `rngkey` and `rngposition` accessors, and constructors that rebuild a generator at a saved position.
 - Array dimensions as one tuple, integer-range destination fills, and addressed draws over an index range.
+- `WeightTable` for reusable weighted sampling preparation.
+- `rand(m, T, n)` on `StatefulRNG` uses the package fill.
 - Optional Distributions, Enzyme, and Reactant integrations. Reactant array fills of any size trace, with no per-element constants in the compiled module.
 - A workflow-led manual, CPU and GPU tutorials, and an exported API reference.

@@ -62,7 +62,7 @@ draws, rng = randsample_next(rng, population, weights, 12)
 draws
 ```
 
-Pass a plain vector of real weights. No weight wrapper is needed.
+Pass a plain vector of real weights.
 
 Weights follow population positions. They must convert to finite, nonnegative `Float64` values with a finite, positive left-fold total.
 Zero weights exclude elements. Zero requested samples still require valid weights.
@@ -73,6 +73,14 @@ The preparation is shared within that call, not cached across calls. It allocate
 weighted scratch space, so an in-place weighted fill does not promise zero
 allocations. CPU weighted fills follow the `threaded` keyword like the other
 fills.
+
+```julia
+table = WeightTable([1.0, 3.0, 0.0])
+draws, rng = randsample_next(rng, population, table, 12)
+```
+
+Build a `WeightTable` once to reuse the cumulative table across calls. It holds
+CPU data and is accepted wherever a weight vector is.
 
 Each category's realized share is a whole number of `2^-53` cells of the
 cumulative total. Shares below about `1e-16` of the total are not represented

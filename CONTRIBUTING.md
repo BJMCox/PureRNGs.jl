@@ -65,7 +65,7 @@ other suites keep.
 AMDGPU remains preview support. Metal remains experimental.
 
 Reactant and Enzyme have separate checks. Neither replaces the CPU or CUDA gates.
-RNGTest BigCrush covers all eight families in both UInt32 and Float64 lanes before release.
+RNGTest BigCrush covers all nine families in both UInt32 and Float64 lanes before release.
 Upload statistical logs as artifacts rather than committing them.
 
 ## Performance

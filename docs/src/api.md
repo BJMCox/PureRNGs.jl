@@ -62,6 +62,7 @@ randsample
 randsample_next
 randsample!
 randsample_next!
+WeightTable
 ```
 
 ## Mutable interoperability

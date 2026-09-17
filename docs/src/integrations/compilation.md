@@ -75,6 +75,7 @@ Compiled draws need a few hundred megabytes. Set `XLA_REACTANT_GPU_PREALLOCATE=f
 
 Carriers support scalar primitive, range, and supported distribution draws, scalar continuations, addressed draws, static key derivation, and array draws with static sizes: uniform, normal, exponential, integer range, and unweighted `randsample`.
 Destination fills into traced arrays replace the destination's value.
+These forms trace but are outside the release conformance gate.
 
 Scalar, continuation, and addressed Reactant forms cover every fixed
 distribution listed in [Distributions](@ref), using native compiled math.
