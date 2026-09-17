@@ -367,7 +367,7 @@ end
     cases = (
         ((Philox4x32, distribution) for distribution in CUDA_FIXED_DISTRIBUTIONS)...,
         (
-            (F, distribution) for F in GENERATORS for
+            (F, distribution) for F in GENERATOR_TYPES for
             distribution in exact_distributions if F !== Philox4x32
         )...,
     )
@@ -396,7 +396,7 @@ end
 end
 
 @testset "CUDA fixed packed and offset fills agree" begin
-    for F in GENERATORS, T in (Float32, Float64)
+    for F in GENERATOR_TYPES, T in (Float32, Float64)
         rng = device(F(0x64c5))
         count = T === Float32 ? 2048 : 1024
         aligned = CUDA.CuArray{T}(undef, count)
