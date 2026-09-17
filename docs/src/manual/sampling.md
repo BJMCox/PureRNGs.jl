@@ -20,6 +20,14 @@ Arbitrary range lengths can have a small finite mapping bias. Preimage counts di
 The candidate uses 64 bits for lengths up to 2^32 and 128 bits for larger lengths.
 The relative probability imbalance between two values is therefore at most 2^-32 for lengths up to 2^32, and at most 2^-64 above that.
 
+```@example sampling
+dice = Vector{Int}(undef, 16)
+_, rng = rand_next!(rng, dice, 1:6; threaded=false)
+dice
+```
+
+The range follows the destination.
+
 ## Sample a population
 
 ```@example sampling
@@ -64,6 +72,10 @@ looks up samples in draw order. Other backends may sort thresholds for a batch.
 The preparation is shared within that call, not cached across calls. It allocates
 weighted scratch space, so an in-place weighted fill does not promise zero
 allocations. CPU weighted fills remain serial for both values of `threaded`.
+
+Each category's realized share is a whole number of `2^-53` cells of the
+cumulative total. Shares below about `1e-16` of the total are not represented
+faithfully and depend on weight order.
 
 ## Fill an existing destination
 

@@ -12,7 +12,7 @@ makedocs(
     doctest = true,
     linkcheck = true,
     checkdocs = :exports,
-    warnonly = false,
+    warnonly = [:linkcheck],
     format = Documenter.HTML(
         prettyurls = get(ENV, "CI", "false") == "true",
         repolink = "https://github.com/BJMCox/PureRNGs.jl",

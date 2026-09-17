@@ -13,7 +13,8 @@ result, rng = rand_next!(rng, buffer)
 @assert result === buffer
 ```
 
-Dimensions are positional integers. Arrays use Julia's native column-major order.
+Dimensions are positional integers or one `Dims` tuple, as in `Random`.
+Arrays use Julia's native column-major order.
 
 A bang modifies the destination, not the immutable generator.
 `rand!` returns the destination. `rand_next!` also returns the advanced generator.

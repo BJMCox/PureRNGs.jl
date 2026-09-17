@@ -52,8 +52,11 @@ Repeated derivation with the same parent and purpose returns the same key. It do
 Use stable integer purpose IDs. `subrng` reduces them modulo 2^64, so IDs differing by 2^64 alias.
 Splitting and purpose IDs use separate derivation namespaces.
 
-Derived keys can collide. For many children, prefer a generator with at least 128 key bits.
-Distinct keys do not guarantee distinct output values.
+Child keys are core output. Across `n` program-wide derivations with `k` key
+bits, two derivations collide with probability about `n^2 / 2^(k+1)`, and a
+collision makes both child subtrees identical. For many children, prefer a
+generator with at least 128 key bits. Distinct keys do not guarantee distinct
+output values.
 
 Use integer counts for ordinary splitting. `Val(N)` exposes a fixed tuple length to the compiler and suits small, statically known counts.
 
