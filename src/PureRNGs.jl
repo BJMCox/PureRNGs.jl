@@ -37,6 +37,7 @@ export Philox2x32,
     randsample_next,
     randsample!,
     randsample_next!,
+    WeightTable,
     StatefulRNG
 
 # Both Reactant extensions dispatch on this type, so the core owns the declaration.
