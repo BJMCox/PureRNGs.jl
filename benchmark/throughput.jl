@@ -1,4 +1,5 @@
 using PureRNGs
+using BenchmarkTools
 import KernelAbstractions
 import MLDataDevices
 using Printf
@@ -34,31 +35,20 @@ function measure_fill(next_fill_function, rng, values, seconds, threaded)
     actual_device === expected_device ||
         error("expected $expected_device output, received $actual_device")
     backend = KernelAbstractions.get_backend(values)
-
-    _, rng = next_fill_function(rng, values; threaded)
-    KernelAbstractions.synchronize(backend)
-    GC.gc()
-
-    runs = 0
-    started = time_ns()
-    elapsed = 0
-    while elapsed < seconds * 1.0e9
-        _, rng = next_fill_function(rng, values; threaded)
-        KernelAbstractions.synchronize(backend)
-        runs += 1
-        elapsed = time_ns() - started
-    end
-
-    elapsed_seconds = elapsed / 1.0e9
-    values_per_second = runs * length(values) / elapsed_seconds
-    output_gib_per_second = values_per_second * sizeof(eltype(values)) / 2.0^30
-    milliseconds_per_fill = 1.0e3 * elapsed_seconds / runs
+    trial = @benchmark begin
+        $next_fill_function($rng, $values; threaded = $threaded)
+        KernelAbstractions.synchronize($backend)
+    end seconds = seconds
+    median_ns = median(trial).time
+    values_per_second = length(values) / (median_ns / 1.0e9)
     return (;
-        runs,
-        elapsed_seconds,
-        milliseconds_per_fill,
+        runs = length(trial.times),
+        minimum_ms = minimum(trial).time / 1.0e6,
+        median_ms = median_ns / 1.0e6,
+        memory_bytes = trial.memory,
+        allocations = trial.allocs,
         values_per_second,
-        output_gib_per_second,
+        output_gib_per_second = values_per_second * sizeof(eltype(values)) / 2.0^30,
     )
 end
 
@@ -67,14 +57,17 @@ values = rand(rng, result_type, elements)
 result = measure_fill(next_fill_function, rng, values, seconds, threaded)
 
 @printf(
-    "%s %s %s on %s: %.3f Gvalue/s, %.3f GiB/s output, %.3f ms/fill (%d runs)\n",
+    "%s %s %s on %s: %.3f Gvalue/s, %.3f GiB/s output, %.3f ms median, %.3f ms minimum, %d bytes, %d allocations (%d runs)\n",
     next_fill_function,
     nameof(family),
     result_type,
     nameof(typeof(target_device)),
     result.values_per_second / 1.0e9,
     result.output_gib_per_second,
-    result.milliseconds_per_fill,
+    result.median_ms,
+    result.minimum_ms,
+    result.memory_bytes,
+    result.allocations,
     result.runs,
 )
 
