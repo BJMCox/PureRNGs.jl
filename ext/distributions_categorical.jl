@@ -90,10 +90,12 @@ end
     if !threaded && rng.device isa IR._CPUBackend
         IR._fill_weighted_samples_cpu_unchecked!(
             rng,
+            rng.position,
             labels,
             total,
             cumulative,
             destination,
+            1:length(destination),
         )
         return destination, next_rng
     end
