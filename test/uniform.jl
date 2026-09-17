@@ -588,3 +588,15 @@ end
     @test randat(rng, UInt32, 5:4) == UInt32[]
     @test_throws ArgumentError randat(rng, UInt32, 0:3)
 end
+
+@testset "Small destination fills allocate nothing" begin
+    rng = Philox4x32(0x5f1)
+    for T in (Float32, Float64, UInt64)
+        buffer = Vector{T}(undef, 64)
+        rand_next!(rng, buffer)
+        @test @allocated(rand_next!(rng, buffer)) == 0
+        normal = Vector{Float64}(undef, 64)
+        randn_next!(rng, normal)
+        @test @allocated(randn_next!(rng, normal)) == 0
+    end
+end

@@ -167,7 +167,6 @@ end
 
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
 const _CPU_FILL_MIN_WORKITEMS = 4
-const _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS = 128
 
 @inline function _dense_fill_chunk_elements(::Type{T}) where {T}
     raw = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_draw_bits(T)))
@@ -191,14 +190,6 @@ KernelAbstractions.@kernel function _uniform_fill_dense_kernel!(
     bits_lo, bits_hi = _bit_span(UInt64(first - 1), _draw_bits(T))
     position = _advance_position_unchecked(rng, bits_lo, bits_hi)
     _fill_uniform_dense_cpu!(rng, position, destination, T, first:last)
-end
-
-KernelAbstractions.@kernel function _uniform_fill_dense_serial_kernel!(
-    rng,
-    destination,
-    ::Val{T},
-) where {T}
-    _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
 end
 
 @inline _fill_backend(destination) = KernelAbstractions.get_backend(destination)

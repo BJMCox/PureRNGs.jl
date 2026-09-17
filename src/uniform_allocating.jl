@@ -1,15 +1,4 @@
 @inline function _rand_next_uniform_array(
-    rng::_CPUGenerators,
-    ::Type{T},
-    dims::Tuple,
-) where {T}
-    _check_serviceability(rng, T)
-    destination = _allocate_draw_array(rng.device, T, dims)
-    threaded = length(destination) > _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS
-    return _fill_uniform_prevalidated!(rng, destination, threaded)
-end
-
-@inline function _rand_next_uniform_array(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dims::Tuple,

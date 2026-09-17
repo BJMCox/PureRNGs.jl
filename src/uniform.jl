@@ -12,7 +12,7 @@ function _launch_uniform!(
     chunk_elements = _dense_fill_chunk_elements(T)
     workitems = cld(length(destination), chunk_elements)
     if workitems < _CPU_FILL_MIN_WORKITEMS
-        _uniform_fill_dense_serial_kernel!(backend)(rng, destination, Val(T); ndrange = 1)
+        _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
         return destination
     end
     _uniform_fill_dense_kernel!(backend)(

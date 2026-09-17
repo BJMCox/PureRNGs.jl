@@ -1,10 +1,14 @@
 # A codec selects the width, mapping, and fill plan through dispatch.
 abstract type _MappedFillCodec end
-const _TransformedFillCodec = Union{Val{:normal},_BackendToken,_MappedFillCodec}
+# The exponential codec carries the backend because the log approximation is per backend.
+struct _ExponentialCodec{B<:_BackendToken}
+    backend::B
+end
+const _TransformedFillCodec = Union{Val{:normal},_ExponentialCodec,_MappedFillCodec}
 
 @inline _transformed_draw_unchecked(::Val{:normal}, rng, position, T) =
     _draw_normal_unchecked(rng, position, T)
-@inline _transformed_draw_unchecked(::_BackendToken, rng, position, T) =
+@inline _transformed_draw_unchecked(::_ExponentialCodec, rng, position, T) =
     _draw_exponential_unchecked(rng, position, T)
 @inline function _transformed_draw_unchecked(
     codec::_MappedFillCodec,
@@ -146,22 +150,6 @@ KernelAbstractions.@kernel function _transformed_fill_dense_kernel!(
     _fill_transformed_dense_cpu!(rng, position, destination, T, first:last, codec)
 end
 
-KernelAbstractions.@kernel function _transformed_fill_dense_serial_kernel!(
-    rng,
-    destination,
-    ::Val{T},
-    codec,
-) where {T}
-    _fill_transformed_dense_cpu!(
-        rng,
-        rng.position,
-        destination,
-        T,
-        eachindex(destination),
-        codec,
-    )
-end
-
 @inline function _launch_transformed!(
     backend,
     rng,
@@ -183,12 +171,13 @@ function _launch_transformed!(
     chunk_elements = _transformed_fill_chunk_elements(codec, T)
     workitems = cld(length(destination), chunk_elements)
     if workitems < _CPU_FILL_MIN_WORKITEMS
-        _transformed_fill_dense_serial_kernel!(backend)(
+        _fill_transformed_dense_cpu!(
             rng,
+            rng.position,
             destination,
-            Val(T),
-            codec;
-            ndrange = 1,
+            T,
+            eachindex(destination),
+            codec,
         )
         return destination
     end
@@ -205,18 +194,19 @@ function _launch_transformed!(
 end
 
 function _launch_transformed!(
-    backend::KernelAbstractions.CPU,
+    ::KernelAbstractions.CPU,
     rng,
     destination::BitArray,
     ::Type{Bool},
     codec::_MappedFillCodec,
 )
-    _transformed_fill_dense_serial_kernel!(backend)(
+    _fill_transformed_dense_cpu!(
         rng,
+        rng.position,
         destination,
-        Val(Bool),
-        codec;
-        ndrange = 1,
+        Bool,
+        eachindex(destination),
+        codec,
     )
     return destination
 end
@@ -254,18 +244,6 @@ end
 ) where {T}
     _check_fill_device(rng, destination)
     _check_serviceability(rng, T)
-    return _fill_transformed_prevalidated!(rng, destination, threaded, codec)
-end
-
-@inline function _rand_transformed_next_array(
-    rng::_CPUGenerators,
-    ::Type{T},
-    dims::Tuple,
-    codec::_TransformedFillCodec,
-) where {T}
-    _check_serviceability(rng, T)
-    destination = _allocate_draw_array(rng.device, T, dims)
-    threaded = length(destination) > _CPU_DIRECT_SMALL_FILL_MAX_ELEMENTS
     return _fill_transformed_prevalidated!(rng, destination, threaded, codec)
 end
 
