@@ -1,3 +1,6 @@
+# Every vector below is a line of the published Random123 v1.14.0 known-answer
+# file, https://github.com/DEShawResearch/random123/blob/v1.14.0/tests/kat_vectors.
+
 @testset "Threefry2x32 Random123 KATs" begin
     core = PureRNGs._threefry2x32
     @test core((UInt32(0), UInt32(0)), (UInt32(0), UInt32(0))) == (0x6b200159, 0x99ba4efe)
@@ -53,6 +56,9 @@ end
           (0x09218ebde6c85537, 0x55941f5266d86105, 0x4bd25e16282434dc, 0xee29ec846bd2e40b)
     @test core(ntuple(_ -> 0xffffffffffffffff, 4), ntuple(_ -> 0xffffffffffffffff, 4)) ==
           (0x29c24097942bba1b, 0x0371bbfb0f6f4e11, 0x3c231ffa33f83a1c, 0xcd29113fde32d168)
+    # The published 20-round and 72-round pi rows repeat the second key word
+    # instead of continuing the pi digits, unlike the 13-round row above. Keep
+    # the key as published so the vector stays comparable with Random123.
     @test core(
         (0x243f6a8885a308d3, 0x13198a2e03707344, 0xa4093822299f31d0, 0x082efa98ec4e6c89),
         (0x452821e638d01377, 0xbe5466cf34e90c6c, 0xbe5466cf34e90c6c, 0xc0ac29b7c97c50dd),
