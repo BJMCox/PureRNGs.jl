@@ -199,22 +199,18 @@ end
             threaded = similar(serial)
             @test randexp!(rng, serial; threaded = false) === serial
             @test randexp!(rng, threaded; threaded = true) === threaded
-            sync_cpu()
             @test serial == threaded == expected
             @test rng.position.bit == bit
 
             continued, continued_next = randexp_next!(rng, similar(serial))
-            sync_cpu()
             @test continued == expected
             @test continued_next.position == next_rng.position
 
             matrix = randexp(rng, T, 1, 17)
-            sync_cpu()
             @test vec(matrix) == expected
             @test size(matrix) == (1, 17)
 
             allocated, allocated_next = randexp_next(rng, T, 17)
-            sync_cpu()
             @test allocated == expected
             @test allocated_next.position == next_rng.position
         end
@@ -242,7 +238,6 @@ end
     rng = Philox4x32(0x868)
     default_values, default_next = randexp_next(rng, 2, 3)
     typed_values, typed_next = randexp_next(rng, Float64, 2, 3)
-    sync_cpu()
     @test default_values == typed_values
     @test default_next.position == typed_next.position
     @test size(default_values) == (2, 3)
@@ -271,7 +266,6 @@ end
             _, serial_next = randexp_next!(rng, serial; threaded = false)
             threaded = similar(serial)
             randexp!(rng, threaded; threaded = true)
-            sync_cpu()
             @test serial == expected
             @test threaded == expected
             @test serial_next.position == expected_rng.position
@@ -284,7 +278,6 @@ end
     for count in (128, 129)
         expected_next, expected = _scalar_exponential_chain(rng, Float64, count)
         values, next_rng = randexp_next(rng, Float64, count)
-        sync_cpu()
         @test values == expected
         @test next_rng.position == expected_next.position
     end

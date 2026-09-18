@@ -4,4 +4,6 @@ lcov.info
 EXECUTION.md
 .worktrees/
 .superpowers/
+PRIVATE-*/
 docs/build/
+.DS_Store

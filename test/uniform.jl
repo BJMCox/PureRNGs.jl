@@ -202,13 +202,11 @@ end
 
         destination = Vector{T}(undef, 12)
         @test rand!(rng, destination) === destination
-        sync_cpu()
         @test destination == expected
         @test rng.position.bit === UInt16(61)
 
         replay = similar(destination)
         returned, next_rng = rand_next!(rng, replay)
-        sync_cpu()
         @test returned === replay
         @test replay == expected
         @test next_rng.position == expected_rng.position
@@ -228,7 +226,6 @@ end
         threaded_storage = fill(zero(T), 24)
         threaded_view = @view threaded_storage[2:2:24]
         @test rand!(rng, threaded_view; threaded = true) === threaded_view
-        sync_cpu()
         @test collect(threaded_view) == expected
         @test all(iszero, @view threaded_storage[1:2:23])
     end
@@ -241,7 +238,6 @@ end
     ordinary_result, ordinary_next = rand_next!(rng, ordinary)
     explicit_result, explicit_next = rand_next!(rng, explicit; threaded = true)
     serial_result, serial_next = rand_next!(rng, serial; threaded = false)
-    sync_cpu()
     @test ordinary_result === ordinary
     @test explicit_result === explicit
     @test serial_result === serial
@@ -258,7 +254,6 @@ end
     for count in (128, 129)
         expected_rng, expected = _reference_chain(rng, Float64, count)
         values, next_rng = rand_next(rng, Float64, count)
-        sync_cpu()
         @test values == expected
         @test next_rng.position == expected_rng.position
     end
@@ -274,7 +269,6 @@ end
 
         serial_result, serial_next = rand_next!(rng, serial; threaded = false)
         threaded_result, threaded_next = rand_next!(rng, threaded; threaded = true)
-        sync_cpu()
 
         expected_position = _reference_position(rng, count * _uniform_width(T))
         @test serial_result === serial
@@ -487,7 +481,6 @@ end
         end
         for destination in (linear_destinations(T, n)..., cartesian_destinations(T, n)...)
             filled, next_rng = run_fill(destination, threaded)
-            sync_cpu()
             @test vec(collect(filled)) == reference
             @test next_rng.position == reference_rng.position
         end
@@ -544,7 +537,6 @@ end
     b = similar(a)
     rand_next!(rng, a)
     rand_next!(rng, b; threaded = false)
-    sync_cpu()
     @test a == b
 end
 
@@ -593,7 +585,6 @@ end
     # The second count leaves a short final chunk.
     for (chunk, fill) in fills, count in (8 * chunk, 4 * chunk + 1)
         threaded, threaded_rng = fill(rng, count, true)
-        sync_cpu()
         serial, serial_rng = fill(rng, count, false)
         @test threaded == serial
         @test threaded_rng.position == serial_rng.position

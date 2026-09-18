@@ -6,7 +6,6 @@
 
         fill!(rng, serial; threaded = false)
         fill!(rng, threaded; threaded = true)
-        sync_cpu()
 
         @test collect(threaded) == collect(serial)
 
@@ -14,7 +13,6 @@
         threaded_matrix = IdentityAxesMatrix(similar(serial_matrix.data))
         fill!(rng, serial_matrix; threaded = false)
         fill!(rng, threaded_matrix; threaded = true)
-        sync_cpu()
 
         @test threaded_matrix.data == serial_matrix.data
     end

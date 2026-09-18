@@ -142,7 +142,6 @@ end
     for population in (Int32[2, 7, 19], UInt64(0):(UInt64(1)<<32))
         expected_next, expected = _chained_unweighted(rng, population, 8193)
         values, next_rng = randsample_next(rng, population, 8193)
-        sync_cpu()
         @test values == expected
         @test next_rng === expected_next
     end
@@ -155,7 +154,6 @@ end
     destination = similar(expected)
 
     returned, next_rng = randsample_next!(rng, population, destination)
-    sync_cpu()
     @test returned === destination
     @test destination == expected
     @test next_rng === after
@@ -176,7 +174,6 @@ end
     symbol_view = @view symbol_storage[2:end]
     symbol_view_returned, symbol_view_next =
         randsample_next!(rng, symbol_population, symbol_view; threaded = true)
-    sync_cpu()
     @test symbol_view_returned === symbol_view
     @test symbol_view == symbol_expected
     @test symbol_view_next === symbol_after
@@ -195,7 +192,6 @@ end
     any_view = @view any_storage[2:end]
     any_view_returned, any_view_next =
         randsample_next!(rng, any_population, weights, any_view; threaded = true)
-    sync_cpu()
     @test any_view_returned === any_view
     @test any_view == any_expected
     @test any_view_next === any_after

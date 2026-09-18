@@ -202,6 +202,33 @@ Hosted CI is manual-dispatch only while the repository is private, so this recip
 6. Run the CUDA environment on a CUDA host when `ext/PureRNGsCUDAExt.jl` or any
    kernel changes.
 
+### Coverage
+
+Measure line coverage from a scratch environment, at the repository root:
+
+```julia
+using Pkg
+Pkg.activate(temp = true)
+Pkg.develop(path = pwd())
+Pkg.add("Coverage")
+Pkg.test("PureRNGs"; coverage = true)
+using Coverage
+covered, total = Coverage.get_summary(Coverage.process_folder("src"))
+Coverage.clean_folder("src")
+```
+
+`get_summary` returns the covered and total line counts; their ratio is the coverage.
+`clean_folder` deletes the `*.cov` files the run leaves in the checkout. They are
+gitignored, so a forgotten cleanup does not reach a commit.
+
+Coverage measures executed lines, not statistical quality. No percentage target is set.
+
+### Changelog
+
+Every user-visible change gets one entry in `CHANGELOG.md`, under the single
+`## Unreleased` heading, in the `### Added`, `### Changed`, `### Removed`, or `### Fixed`
+subsection that fits. Do not add a version heading or a date before a release.
+
 ## Automation
 
 The CI workflow checks Julia 1.10, current stable Julia, and current prerelease Julia, serial and

@@ -272,7 +272,3 @@ function _packed_golden_rng(F, key)
         IR._Position128(PACKED_GOLDEN_BLOCK, UInt64(0), PACKED_GOLDEN_BIT)
     return IR._rebuild(base, position, base.device)
 end
-
-# Every CPU fill returns with its work complete, so the device-suite call sites
-# that share these tests need no host barrier.
-sync_cpu() = nothing

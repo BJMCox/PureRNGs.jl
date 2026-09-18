@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using these metadata."
+title: PureRNGs.jl
+abstract: >-
+  Counter-based random number generation for Julia, with explicit state and
+  CPU/GPU array generation.
+type: software
+authors:
+  - family-names: Cox
+    given-names: Ben
+repository-code: "https://github.com/BJMCox/PureRNGs.jl"
+license: Apache-2.0
