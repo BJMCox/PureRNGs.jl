@@ -13,6 +13,7 @@ Initial development release.
 - `ChaCha` generators with a 256-bit key, 512-bit output blocks, and twelve rounds by default, with the `ChaCha8`, `ChaCha12`, and `ChaCha20` round-count aliases, on every backend including Reactant.
 - CPU-bound 64-bit Philox generators use the host widening multiply. Kernel code keeps the portable four-product form.
 - The Philox4x32 Float64 fill extracts 128 draws per 53 blocks with fixed shifts, with a bit buffer for the remainder.
+- The packed CPU fills dispatch on `IndexStyle`, so every linearly indexed destination reaches them, not only `Array`. A contiguous or strided `view`, or a `reshape` of one, now fills about five times faster serially and matches an `Array` when threaded.
 - A host-only `Random.AbstractRNG` bridge.
 - `rngkey` and `rngposition` accessors, and constructors that rebuild a generator at a saved position.
 - Array dimensions as one tuple, integer-range destination fills, and addressed draws over an index range.

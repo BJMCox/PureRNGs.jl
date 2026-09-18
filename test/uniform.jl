@@ -462,6 +462,60 @@ end
     @test_throws ArgumentError randat(rng, UInt32, 0:3)
 end
 
+@testset "R8 fills keep one stream across index styles" begin
+    linear_destinations(::Type{T}, n) where {T} = (
+        Vector{T}(undef, n),
+        view(Vector{T}(undef, n + 3), 1:n),
+        view(Vector{T}(undef, 2n), 1:2:2n),
+        reshape(view(Vector{T}(undef, n + 5), 1:n), n, 1),
+    )
+    # `Transpose` and a strided second index both index Cartesian, so they take
+    # the per-element fallback.
+    cartesian_destinations(::Type{T}, n) where {T} =
+        (transpose(Matrix{T}(undef, 1, n)), view(Matrix{T}(undef, n, 2), :, 1:2:2))
+
+    function check_stream(run_fill, ::Type{T}, n, threaded) where {T}
+        reference, reference_rng = run_fill(Vector{T}(undef, n), false)
+        for destination in linear_destinations(T, n)
+            @test IndexStyle(destination) === IndexLinear()
+        end
+        for destination in cartesian_destinations(T, n)
+            @test IndexStyle(destination) === IndexCartesian()
+        end
+        for destination in (linear_destinations(T, n)..., cartesian_destinations(T, n)...)
+            filled, next_rng = run_fill(destination, threaded)
+            sync_cpu()
+            @test vec(collect(filled)) == reference
+            @test next_rng.position == reference_rng.position
+        end
+        return nothing
+    end
+
+    for F in (Philox4x32, Threefry4x64, ChaCha),
+        T in (Float64, Float32, UInt64, Bool),
+        n in (1, 17, 4096, 100_003),
+        threaded in (false, true)
+
+        rng = _positioned(F, 0x531, UInt64(3), UInt16(5))
+        check_stream(T, n, threaded) do destination, run_threaded
+            rand_next!(rng, destination; threaded = run_threaded)
+        end
+    end
+
+    rng = _positioned(Philox4x32, 0x532, UInt64(3), UInt16(5))
+    for threaded in (false, true)
+        check_stream(Float64, 4096, threaded) do destination, run_threaded
+            randn_next!(rng, destination; threaded = run_threaded)
+        end
+        check_stream(Float32, 4096, threaded) do destination, run_threaded
+            randexp_next!(rng, destination; threaded = run_threaded)
+        end
+        check_stream(Int32, 4096, threaded) do destination, run_threaded
+            rand_next!(rng, destination, Int32(-5):Int32(9); threaded = run_threaded)
+        end
+    end
+end
+
 @testset "Small destination fills allocate nothing" begin
     rng = Philox4x32(0x5f1)
     for T in (Float32, Float64, UInt64)

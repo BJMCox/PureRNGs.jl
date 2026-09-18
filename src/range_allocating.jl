@@ -100,16 +100,18 @@ end
 @inline function _launch_range!(
     ::KernelAbstractions.CPU,
     rng::_CPUGenerators,
-    destination::Array,
+    destination::AbstractArray,
     range,
     span,
 )
     width = _range_bits(span)
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(width))
+    indices = eachindex(destination)
     _run_chunks(length(destination), chunk_elements) do first, last
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), width)
         position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-        _fill_range_cpu_unchecked!(rng, position, destination, range, span, first:last)
+        chunk = _chunk_indices(indices, first, last)
+        _fill_range_cpu_unchecked!(rng, position, destination, range, span, chunk)
     end
     return destination
 end

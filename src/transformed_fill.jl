@@ -150,15 +150,17 @@ end
 function _launch_transformed!(
     ::KernelAbstractions.CPU,
     rng,
-    destination::Array{T},
+    destination::AbstractArray{T},
     ::Type{T},
     codec::_TransformedFillCodec,
 ) where {T}
     chunk_elements = _transformed_fill_chunk_elements(codec, T)
+    indices = eachindex(destination)
     _run_chunks(length(destination), chunk_elements) do first, last
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), _fill_width(codec, T))
         position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-        _fill_transformed_dense_cpu!(rng, position, destination, T, first:last, codec)
+        chunk = _chunk_indices(indices, first, last)
+        _fill_transformed_dense_cpu!(rng, position, destination, T, chunk, codec)
     end
     return destination
 end

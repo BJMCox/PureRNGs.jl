@@ -1,3 +1,12 @@
+# `_run_chunks` counts draws from one. A linearly indexed destination may number
+# its elements differently, so shift the chunk onto its own index range. A
+# Cartesian destination takes the same ordinals through linear indexing.
+@inline _chunk_indices(indices, from::Int, to::Int) = from:to
+@inline function _chunk_indices(indices::AbstractUnitRange, from::Int, to::Int)
+    offset = first(indices) - 1
+    return (from+offset):(to+offset)
+end
+
 @inline function _fill_uniform_unchecked!(
     rng::_ScalarUniformGenerators,
     position,
@@ -243,7 +252,7 @@ end
 
 @inline function _fill_dense_cursor!(
     rng,
-    destination::Array{Bool},
+    destination::AbstractArray{Bool},
     ::Type{Bool},
     index::Int,
     count::Int,
@@ -267,7 +276,7 @@ end
 
 @inline function _fill_dense_cursor!(
     rng,
-    destination::Array{T},
+    destination::AbstractArray{T},
     ::Type{T},
     index::Int,
     count::Int,
@@ -290,7 +299,7 @@ end
 
 @inline function _fill_dense_cursor!(
     rng,
-    destination::Array{Float32},
+    destination::AbstractArray{Float32},
     ::Type{Float32},
     index::Int,
     count::Int,
@@ -323,7 +332,7 @@ end
 
 @inline function _fill_dense_cursor!(
     rng,
-    destination::Array{T},
+    destination::AbstractArray{T},
     ::Type{T},
     index::Int,
     count::Int,
@@ -375,7 +384,7 @@ end
 
 @inline _fill_dense_cursor!(
     rng,
-    destination::Array{Float64},
+    destination::AbstractArray{Float64},
     ::Type{Float64},
     index::Int,
     count::Int,
@@ -422,7 +431,7 @@ end
 
 @inline function _fill_dense_cursor!(
     rng::Philox4x32,
-    destination::Array{Float64},
+    destination::AbstractArray{Float64},
     ::Type{Float64},
     index::Int,
     count::Int,
@@ -450,10 +459,28 @@ end
     return _fill_f64_bitbuffer!(rng, destination, index, last_index - index + 1, cursor)
 end
 
-@inline function _fill_uniform_dense_cpu!(
+# The dense cursors walk `destination` by linear index, so the fast paths hold
+# for every `IndexLinear` array, not only `Array`.
+@inline _fill_uniform_dense_cpu!(
     rng,
     position,
-    destination::Array{T},
+    destination::AbstractArray{T},
+    ::Type{T},
+    indices,
+) where {T} = _fill_uniform_dense_cpu!(
+    IndexStyle(destination),
+    rng,
+    position,
+    destination,
+    T,
+    indices,
+)
+
+@inline function _fill_uniform_dense_cpu!(
+    ::IndexLinear,
+    rng,
+    position,
+    destination::AbstractArray{T},
     ::Type{T},
     indices,
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
@@ -462,6 +489,15 @@ end
     _fill_dense_cursor!(rng, destination, T, first(indices), length(indices), cursor)
     return nothing
 end
+
+@inline _fill_uniform_dense_cpu!(
+    ::IndexStyle,
+    rng,
+    position,
+    destination,
+    ::Type{T},
+    indices,
+) where {T} = _fill_uniform_unchecked!(rng, position, destination, T, indices)
 
 @inline function _store_bool_blocks4!(destination, index, blocks)
     @inbounds for block_lane = 1:4, word_lane = 1:4, bit_lane = 0:31
@@ -472,7 +508,11 @@ end
     return nothing
 end
 
-@inline function _store_bits32_blocks4!(destination::Array{T}, index, blocks) where {T}
+@inline function _store_bits32_blocks4!(
+    destination::AbstractArray{T},
+    index,
+    blocks,
+) where {T}
     @inbounds for block_lane = 1:4, word_lane = 1:4
         destination[index+4(block_lane-1)+word_lane-1] =
             _from_bits(T, UInt64(blocks[block_lane][word_lane]))
@@ -480,7 +520,11 @@ end
     return nothing
 end
 
-@inline function _store_bits64_blocks4!(destination::Array{T}, index, blocks) where {T}
+@inline function _store_bits64_blocks4!(
+    destination::AbstractArray{T},
+    index,
+    blocks,
+) where {T}
     @inbounds for block_lane = 1:4, word_lane = 1:2
         words = blocks[block_lane]
         raw = (UInt64(words[2word_lane-1]) << 32) | UInt64(words[2word_lane])
@@ -515,7 +559,13 @@ end
     return nothing
 end
 
-@inline function _fill_aligned_blocks4!(rng, destination::Array{Bool}, index, last, block)
+@inline function _fill_aligned_blocks4!(
+    rng,
+    destination::AbstractArray{Bool},
+    index,
+    last,
+    block,
+)
     while index + 511 <= last && block <= _max_block(rng) - UInt64(3)
         blocks = _blocks4(rng, block)
         _store_bool_blocks4!(destination, index, blocks)
@@ -526,7 +576,7 @@ end
 end
 @inline function _fill_aligned_blocks4!(
     rng,
-    destination::Array{T},
+    destination::AbstractArray{T},
     index,
     last,
     block,
@@ -541,7 +591,7 @@ end
 end
 @inline function _fill_aligned_blocks4!(
     rng,
-    destination::Array{T},
+    destination::AbstractArray{T},
     index,
     last,
     block,
@@ -556,7 +606,7 @@ end
 end
 @inline function _fill_aligned_blocks4!(
     rng,
-    destination::Array{Float32},
+    destination::AbstractArray{Float32},
     index,
     last,
     block,
@@ -590,7 +640,7 @@ end
 @inline function _fill_uniform_blocks4_cpu!(
     rng::Philox4x32,
     position::_Position64,
-    destination::Array{T},
+    destination::AbstractArray{T},
     ::Type{T},
     indices,
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
@@ -610,9 +660,10 @@ end
 
 # Float64 is excluded so the @generated group path above keeps the dispatch.
 @inline _fill_uniform_dense_cpu!(
+    ::IndexLinear,
     rng::Philox4x32,
     position::_Position64,
-    destination::Array{T},
+    destination::AbstractArray{T},
     ::Type{T},
     indices,
 ) where {T<:Union{Bool,_UniformInteger,Float32}} =
@@ -654,6 +705,3 @@ end
     end
     return nothing
 end
-
-@inline _fill_uniform_dense_cpu!(rng, position, destination, ::Type{T}, indices) where {T} =
-    _fill_uniform_unchecked!(rng, position, destination, T, indices)

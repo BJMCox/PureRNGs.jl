@@ -6,14 +6,16 @@ end
 function _launch_uniform!(
     ::KernelAbstractions.CPU,
     rng,
-    destination::Union{Array{T},BitArray},
+    destination::AbstractArray{T},
     ::Type{T},
 ) where {T}
     chunk_elements = _dense_fill_chunk_elements(T)
+    indices = eachindex(destination)
     _run_chunks(length(destination), chunk_elements) do first, last
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), _draw_bits(T))
         position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-        _fill_uniform_dense_cpu!(rng, position, destination, T, first:last)
+        chunk = _chunk_indices(indices, first, last)
+        _fill_uniform_dense_cpu!(rng, position, destination, T, chunk)
     end
     return destination
 end
