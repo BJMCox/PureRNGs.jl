@@ -58,10 +58,16 @@ under Reactant. This avoids singular input endpoints without retries.
 TriangularDist uses an ordinary uniform draw and a normalized inverse CDF that
 avoids products of interval widths. Even a point mass consumes its full span.
 
-| Precision | Normal range | Exponential range |
-| --- | --- | --- |
-| `Float32` | ±5.2947 | 0 to 16.636 |
-| `Float64` | ±8.2095 | 0 to 36.737 |
+| Precision | Normal cap | Normal mass beyond it | Exponential cap | Mass beyond it |
+| --- | --- | --- | --- | --- |
+| `Float32` | ±5.2947 | 1.19e-7 (2^-23) | 16.6355 | 5.96e-8 (2^-24) |
+| `Float64` | ±8.2095 | 2.22e-16 (2^-52) | 36.7368 | 1.11e-16 (2^-53) |
+
+Exponential draws start at zero. For comparison, Base's ziggurat `randn` reaches
+13.708 and `randexp` reaches 44.434.
+
+`Float32` normals stop at 5.29 sigma and drop one draw in 8.4 million, so
+tail-sensitive `Float32` work should draw `Float64` and convert.
 
 Every derived distribution inherits these bounds through its transform.
 The smallest exponential draw is a negative zero, which `Exponential`, `Rayleigh`, and `Weibull` with unit shape return unchanged.
@@ -81,6 +87,7 @@ execution site, while transcendental transforms may differ between CPU, CUDA,
 and compiled execution.
 
 CUDA supports these direct methods.
+AMDGPU serves the same direct methods as CUDA.
 Reactant supports scalar, continuation, and addressed forms for these
 continuous distributions, using its native compiled arithmetic. This does not
 add parameter-gradient support or a general distribution AD guarantee.

@@ -14,7 +14,9 @@ values, rng = rand_next(rng, Float32, 1_000_000)
 ```
 
 Allocating draws create backend arrays. Fills require a destination on the same backend.
-No unsupported operation silently falls back to the CPU.
+No unsupported operation silently falls back to the CPU. The one exception is
+explicit: `StatefulRNG(rng)` rebinds a device generator to the CPU. See
+[Random interoperability](@ref).
 
 Rebinding preserves the key and position:
 
@@ -43,11 +45,13 @@ Use allocating draws, fills, or [GPU kernels](@ref) to generate values on the de
 |:--|:--|:--|
 | CPU | Required release gate | Full eager API |
 | CUDA | Required local release gate | Primitive draws, ranges, sampling, supported distributions |
-| AMDGPU | Preview | Backend extension, not a required release gate |
+| AMDGPU | Preview | Every operation CUDA serves, through the portable kernel path |
 | Metal | Experimental | Restricted primitive draws and fills |
 
-Weighted population sampling on AMDGPU runs the selection scan on a single
-work-item and scales with the population size.
+AMDGPU is a backend extension, not a required release gate. It has no tuned
+fill plan, so fills run the portable kernel path. Weighted population sampling
+on AMDGPU runs the selection scan on a single work-item and scales with the
+population size.
 
 Metal device execution supports 32-bit generators with `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, and `Float32` results.
 Normal and exponential results must be `Float32`.

@@ -206,6 +206,16 @@ end
     return key
 end
 
+"""
+    Reactant.to_rarray(rng::AbstractPureRNG)
+
+Move `rng` into a compiled carrier holding its key and bit position.
+
+The carrier omits the counter-capacity check that eager generators apply, so a
+compiled draw past the per-key capacity wraps instead of throwing. Keep every
+compiled draw within capacity. The "Differentiation and compilation" page of
+the documentation states the full compiled contract.
+"""
 function Reactant.to_rarray(rng::R) where {R<:IR.AbstractPureRNG}
     state = Reactant.to_rarray(_encode_state(rng))
     return _ReactantRNG{R,typeof(state)}(state)

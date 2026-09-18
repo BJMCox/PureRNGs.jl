@@ -17,8 +17,12 @@ Ranges support signed and unsigned integer element types from 8 through 64 bits.
 Range sampling uses a fixed-width multiply-high mapping, not rejection sampling.
 Arbitrary range lengths can have a small finite mapping bias. Preimage counts differ by at most one.
 
-The candidate uses 64 bits for lengths up to 2^32 and 128 bits for larger lengths.
-The relative probability imbalance between two values is therefore at most 2^-32 for lengths up to 2^32, and at most 2^-64 above that.
+The candidate uses 64 bits for spans up to 2^32 and 128 bits for larger spans.
+For a span `s` and a candidate width `K`, the relative probability imbalance
+between two values is exactly `1/floor(2^K / s)`. It is zero when `s` divides
+`2^K`, so powers of two are unbiased. It is largest just below each width
+change: about 2.33e-10 at `s = 2^32 - 1`, and about 5.42e-20 at
+`s = 2^64 - 1`.
 
 ```@example sampling
 dice = Vector{Int}(undef, 16)
@@ -120,3 +124,16 @@ GPU populations must also support device indexing and storage.
 
 Results stay on the generator's backend. Weighted validation can require a small host result.
 Weighted sampling does not have the same performance profile as primitive fills.
+
+## Design limits
+
+Two alternatives were considered and not taken.
+
+There is no rejection sampler for ranges. Rejection removes the mapping bias,
+but it costs a variable number of draws per value. That breaks the fixed work
+per value, addressed draws, and tuned GPU fills. Detecting the bias it would
+remove takes about 2^64 draws.
+
+There is no wider grid for normal draws. A 64-bit grid would raise the
+`Float64` normal cap from 8.2095 to 9.1553 for 23% more bits per draw, and it
+would give up the exact lattice of the current grid.
