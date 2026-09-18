@@ -436,9 +436,16 @@ and consume no bits. Weighted fills may allocate preparation scratch space.
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
-    return first(_randsample_next_unweighted!(rng, population, destination, threaded))
+    return first(
+        _randsample_next_unweighted!(
+            rng,
+            population,
+            destination,
+            _check_threaded(threaded),
+        ),
+    )
 end
 
 """
@@ -452,7 +459,12 @@ The input generator is not changed.
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
-    return _randsample_next_unweighted!(rng, population, destination, threaded)
+    return _randsample_next_unweighted!(
+        rng,
+        population,
+        destination,
+        _check_threaded(threaded),
+    )
 end

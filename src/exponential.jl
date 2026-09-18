@@ -210,18 +210,18 @@ for T in (Float32, Float64)
         @inline function Random.randexp!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            result, _ = _randexp_next_fill!(rng, destination, threaded)
+            result, _ = _randexp_next_fill!(rng, destination, _check_threaded(threaded))
             return result
         end
 
         @inline function randexp_next!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            return _randexp_next_fill!(rng, destination, threaded)
+            return _randexp_next_fill!(rng, destination, _check_threaded(threaded))
         end
     end
 end

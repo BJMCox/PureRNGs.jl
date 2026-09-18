@@ -219,18 +219,18 @@ for T in (Float32, Float64)
         @inline function Random.randn!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            result, _ = _randn_next_fill!(rng, destination, threaded)
+            result, _ = _randn_next_fill!(rng, destination, _check_threaded(threaded))
             return result
         end
 
         @inline function randn_next!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            return _randn_next_fill!(rng, destination, threaded)
+            return _randn_next_fill!(rng, destination, _check_threaded(threaded))
         end
     end
 end

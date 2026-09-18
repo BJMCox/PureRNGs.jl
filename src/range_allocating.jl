@@ -186,18 +186,25 @@ for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T},
             range::AbstractRange{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            return first(_rand_next_range_fill!(rng, destination, range, threaded))
+            return first(
+                _rand_next_range_fill!(rng, destination, range, _check_threaded(threaded)),
+            )
         end
 
         @inline function rand_next!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T},
             range::AbstractRange{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            return _rand_next_range_fill!(rng, destination, range, threaded)
+            return _rand_next_range_fill!(
+                rng,
+                destination,
+                range,
+                _check_threaded(threaded),
+            )
         end
     end
 end

@@ -534,10 +534,16 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
     return first(
-        _randsample_next_weighted!(rng, population, weights, destination, threaded),
+        _randsample_next_weighted!(
+            rng,
+            population,
+            weights,
+            destination,
+            _check_threaded(threaded),
+        ),
     )
 end
 
@@ -546,7 +552,13 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
-    return _randsample_next_weighted!(rng, population, weights, destination, threaded)
+    return _randsample_next_weighted!(
+        rng,
+        population,
+        weights,
+        destination,
+        _check_threaded(threaded),
+    )
 end
