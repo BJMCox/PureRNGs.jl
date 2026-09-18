@@ -52,21 +52,24 @@ struct _CUDANatural128Pack{T}
     lanes::_CUDA_U32X4
 end
 
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAPhilox4x32,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)
 
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAThreefry4x32,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)
 
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     rng::_CUDAPhilox4x32,
+    ::Val{:uniform},
     ::Type{Float32},
 ) = (Val(:cooperative), IR._cooperative_uniform_fill(rng, Float32)..., Val(4))
 
@@ -79,21 +82,24 @@ end
 # A100 trials favor twice the output tile for 64-bit integer stores.
 @inline _packed_integer_plan(::Type{T}) where {T<:Union{UInt64,Int64}} =
     (Val(2048), Val(64), Val(2))
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAPackedIntegerGenerators,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:cooperative), _packed_integer_plan(T)...)
 
-@inline function IR._device_uniform_fill_plan(
+@inline function IR._device_fill_plan(
     ::CUDA.CUDABackend,
     rng::_CUDAGenerators,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T}
     cooperative = IR._cooperative_uniform_fill(rng, T)
@@ -326,9 +332,10 @@ end
     return destination
 end
 
-@inline function IR._device_normal_fill_plan(
+@inline function IR._device_fill_plan(
     ::CUDA.CUDABackend,
     rng::_CUDAGenerators,
+    ::Val{:normal},
     ::Type{T},
 ) where {T}
     cooperative = IR._cooperative_normal_fill(rng, T)
@@ -336,28 +343,38 @@ end
            (Val(:cooperative), cooperative...)
 end
 
-@inline IR._device_normal_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
+    ::Val{:normal},
     ::Type{T},
 ) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
-@inline function IR._transformed_fill_plan(
-    ::IR._ExponentialCodec{IR._CUDABackend},
+@inline function IR._device_fill_plan(
     backend::CUDA.CUDABackend,
     rng::_CUDAGenerators,
+    ::IR._ExponentialCodec{IR._CUDABackend},
     ::Type{T},
 ) where {T<:Union{Float32,Float64}}
-    return IR._device_uniform_fill_plan(backend, rng, T)
+    return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 
-@inline function IR._device_range_fill_plan(
+@inline _grouped_candidate_plan(span::UInt64) =
+    IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
+
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
-    rng::_CUDAGenerators,
-    span::UInt64,
-)
-    return IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
-end
+    ::_CUDAGenerators,
+    codec::IR._RangeCodec,
+    ::Type,
+) = _grouped_candidate_plan(codec.span)
+
+@inline IR._device_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAGenerators,
+    codec::IR._PopulationCodec,
+    ::Type,
+) = _grouped_candidate_plan(codec.cardinality)
 
 @inline function IR._allocate_array(::IR._CUDABackend, ::Type{T}, dims::Tuple) where {T}
     return CUDA.CuArray{T}(undef, dims)

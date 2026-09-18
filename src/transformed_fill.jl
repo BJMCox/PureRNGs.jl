@@ -6,6 +6,10 @@ struct _ExponentialCodec{B<:_BackendToken}
 end
 const _TransformedFillCodec = Union{Val{:normal},_ExponentialCodec,_MappedFillCodec}
 
+# The single seam a backend extension overrides to select a tuned device kernel.
+# `nothing` keeps the generic one-work-item-per-element kernel.
+@inline _device_fill_plan(backend, rng, codec, ::Type{T}) where {T} = nothing
+
 @inline _transformed_draw_unchecked(::Val{:normal}, rng, position, T) =
     _draw_normal_unchecked(rng, position, T)
 @inline _transformed_draw_unchecked(::_ExponentialCodec, rng, position, T) =
@@ -143,7 +147,7 @@ const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
     ::Type{T},
     codec::_TransformedFillCodec,
 ) where {T}
-    plan = _transformed_fill_plan(codec, backend, rng, T)
+    plan = _device_fill_plan(backend, rng, codec, T)
     return _launch_device_fill!(backend, rng, destination, T, codec, plan)
 end
 

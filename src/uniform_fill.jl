@@ -104,7 +104,6 @@ end
 @inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
 @inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
 @inline _cooperative_uniform_fill(rng, T) = nothing
-@inline _device_uniform_fill_plan(backend, rng, T) = nothing
 
 @inline function _fill_grouped_cursor!(
     rng,

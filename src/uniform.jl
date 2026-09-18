@@ -1,5 +1,5 @@
 @inline function _launch_uniform!(backend, rng, destination, ::Type{T}) where {T}
-    plan = _device_uniform_fill_plan(backend, rng, T)
+    plan = _device_fill_plan(backend, rng, Val(:uniform), T)
     return _launch_device_fill!(backend, rng, destination, T, Val(:uniform), plan)
 end
 

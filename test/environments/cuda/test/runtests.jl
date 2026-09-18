@@ -794,7 +794,7 @@ end
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
         F === Philox4x32 && continue
         rng = device(F(0x782))
-        plan = IR._device_normal_fill_plan(backend, rng, T)
+        plan = IR._device_fill_plan(backend, rng, Val(:normal), T)
         @test plan[1] == Val(:cooperative)
         _check_public_packed_fill(
             rng,
@@ -889,7 +889,8 @@ end
     backend = CUDA.CUDABackend()
     rng = _positioned_at_bit(device(Threefry4x32(0x784)), UInt64(7), UInt16(0))
     for T in (UInt64, Int64)
-        @test IR._device_uniform_fill_plan(backend, rng, T) == (Val(:natural128_packed),)
+        @test IR._device_fill_plan(backend, rng, Val(:uniform), T) ==
+              (Val(:natural128_packed),)
     end
 end
 
@@ -1085,7 +1086,7 @@ end
     bool_kernel = IR._uniform_fill_bool_blocks_kernel!(backend)
     for F in GENERATOR_TYPES
         bool_rng = device(F(0x787))
-        plan = IR._device_uniform_fill_plan(backend, bool_rng, Bool)
+        plan = IR._device_fill_plan(backend, bool_rng, Val(:uniform), Bool)
         expected = F === Philox4x32 ? Val(:cooperative) : Val(:bool_blocks)
         @test plan[1] === expected
         plan[1] === Val(:bool_blocks) || continue
@@ -1127,7 +1128,7 @@ end
     end
 
     packed_rng = device(Philox4x32(0x785))
-    float_plan = IR._device_uniform_fill_plan(backend, packed_rng, Float32)
+    float_plan = IR._device_fill_plan(backend, packed_rng, Val(:uniform), Float32)
     float_destination = CUDA.CuArray{Float32}(undef, IR._fill_group_size(float_plan[2]))
     for stream_aligned in (Val(false), Val(true))
         _check_cooperative_kernel_code(
@@ -1146,7 +1147,7 @@ end
         F === Philox4x32 && continue
         for T in (Float32, Float64)
             rng = device(F(0x788))
-            plan = IR._device_uniform_fill_plan(backend, rng, T)
+            plan = IR._device_fill_plan(backend, rng, Val(:uniform), T)
             destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
             _check_cooperative_kernel_code(
                 backend,
@@ -1163,7 +1164,7 @@ end
 
     for T in (UInt32, UInt64)
         rng = device(Threefry4x64(0x789))
-        plan = IR._device_uniform_fill_plan(backend, rng, T)
+        plan = IR._device_fill_plan(backend, rng, Val(:uniform), T)
         destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
         _check_cooperative_kernel_code(
             backend,
@@ -1179,7 +1180,7 @@ end
 
     for T in (Float32, Float64)
         rng = device(Threefry4x32(0x788))
-        plan = IR._device_normal_fill_plan(backend, rng, T)
+        plan = IR._device_fill_plan(backend, rng, Val(:normal), T)
         destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
         _check_cooperative_kernel_code(
             backend,

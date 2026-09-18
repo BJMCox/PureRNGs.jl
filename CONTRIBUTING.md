@@ -20,8 +20,9 @@ following an existing one rather than by inventing a shape.
    chunks to `_run_chunks`, so the threaded result equals the serial result.
 4. Generic KernelAbstractions kernel. One work item per element, addressing its
    own position from its index, for every backend without a specialised path.
-5. Device plan hook. A `_device_*_fill_plan` method returns `nothing` on the
-   generic path; a backend extension returns a plan to select a tuned kernel.
+5. Device plan hook. All five scaffolds share one `_device_fill_plan(backend,
+   rng, codec, T)` seam, which returns `nothing` on the generic path; a backend
+   extension dispatches on the codec and returns a plan to select a tuned kernel.
 6. Allocating entry. Allocate through `_allocate_draw_array` on the generator's
    device, then call the prevalidated fill.
 7. Continuation entry. The `*_next` and `*_next!` forms return the advanced
@@ -32,7 +33,9 @@ following an existing one rather than by inventing a shape.
 The transformed scaffold takes a codec instead of a result type. A codec is
 `Val{:normal}`, an `_ExponentialCodec`, or an extension subtype of
 `_MappedFillCodec`, and it supplies the per-element map from uniform bits. This
-is the seam an extension uses to add a distribution without a new scaffold.
+is the seam an extension uses to add a distribution without a new scaffold. The
+other scaffolds pass `Val{:uniform}`, a `_RangeCodec`, or a `_PopulationCodec`
+to `_device_fill_plan`; those codecs name a fill but carry no map.
 
 Bit extraction lives in two files. `_extract_bits_unchecked` and `_chain_bits`
 in `bits.jl` serve scalar draws, while `_local_dense_bits` serves the kernels

@@ -25,7 +25,12 @@
     return nothing
 end
 
-@inline _device_range_fill_plan(backend, rng, span) = nothing
+# The range scaffold needs no per-element map, so its codec only carries what a
+# backend plan reads.
+struct _RangeCodec{R}
+    range::R
+    span::UInt64
+end
 
 @inline function _fill_range_grouped_unchecked!(
     rng,
@@ -72,7 +77,7 @@ KernelAbstractions.@kernel function _range_fill_grouped_kernel!(
 end
 
 @inline function _launch_range!(backend, rng, destination, range, span)
-    plan = _device_range_fill_plan(backend, rng, span)
+    plan = _device_fill_plan(backend, rng, _RangeCodec(range, span), eltype(destination))
     if plan === nothing
         _range_fill_kernel!(backend)(
             rng,

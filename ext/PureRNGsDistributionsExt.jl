@@ -149,7 +149,9 @@ end
     return plan[1], plan[2], plan[3]
 end
 
-@inline function IR._transformed_fill_plan(
+@inline function IR._device_fill_plan(
+    backend,
+    rng,
     ::_DistributionCodec{
         <:Union{
             Distributions.Normal{T},
@@ -160,23 +162,23 @@ end
             Distributions.Cauchy{T},
         },
     },
-    backend,
-    rng,
     ::Type,
 ) where {T<:_FloatType}
-    return _scalar_store_plan(IR._device_normal_fill_plan(backend, rng, T))
+    return _scalar_store_plan(IR._device_fill_plan(backend, rng, Val(:normal), T))
 end
 
-@inline function IR._transformed_fill_plan(
+@inline function IR._device_fill_plan(
+    backend,
+    rng,
     ::_DistributionCodec{Distributions.Uniform{T}},
-    backend,
-    rng,
     ::Type,
 ) where {T<:_FloatType}
-    return IR._device_uniform_fill_plan(backend, rng, T)
+    return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 
-@inline IR._transformed_fill_plan(
+@inline IR._device_fill_plan(
+    backend,
+    rng,
     codec::_DistributionCodec{
         <:Union{
             Distributions.Exponential,
@@ -185,35 +187,33 @@ end
             Distributions.Pareto,
         },
     },
-    backend,
-    rng,
     ::Type{T},
 ) where {T<:_FloatType} =
-    IR._transformed_fill_plan(IR._ExponentialCodec(codec.device), backend, rng, T)
+    IR._device_fill_plan(backend, rng, IR._ExponentialCodec(codec.device), T)
 
-@inline IR._transformed_fill_plan(
-    ::_DistributionCodec{<:Distributions.Laplace},
+@inline IR._device_fill_plan(
     backend,
     rng,
+    ::_DistributionCodec{<:Distributions.Laplace},
     ::Type,
 ) = nothing
 
-@inline function IR._transformed_fill_plan(
-    ::_DistributionCodec{Distributions.Bernoulli{T}},
+@inline function IR._device_fill_plan(
     backend,
     rng,
+    ::_DistributionCodec{Distributions.Bernoulli{T}},
     ::Type{Bool},
 ) where {T<:_FloatType}
-    return _scalar_store_plan(IR._device_uniform_fill_plan(backend, rng, T))
+    return _scalar_store_plan(IR._device_fill_plan(backend, rng, Val(:uniform), T))
 end
 
-@inline function IR._transformed_fill_plan(
-    ::_DistributionCodec{Distributions.TriangularDist{T}},
+@inline function IR._device_fill_plan(
     backend,
     rng,
+    ::_DistributionCodec{Distributions.TriangularDist{T}},
     ::Type,
 ) where {T<:_FloatType}
-    return IR._device_uniform_fill_plan(backend, rng, T)
+    return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 
 @noinline function _metal_distribution_error()

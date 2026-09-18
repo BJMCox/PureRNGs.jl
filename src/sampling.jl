@@ -228,6 +228,12 @@ KernelAbstractions.@kernel function _unweighted_sample_grouped_kernel!(
     )
 end
 
+# The unweighted scaffold needs no per-element map, so its codec only carries
+# what a backend plan reads.
+struct _PopulationCodec
+    cardinality::UInt64
+end
+
 @inline function _launch_unweighted_sample!(
     backend,
     rng,
@@ -236,7 +242,8 @@ end
     destination,
     width::UInt16,
 )
-    plan = _device_range_fill_plan(backend, rng, cardinality)
+    plan =
+        _device_fill_plan(backend, rng, _PopulationCodec(cardinality), eltype(destination))
     if plan !== nothing
         group = plan[2]
         workitems = cld(length(destination), _fill_group_size(group))
