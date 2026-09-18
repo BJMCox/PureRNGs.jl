@@ -70,10 +70,12 @@ end
 
     for F in GENERATOR_TYPES, T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x521, UInt64(9), UInt16(61))
-        position = rng.position
         expected = _reference_uniform(rng, T)
         @test rand(rng, T) === expected
-        @test rng.position === position
+        # The draw is pure: a second draw from the same generator matches one
+        # from a pristine generator at the same position.
+        pristine = _positioned(F, 0x521, UInt64(9), UInt16(61))
+        @test rand(rng, T) === rand(pristine, T)
 
         value, next_rng = rand_next(rng, T)
         @test value === expected

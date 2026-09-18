@@ -215,18 +215,28 @@ end
 @inline _distribution_span(d::Distributions.DiscreteUniform) =
     IR._range_bits(_discrete_span(d))
 
-struct _NativeDistributionOps end
+# The ops-first `_map_distribution` methods take the ops object first and a
+# distribution second. Leaving the first argument untyped makes every one of
+# them ambiguous with `_map_distribution(d::Laplace, x, positive)`, which has
+# the same arity. The shared supertype separates the two argument orders.
+abstract type _DistributionOps end
+
+struct _NativeDistributionOps <: _DistributionOps end
 
 function _distribution_muladd end
 function _distribution_product end
 
 @inline _distribution_muladd(::_NativeDistributionOps, a, b, c) = fma(a, b, c)
 @inline _distribution_product(::_NativeDistributionOps, a, b, half) = a * b
-@inline _map_distribution(ops, d::Distributions.Normal, z) =
+@inline _map_distribution(ops::_DistributionOps, d::Distributions.Normal, z) =
     _distribution_muladd(ops, d.σ, z, d.μ)
 @inline _map_distribution(d::Distributions.Normal, z) =
     _map_distribution(_NativeDistributionOps(), d, z)
-@inline function _map_distribution(ops, d::Distributions.Uniform{T}, u) where {T}
+@inline function _map_distribution(
+    ops::_DistributionOps,
+    d::Distributions.Uniform{T},
+    u,
+) where {T}
     width = d.b - d.a
     scaled = _distribution_product(ops, width, u, T(0.5))
     return d.a + scaled
@@ -234,31 +244,40 @@ end
 @inline _map_distribution(d::Distributions.Uniform, u) =
     _map_distribution(_NativeDistributionOps(), d, u)
 @inline _map_distribution(d::Distributions.Exponential, x) = d.θ * x
-@inline function _map_distribution(ops, d::Distributions.LogNormal, z)
+@inline function _map_distribution(ops::_DistributionOps, d::Distributions.LogNormal, z)
     return exp(_distribution_muladd(ops, d.σ, z, d.μ))
 end
 @inline _map_distribution(d::Distributions.LogNormal, z) =
     _map_distribution(_NativeDistributionOps(), d, z)
 @inline _map_distribution(d::Distributions.Weibull, x) = d.θ * x^inv(d.α)
 @inline _map_distribution(d::Distributions.Rayleigh{T}, x) where {T} = d.σ * sqrt(T(2) * x)
-@inline function _map_distribution(ops, d::Distributions.Laplace, x, positive)
+@inline function _map_distribution(
+    ops::_DistributionOps,
+    d::Distributions.Laplace,
+    x,
+    positive,
+)
     return _distribution_muladd(ops, ifelse(positive, d.θ, -d.θ), x, d.μ)
 end
 @inline _map_distribution(d::Distributions.Laplace, x, positive) =
     _map_distribution(_NativeDistributionOps(), d, x, positive)
-@inline function _map_distribution(ops, d::Distributions.Logistic, u)
+@inline function _map_distribution(ops::_DistributionOps, d::Distributions.Logistic, u)
     return _distribution_muladd(ops, d.θ, log(u) - log1p(-u), d.μ)
 end
 @inline _map_distribution(d::Distributions.Logistic, u) =
     _map_distribution(_NativeDistributionOps(), d, u)
-@inline function _map_distribution(ops, d::Distributions.Gumbel, e)
+@inline function _map_distribution(ops::_DistributionOps, d::Distributions.Gumbel, e)
     return _distribution_muladd(ops, -d.θ, log(e), d.μ)
 end
 @inline _map_distribution(d::Distributions.Gumbel, e) =
     _map_distribution(_NativeDistributionOps(), d, e)
 @inline _map_distribution(d::Distributions.Pareto, x) = d.θ * exp(x / d.α)
 @inline _map_distribution(d::Distributions.Frechet, e) = d.θ * e^(-inv(d.α))
-@inline function _map_distribution(ops, d::Distributions.Cauchy{T}, u) where {T}
+@inline function _map_distribution(
+    ops::_DistributionOps,
+    d::Distributions.Cauchy{T},
+    u,
+) where {T}
     return _distribution_muladd(ops, d.σ, tanpi(u - T(0.5)), d.μ)
 end
 @inline _map_distribution(d::Distributions.Cauchy, u) =
@@ -272,7 +291,11 @@ end
     end
     return fma(d.c - d.b, sqrt((one(T) - v) / (one(T) - p)), d.b)
 end
-@inline function _map_distribution(ops, d::Distributions.TriangularDist{T}, v) where {T}
+@inline function _map_distribution(
+    ops::_DistributionOps,
+    d::Distributions.TriangularDist{T},
+    v,
+) where {T}
     d.a == d.b && return d.a
     p = (d.c - d.a) / (d.b - d.a)
     lower = _distribution_muladd(ops, d.c - d.a, sqrt(v / p), d.a)

@@ -174,9 +174,11 @@ end
         for range in ranges
             rng = _positioned(F, 0x551, UInt64(9), bit)
             expected = _range_reference_draw(rng, range)
-            position = rng.position
             @test rand(rng, range) === expected
-            @test rng.position === position
+            # The draw is pure: a second draw from the same generator matches
+            # one from a pristine generator at the same position.
+            pristine = _positioned(F, 0x551, UInt64(9), bit)
+            @test rand(rng, range) === rand(pristine, range)
 
             value, next_rng = rand_next(rng, range)
             width = _range_reference_width(length(range) % UInt64)

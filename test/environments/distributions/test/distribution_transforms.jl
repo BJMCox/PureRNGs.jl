@@ -1,4 +1,4 @@
-include(joinpath(@__DIR__, "..", "..", "distribution_transform_cases.jl"))
+include(joinpath(@__DIR__, "..", "..", "..", "distribution_transform_cases.jl"))
 
 function midpoint_reference_next(rng, ::Type{T}) where {T}
     value = UInt64(0)

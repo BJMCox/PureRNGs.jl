@@ -91,12 +91,16 @@ end
 for f in (:sqrt, :log, :abs)
     @eval @inline Base.$f(a::_Lane) = _Lane(Ops.$f(a.data))
 end
+# The mixed forms take `Real`, not `Number`: Reactant owns the same comparisons
+# for `(Any, TracedRNumber)` and `(TracedRNumber, Any)`, and `TracedRNumber` is
+# a `Number` but not a `Real`. A `Number` bound would make all eight pairs
+# ambiguous. Only a real scalar ever lifts into a lane.
 for (op, direction) in ((:<, "LT"), (:<=, "LE"), (:>, "GT"), (:(==), "EQ"))
     @eval begin
         @inline Base.$op(a::_Lane, b::_Lane) =
             _Lane(Ops.compare(a.data, b.data; comparison_direction = $direction))
-        @inline Base.$op(a::_Lane, b::Number) = $op(a, _lift(a, b))
-        @inline Base.$op(a::Number, b::_Lane) = $op(_lift(b, a), b)
+        @inline Base.$op(a::_Lane, b::Real) = $op(a, _lift(a, b))
+        @inline Base.$op(a::Real, b::_Lane) = $op(_lift(b, a), b)
     end
 end
 @inline Base.:-(a::_Lane) = _Lane(Ops.negate(a.data))

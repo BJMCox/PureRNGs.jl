@@ -611,6 +611,18 @@ REACTANT_TEST_BACKEND in ("cpu", "gpu") ||
     error("PURERNGS_REACTANT_BACKEND must be cpu or gpu")
 Reactant.set_default_backend(REACTANT_TEST_BACKEND)
 
+# An extension is not a submodule of its parent, so a recursive scan that starts
+# at PureRNGs never reaches it. Scan each loaded extension itself.
+@testset "R1 extension ambiguities" begin
+    for name in
+        (:PureRNGsReactantExt, :PureRNGsReactantDistributionsExt, :PureRNGsDistributionsExt)
+        extension = Base.get_extension(PureRNGs, name)
+        @testset "$name" begin
+            @test isempty(Test.detect_ambiguities(extension; recursive = true))
+        end
+    end
+end
+
 @testset "Reactant transform result class" begin
     for T in (Float32, Float64)
         expected = one(T)
