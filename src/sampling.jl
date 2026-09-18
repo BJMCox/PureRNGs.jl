@@ -18,7 +18,10 @@ end
 @inline _check_sampling_serviceability(rng) = nothing
 
 @inline function _check_sampling_fill_device(rng, destination::Array)
-    rng.device isa _CPUBackend || _fill_device_mismatch()
+    rng.device isa _CPUBackend || _fill_device_mismatch(
+        MLDataDevices.get_device_type(rng.device),
+        MLDataDevices.CPUDevice,
+    )
     return nothing
 end
 

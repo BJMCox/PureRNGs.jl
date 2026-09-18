@@ -116,8 +116,13 @@ The allocating forms create an array on the generator's device. The input
 generator never changes.
 """ rand_next
 
-@noinline function _fill_device_mismatch()
-    throw(ArgumentError("destination device differs from the generator device"))
+@noinline function _fill_device_mismatch(generator_device, destination_device)
+    throw(
+        ArgumentError(
+            "destination device differs from the generator device: generator on " *
+            "$generator_device, destination on $destination_device",
+        ),
+    )
 end
 
 @inline function _same_fill_device(generator_device::_BackendToken, destination)
@@ -126,7 +131,10 @@ end
 end
 
 @inline function _check_fill_device(rng::_ScalarUniformGenerators, destination)
-    _same_fill_device(rng.device, destination) || _fill_device_mismatch()
+    _same_fill_device(rng.device, destination) || _fill_device_mismatch(
+        MLDataDevices.get_device_type(rng.device),
+        MLDataDevices.get_device_type(destination),
+    )
     return nothing
 end
 
