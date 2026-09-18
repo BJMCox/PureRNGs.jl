@@ -120,14 +120,14 @@ end
         @test last.position == position
         @test_throws ArgumentError randexpat(last, T, 0)
         @test_throws ArgumentError randexpat(last, T, -1)
-        @test_throws ArgumentError randexpat(last, T, 2)
+        @test_throws StreamExhausted randexpat(last, T, 2)
         @test last.position == position
 
         exhausted_position =
             position isa IR._Position64 ? IR._terminal64(IR._max_block(last)) :
             IR._terminal128()
         exhausted = IR._rebuild(last, exhausted_position, last.device)
-        @test_throws ArgumentError randexpat(exhausted, T, 1)
+        @test_throws StreamExhausted randexpat(exhausted, T, 1)
         @test exhausted.position == exhausted_position
     end
 end
@@ -291,9 +291,9 @@ end
         last = _terminal_exponential_rng(F, T)
         destination = fill(one(T), 2)
         before = copy(destination)
-        @test_throws ArgumentError randexp!(last, destination; threaded = false)
+        @test_throws StreamExhausted randexp!(last, destination; threaded = false)
         @test destination == before
-        @test_throws ArgumentError randexp_next!(last, destination; threaded = false)
+        @test_throws StreamExhausted randexp_next!(last, destination; threaded = false)
         @test destination == before
 
         final = Vector{T}(undef, 1)
@@ -310,8 +310,8 @@ end
             IR._Position128(typemax(UInt64), typemax(UInt64), last.position.bit + UInt16(1))
         end
         insufficient = IR._rebuild(last, insufficient_position, last.device)
-        @test_throws ArgumentError randexp(insufficient, T, 1)
-        @test_throws ArgumentError randexp_next(insufficient, T, 1)
+        @test_throws StreamExhausted randexp(insufficient, T, 1)
+        @test_throws StreamExhausted randexp_next(insufficient, T, 1)
     end
 
 end

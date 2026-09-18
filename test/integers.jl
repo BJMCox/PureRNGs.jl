@@ -235,14 +235,14 @@ end
 
         insufficient_position = _range_position_from_absolute(base, capacity - width + 1)
         insufficient = RangeIR._rebuild(base, insufficient_position, base.device)
-        @test_throws ArgumentError rand(insufficient, range)
+        @test_throws StreamExhausted rand(insufficient, range)
         @test insufficient.position === insufficient_position
-        @test_throws ArgumentError rand_next(insufficient, range)
+        @test_throws StreamExhausted rand_next(insufficient, range)
         @test insufficient.position === insufficient_position
 
         exhausted = RangeIR._rebuild(base, terminal.position, base.device)
-        @test_throws ArgumentError rand(exhausted, range)
-        @test_throws ArgumentError rand_next(exhausted, range)
+        @test_throws StreamExhausted rand(exhausted, range)
+        @test_throws StreamExhausted rand_next(exhausted, range)
     end
 
     for F in GENERATOR_TYPES

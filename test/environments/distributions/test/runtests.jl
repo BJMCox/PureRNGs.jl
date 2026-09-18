@@ -191,7 +191,7 @@ end
         last = IR._rebuild(rng, IR._Position64(IR._max_block(rng), bit), rng.device)
         destination = fill(rand(last, distribution), 2)
         original = copy(destination)
-        @test_throws ArgumentError rand!(last, distribution, destination)
+        @test_throws StreamExhausted rand!(last, distribution, destination)
         @test destination == original
         @test last.position.bit == bit
 
@@ -247,8 +247,8 @@ end
 
     distribution = Normal()
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
-    @test_throws ArgumentError rand(exhausted, distribution)
-    @test_throws ArgumentError rand_next(exhausted, distribution)
+    @test_throws StreamExhausted rand(exhausted, distribution)
+    @test_throws StreamExhausted rand_next(exhausted, distribution)
     @test_throws ArgumentError randat(rng, distribution, 0)
     width = EXT._distribution_span(distribution)
     last = IR._rebuild(
@@ -256,7 +256,7 @@ end
         IR._Position64(IR._max_block(rng), IR._block_bits(rng) - width),
         rng.device,
     )
-    @test_throws ArgumentError randat(last, distribution, 2)
+    @test_throws StreamExhausted randat(last, distribution, 2)
 end
 
 @testset "R1 and R64 allocations and ambiguity freedom" begin

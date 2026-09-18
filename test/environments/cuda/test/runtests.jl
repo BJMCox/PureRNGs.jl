@@ -666,7 +666,7 @@ end
             last_pack_rng =
                 _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
             unchanged = CUDA.fill(T(0.25), 2outputs_per_store)
-            @test_throws ArgumentError rand_next!(last_pack_rng, unchanged)
+            @test_throws StreamExhausted rand_next!(last_pack_rng, unchanged)
             @test Array(unchanged) == fill(T(0.25), 2outputs_per_store)
 
             terminal_rng = _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
@@ -859,7 +859,7 @@ end
 
         last_pack_rng = _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
         unchanged = CUDA.fill(typemax(T), 2outputs_per_store)
-        @test_throws ArgumentError rand_next!(last_pack_rng, unchanged)
+        @test_throws StreamExhausted rand_next!(last_pack_rng, unchanged)
         @test Array(unchanged) == fill(typemax(T), 2outputs_per_store)
 
         terminal = _check_public_packed_fill(
@@ -1316,12 +1316,12 @@ end
         _, terminal_fill_next = randexp_next!(last_rng, terminal_destination)
         @test terminal_fill_next.position == terminal.position
         @test Array(terminal_destination) == Array(terminal_array)
-        @test_throws ArgumentError randexp(terminal, T)
+        @test_throws StreamExhausted randexp(terminal, T)
 
         for operation in (randexp!, randexp_next!), source in (last_rng, terminal)
             failed = CUDA.fill(T(-1), 2)
             before = Array(failed)
-            @test_throws ArgumentError operation(source, failed)
+            @test_throws StreamExhausted operation(source, failed)
             @test Array(failed) == before
         end
 
@@ -1405,7 +1405,7 @@ end
         last_rng = _last_draw_rng(gpu_rng, UInt16(32))
         final_value, exhausted = rand_next(last_rng, UInt32)
         @test exhausted.position.bit == IR._EXHAUSTED_BIT
-        @test_throws ArgumentError rand_next(exhausted, UInt32)
+        @test_throws StreamExhausted rand_next(exhausted, UInt32)
         final_array, array_exhausted = rand_next(last_rng, UInt32, 1)
         @test array_exhausted.position == exhausted.position
         @test Array(final_array) == [final_value]
@@ -1413,7 +1413,7 @@ end
         @test isempty(empty)
         @test empty_next.position == exhausted.position
         destination = CUDA.fill(UInt32(0xdeadbeef), 2)
-        @test_throws ArgumentError rand_next!(last_rng, destination)
+        @test_throws StreamExhausted rand_next!(last_rng, destination)
         @test Array(destination) == fill(UInt32(0xdeadbeef), 2)
 
         for (capacity_range, width) in (
@@ -1425,11 +1425,11 @@ end
             cpu_last = MLD.CPUDevice()(last_range)
             @test Array(range_value) == rand(cpu_last, capacity_range, 1)
             @test terminal.position == _terminal(gpu_rng)
-            @test_throws ArgumentError rand_next(terminal, capacity_range, 1)
+            @test_throws StreamExhausted rand_next(terminal, capacity_range, 1)
             insufficient_position =
                 IR._advance_position_unchecked(last_range, UInt64(1), UInt64(0))
             insufficient = IR._rebuild(last_range, insufficient_position, last_range.device)
-            @test_throws ArgumentError rand_next(insufficient, capacity_range, 1)
+            @test_throws StreamExhausted rand_next(insufficient, capacity_range, 1)
             @test insufficient.position == insufficient_position
         end
     end
@@ -1650,8 +1650,13 @@ end
         final_value, terminal = randsample_next(last_rng, gpu_population, gpu_weights, 1)
         @test length(final_value) == 1
         @test terminal.position == _terminal(gpu_rng)
-        @test_throws ArgumentError randsample(last_rng, gpu_population, gpu_weights, 2)
-        @test_throws ArgumentError randsample_next(last_rng, gpu_population, gpu_weights, 2)
+        @test_throws StreamExhausted randsample(last_rng, gpu_population, gpu_weights, 2)
+        @test_throws StreamExhausted randsample_next(
+            last_rng,
+            gpu_population,
+            gpu_weights,
+            2,
+        )
         @test last_rng.position.bit != IR._EXHAUSTED_BIT
     end
 

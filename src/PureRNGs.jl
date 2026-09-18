@@ -38,7 +38,8 @@ export Philox2x32,
     randsample!,
     randsample_next!,
     WeightTable,
-    StatefulRNG
+    StatefulRNG,
+    StreamExhausted
 
 # Both Reactant extensions dispatch on this type, so the core owns the declaration.
 struct _ReactantRNG{R,A}

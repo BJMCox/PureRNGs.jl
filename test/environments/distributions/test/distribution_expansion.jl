@@ -105,7 +105,7 @@ end
     )
     destination = fill(17.0, 2)
     original = copy(destination)
-    @test_throws ArgumentError rand!(last, distribution, destination)
+    @test_throws StreamExhausted rand!(last, distribution, destination)
     @test destination == original
 end
 

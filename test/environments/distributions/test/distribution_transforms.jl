@@ -95,7 +95,7 @@ end
     for d in six_transform_distributions(Float64)
         destination = fill(rand(rng, d), 2)
         original = copy(destination)
-        @test_throws ArgumentError rand!(exhausted, d, destination)
+        @test_throws StreamExhausted rand!(exhausted, d, destination)
         @test destination == original
     end
 end

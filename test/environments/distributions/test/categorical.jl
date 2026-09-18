@@ -116,6 +116,6 @@ end
     )
     near_terminal = fill(-1, 2)
     before = copy(near_terminal)
-    @test_throws ArgumentError rand_next!(last, valid, near_terminal; threaded = false)
+    @test_throws StreamExhausted rand_next!(last, valid, near_terminal; threaded = false)
     @test near_terminal == before
 end
