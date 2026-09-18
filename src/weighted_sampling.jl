@@ -69,6 +69,30 @@ Prepared weights for repeated weighted sampling. Holds the cumulative table the
 weighted forms build on every call, so a caller with fixed weights pays that cost
 once. Accepted wherever a weight vector is. Draws with a table equal draws with the
 weights it was built from. A table is CPU data; a device generator rejects it.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> pop = [10, 20, 30, 40];
+
+julia> weights = [1.0, 1.0, 1.0, 7.0];
+
+julia> table = WeightTable(weights);
+
+julia> randsample(rng, pop, table, 6)
+6-element Vector{Int64}:
+ 20
+ 20
+ 40
+ 40
+ 40
+ 10
+
+julia> randsample(rng, pop, table, 6) == randsample(rng, pop, weights, 6)
+true
+```
 """
 struct WeightTable
     total::Float64
