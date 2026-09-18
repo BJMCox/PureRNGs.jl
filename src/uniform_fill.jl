@@ -84,27 +84,6 @@ end
 
 @inline _fill_group_size(::Val{N}) where {N} = N
 
-@inline _device_uniform_fill_group(rng, ::Type{Bool}) = Val(4)
-@inline _device_uniform_fill_group(rng::_NarrowGenerators, ::Type{UInt32}) = Val(2)
-@inline _device_uniform_fill_group(rng::_Position64Generators, ::Type{UInt32}) = Val(4)
-@inline _device_uniform_fill_group(rng::_Position128Generators, ::Type{UInt32}) = Val(8)
-@inline _device_uniform_fill_group(rng::ChaCha, ::Type{UInt32}) = Val(16)
-@inline _device_uniform_fill_group(rng, ::Type{Int32}) =
-    _device_uniform_fill_group(rng, UInt32)
-@inline _device_uniform_fill_group(rng::_NarrowGenerators, ::Type{UInt64}) = Val(1)
-@inline _device_uniform_fill_group(rng::_Position64Generators, ::Type{UInt64}) = Val(2)
-@inline _device_uniform_fill_group(rng::_Position128Generators, ::Type{UInt64}) = Val(4)
-@inline _device_uniform_fill_group(rng::ChaCha, ::Type{UInt64}) = Val(8)
-@inline _device_uniform_fill_group(rng, ::Type{Int64}) =
-    _device_uniform_fill_group(rng, UInt64)
-@inline _device_uniform_fill_group(rng, ::Type{Float32}) = Val(4)
-@inline _device_uniform_fill_group(rng, ::Type{Float64}) = Val(4)
-
-@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))
-@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
-@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
-@inline _cooperative_uniform_fill(rng, T) = nothing
-
 @inline function _fill_grouped_cursor!(
     rng,
     position,

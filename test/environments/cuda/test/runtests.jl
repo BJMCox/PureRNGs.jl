@@ -8,6 +8,8 @@ using Test
 
 include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
 
+const CUDA_EXT = Base.get_extension(IR, :PureRNGsCUDAExt)
+
 const UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 const RANGE_TYPES = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
 const PACKED_INTEGER_CASES = (
@@ -413,8 +415,8 @@ function _check_cooperative_kernel_code(
     codec = Val(:uniform),
     storage_type = eltype(packed),
 ) where {T}
-    kernel = IR._fill_cooperative_kernel!(backend)
-    outputs_per_store = IR._outputs_per_store(plan)
+    kernel = CUDA_EXT._fill_cooperative_kernel!(backend)
+    outputs_per_store = CUDA_EXT._outputs_per_store(plan)
     workgroup = IR._fill_group_size(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
     typed = IR.KernelAbstractions.@ka_code_typed kernel(
@@ -1083,7 +1085,7 @@ end
         @test occursin("STG.E.128", packed_sass)
     end
 
-    bool_kernel = IR._uniform_fill_bool_blocks_kernel!(backend)
+    bool_kernel = CUDA_EXT._uniform_fill_bool_blocks_kernel!(backend)
     for F in GENERATOR_TYPES
         bool_rng = device(F(0x787))
         plan = IR._device_fill_plan(backend, bool_rng, Val(:uniform), Bool)

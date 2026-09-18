@@ -115,13 +115,6 @@ end
 
 function _midpoint_value end
 
-@inline _device_normal_fill_group(::Type{Float32}) = Val(8)
-@inline _device_normal_fill_group(::Type{Float64}) = Val(4)
-
-@inline _cooperative_normal_fill(::Philox4x32, ::Type{Float32}) = (Val(512), Val(32))
-@inline _cooperative_normal_fill(::Philox4x32, ::Type{Float64}) = (Val(512), Val(32))
-@inline _cooperative_normal_fill(rng, T) = nothing
-
 @inline function _draw_normal_unchecked(
     rng::_ScalarUniformGenerators,
     position,

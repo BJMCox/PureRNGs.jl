@@ -3,6 +3,7 @@ module PureRNGsCUDAExt
 import CUDA
 import PureRNGs
 import KernelAbstractions
+using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
 const _CUDAGenerators = IR._BackendGenerators{IR._CUDABackend}
@@ -51,6 +52,35 @@ struct _CUDANatural128Pack{T}
     lanes::_CUDA_U32X4
 end
 
+@inline _device_uniform_fill_group(rng, ::Type{Bool}) = Val(4)
+@inline _device_uniform_fill_group(rng::IR._NarrowGenerators, ::Type{UInt32}) = Val(2)
+@inline _device_uniform_fill_group(rng::IR._Position64Generators, ::Type{UInt32}) = Val(4)
+@inline _device_uniform_fill_group(rng::IR._Position128Generators, ::Type{UInt32}) = Val(8)
+@inline _device_uniform_fill_group(rng::IR.ChaCha, ::Type{UInt32}) = Val(16)
+@inline _device_uniform_fill_group(rng, ::Type{Int32}) =
+    _device_uniform_fill_group(rng, UInt32)
+@inline _device_uniform_fill_group(rng::IR._NarrowGenerators, ::Type{UInt64}) = Val(1)
+@inline _device_uniform_fill_group(rng::IR._Position64Generators, ::Type{UInt64}) = Val(2)
+@inline _device_uniform_fill_group(rng::IR._Position128Generators, ::Type{UInt64}) = Val(4)
+@inline _device_uniform_fill_group(rng::IR.ChaCha, ::Type{UInt64}) = Val(8)
+@inline _device_uniform_fill_group(rng, ::Type{Int64}) =
+    _device_uniform_fill_group(rng, UInt64)
+@inline _device_uniform_fill_group(rng, ::Type{Float32}) = Val(4)
+@inline _device_uniform_fill_group(rng, ::Type{Float64}) = Val(4)
+
+# A100 trials picked these output tiles and workgroup sizes.
+@inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))
+@inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
+@inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
+@inline _cooperative_uniform_fill(rng, T) = nothing
+
+@inline _device_normal_fill_group(::Type{Float32}) = Val(8)
+@inline _device_normal_fill_group(::Type{Float64}) = Val(4)
+
+@inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(512), Val(32))
+@inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(512), Val(32))
+@inline _cooperative_normal_fill(rng, T) = nothing
+
 @inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAPhilox4x32,
@@ -70,7 +100,7 @@ end
     rng::_CUDAPhilox4x32,
     ::Val{:uniform},
     ::Type{Float32},
-) = (Val(:cooperative), IR._cooperative_uniform_fill(rng, Float32)..., Val(4))
+) = (Val(:cooperative), _cooperative_uniform_fill(rng, Float32)..., Val(4))
 
 @inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt32,Int32,Float32}} =
     (Val(2048), Val(32), Val(4))
@@ -101,10 +131,10 @@ end
     ::Val{:uniform},
     ::Type{T},
 ) where {T}
-    cooperative = IR._cooperative_uniform_fill(rng, T)
+    cooperative = _cooperative_uniform_fill(rng, T)
     cooperative === nothing || return (Val(:cooperative), cooperative...)
     T === Bool && return (Val(:bool_blocks), _bool_packs_per_block(rng))
-    return (Val(:grouped), IR._device_uniform_fill_group(rng, T))
+    return (Val(:grouped), _device_uniform_fill_group(rng, T))
 end
 
 @inline _dense_16byte_aligned(destination, ::Type{T}) where {T} =
@@ -130,12 +160,200 @@ end
     4096
 
 @inline _packed_fallback_group(rng, ::Type{T}, ::Val{:normal}) where {T} =
-    IR._device_normal_fill_group(T)
+    _device_normal_fill_group(T)
 @inline _packed_fallback_group(
     rng,
     ::Type{T},
     ::Union{Val{:uniform},IR._ExponentialCodec{IR._CUDABackend},IR._MappedFillCodec},
-) where {T} = IR._device_uniform_fill_group(rng, T)
+) where {T} = _device_uniform_fill_group(rng, T)
+
+@inline _stream_block_offset(block::UInt64, offset::UInt64) = block + offset
+@inline function _stream_block_offset(block::NTuple{2,UInt64}, offset::UInt64)
+    lo = block[1] + offset
+    return lo, block[2] + UInt64(lo < block[1])
+end
+
+@inline _cooperative_shared_words(::Val{B}, ::Val{O}, ::Val{W}) where {B,O,W} =
+    (B ÷ 64) * cld((B - 1) + O * W, B)
+
+KernelAbstractions.@kernel function _fill_cooperative_kernel!(
+    rng,
+    destination,
+    ::Val{T},
+    ::Val{D},
+    ::Val{W},
+    block_width::Val{B},
+    ::Val{O},
+    ::Val{L},
+    ::Val{P},
+    ::Val{S},
+    codec,
+) where {T,D,W,B,O,L,P,S}
+    destination = reinterpret(D, vec(destination))
+    group = @index(Group, Linear)
+    lane = @index(Local, Linear)
+    shared = @localmem UInt64 (
+        S ? 2 * cld(O * W, B) : _cooperative_shared_words(block_width, Val(O), Val(W)),
+    )
+    if S
+        blocks = cld(O * W, B)
+        first_block = IR._position_block(rng.position) + UInt64((group - 1) * blocks)
+        block_offset = lane - 1
+        while block_offset < blocks
+            block_words = IR._block_words(rng, first_block + UInt64(block_offset))
+            @inbounds begin
+                shared[2block_offset+1] = block_words[1]
+                shared[2block_offset+2] = block_words[2]
+            end
+            block_offset += L
+        end
+    else
+        first = (group - 1) * O + 1
+        outputs = min(O, P * length(destination) - first + 1)
+        bits_lo, bits_hi = IR._bit_span(UInt64(first - 1), UInt16(W))
+        position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
+        block_bits = B
+        blocks = cld(Int(position.bit) + outputs * W, block_bits)
+
+        block_offset = lane - 1
+        while block_offset < blocks
+            block = _stream_block_offset(IR._position_block(position), UInt64(block_offset))
+            block_words = IR._block_words(rng, block)
+            shared_first = block_offset * length(block_words)
+            @inbounds for word in eachindex(block_words)
+                shared[shared_first+word] = block_words[word]
+            end
+            block_offset += L
+        end
+    end
+    @synchronize
+
+    write_group = @index(Group, Linear)
+    write_lane = @index(Local, Linear)
+    if S
+        pack = write_lane - 1
+        packs = O ÷ P
+        first_pack = (write_group - 1) * packs + 1
+        while pack < packs
+            @inbounds destination[first_pack+pack] =
+                _cooperative_pack(codec, T, shared, P * pack * W, Val(P), Val(W))
+            pack += L
+        end
+    else
+        write_first = (write_group - 1) * O + 1
+        write_outputs = min(O, P * length(destination) - write_first + 1)
+        write_bits_lo, write_bits_hi = IR._bit_span(UInt64(write_first - 1), UInt16(W))
+        write_position = IR._advance_position_unchecked(rng, write_bits_lo, write_bits_hi)
+        if P == 1
+            output = write_lane - 1
+            while output < write_outputs
+                raw = IR._local_dense_bits(
+                    shared,
+                    Int(write_position.bit) + output * W,
+                    Val(W),
+                )
+                @inbounds destination[write_first+output] =
+                    IR._cooperative_value(codec, T, raw)
+                output += L
+            end
+        else
+            output = P * (write_lane - 1)
+            while output < write_outputs
+                bit = Int(write_position.bit) + output * W
+                index = ((write_first - 1) + output) ÷ P + 1
+                @inbounds destination[index] =
+                    _cooperative_pack(codec, T, shared, bit, Val(P), Val(W))
+                output += P * L
+            end
+        end
+    end
+end
+
+@inline function _cooperative_pack(
+    codec,
+    T,
+    shared,
+    bit,
+    outputs_per_store::Val{P},
+    ::Val{W},
+) where {P,W}
+    return ntuple(outputs_per_store) do lane
+        raw = IR._local_dense_bits(shared, bit + (lane - 1) * W, Val(W))
+        VecElement(IR._cooperative_value(codec, T, raw))
+    end
+end
+
+KernelAbstractions.@kernel function _uniform_fill_bool_blocks_kernel!(
+    rng,
+    destination,
+    ::Val{P},
+) where {P}
+    block_ordinal = @index(Global, Linear)
+    stride = KernelAbstractions.@ndrange()[1]
+    block_count = length(destination) ÷ P
+    while block_ordinal <= block_count
+        bits_lo, bits_hi = IR._bit_span(UInt64(block_ordinal - 1), IR._block_bits(rng))
+        position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
+        block_words = IR._block_words(rng, IR._position_block(position))
+        first_pack = (block_ordinal - 1) * P + 1
+        pack = 0
+        while pack < P
+            @inbounds destination[first_pack+pack] =
+                _cooperative_pack(Val(:uniform), Bool, block_words, 16pack, Val(16), Val(1))
+            pack += 1
+        end
+        block_ordinal += stride
+    end
+end
+
+@inline _outputs_per_store(::Tuple{Val{:cooperative},Val{O},Val{L}}) where {O,L} = Val(1)
+@inline _outputs_per_store(
+    plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{P}},
+) where {O,L,P} = plan[4]
+
+@inline function _launch_cooperative_fill!(
+    backend,
+    rng,
+    destination,
+    ::Type{T},
+    codec,
+    plan,
+    stream_aligned::Val{S},
+    ::Type{D} = eltype(destination),
+) where {T,S,D}
+    outputs, workgroup = plan[2], plan[3]
+    outputs_per_store = _outputs_per_store(plan)
+    output_count = IR._fill_group_size(outputs)
+    workgroup_size = IR._fill_group_size(workgroup)
+    groups = cld(length(destination), output_count)
+    _fill_cooperative_kernel!(backend)(
+        rng,
+        destination,
+        Val(T),
+        Val(D),
+        Val(IR._fill_width(codec, T)),
+        Val(Int(IR._block_bits(rng))),
+        outputs,
+        workgroup,
+        outputs_per_store,
+        stream_aligned,
+        codec;
+        ndrange = groups * workgroup_size,
+        workgroupsize = workgroup_size,
+    )
+    return destination
+end
+
+@inline function IR._launch_device_fill!(
+    backend::CUDA.CUDABackend,
+    rng,
+    destination,
+    ::Type{T},
+    codec,
+    plan::Tuple{Val{:cooperative},Val{O},Val{L}},
+) where {T,O,L}
+    return _launch_cooperative_fill!(backend, rng, destination, T, codec, plan, Val(false))
+end
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
@@ -158,7 +376,7 @@ end
         )
     end
 
-    IR._launch_cooperative_fill!(
+    _launch_cooperative_fill!(
         backend,
         rng,
         destination,
@@ -191,7 +409,7 @@ end
     end
 
     stream_aligned = Val(_stream_aligned_philox4x32_f32_fill(rng, destination, plan[2]))
-    IR._launch_cooperative_fill!(
+    _launch_cooperative_fill!(
         backend,
         rng,
         destination,
@@ -274,14 +492,14 @@ end
             destination,
             Bool,
             codec,
-            (Val(:grouped), IR._device_uniform_fill_group(rng, Bool)),
+            (Val(:grouped), _device_uniform_fill_group(rng, Bool)),
         )
     end
 
     packed = reinterpret(_CUDA_B8X16, vec(destination))
     workitems = length(packed) ÷ P
     blocks = _cuda_packed_blocks(workitems)
-    IR._uniform_fill_bool_blocks_kernel!(backend)(
+    _uniform_fill_bool_blocks_kernel!(backend)(
         rng,
         packed,
         plan[2];
@@ -315,7 +533,7 @@ end
             destination,
             T,
             codec,
-            (Val(:grouped), IR._device_uniform_fill_group(rng, T)),
+            (Val(:grouped), _device_uniform_fill_group(rng, T)),
         )
     end
 
@@ -337,8 +555,8 @@ end
     ::Val{:normal},
     ::Type{T},
 ) where {T}
-    cooperative = IR._cooperative_normal_fill(rng, T)
-    return cooperative === nothing ? (Val(:grouped), IR._device_normal_fill_group(T)) :
+    cooperative = _cooperative_normal_fill(rng, T)
+    return cooperative === nothing ? (Val(:grouped), _device_normal_fill_group(T)) :
            (Val(:cooperative), cooperative...)
 end
 
