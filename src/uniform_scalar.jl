@@ -115,34 +115,3 @@ julia> first(rand_next(rng, UInt32, 3))
  0xc25ecc0b
 ```
 """ rand_next
-
-# Section 11 makes a non-Bool `threaded` an ArgumentError, so the public fill
-# keywords stay untyped and pass through here. The asserted return keeps the
-# fill body type-stable.
-@noinline function _check_threaded(threaded)
-    threaded isa Bool ||
-        throw(ArgumentError("threaded must be a Bool, got $(typeof(threaded))"))
-    return threaded::Bool
-end
-
-@noinline function _fill_device_mismatch(generator_device, destination_device)
-    throw(
-        ArgumentError(
-            "destination device differs from the generator device: generator on " *
-            "$generator_device, destination on $destination_device",
-        ),
-    )
-end
-
-# The destination device is read once: a destination may count the query.
-@inline function _check_fill_device(rng::_ScalarUniformGenerators, destination)
-    generator_device = MLDataDevices.get_device_type(rng.device)
-    destination_device = MLDataDevices.get_device_type(destination)
-    generator_device <: destination_device ||
-        _fill_device_mismatch(generator_device, destination_device)
-    return nothing
-end
-
-@inline _check_serviceability(rng, ::Type) = nothing
-@inline _check_serviceability(rng, range::AbstractRange) =
-    _check_serviceability(rng, eltype(range))

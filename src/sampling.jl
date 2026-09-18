@@ -1,36 +1,3 @@
-@noinline function _sampling_device_mismatch(noun)
-    throw(ArgumentError("$noun device differs from the generator device"))
-end
-
-@inline function _check_sampling_device(rng, object, noun)
-    device = MLDataDevices.get_device(object)
-    device === nothing && return true
-    device isa MLDataDevices.get_device_type(rng.device) || _sampling_device_mismatch(noun)
-    return false
-end
-
-@inline function _check_population_device(rng, population)
-    agnostic = _check_sampling_device(rng, population, "population")
-    (population isa AbstractArray || agnostic) || _sampling_device_mismatch("population")
-    return agnostic
-end
-
-@inline _check_sampling_serviceability(rng) = nothing
-
-@inline function _check_sampling_fill_device(rng, destination::Array)
-    rng.device isa _CPUBackend || _fill_device_mismatch(
-        MLDataDevices.get_device_type(rng.device),
-        MLDataDevices.CPUDevice,
-    )
-    return nothing
-end
-
-@inline function _check_sampling_fill_device(rng, destination::AbstractArray)
-    storage = parent(destination)
-    storage === destination && return _check_fill_device(rng, destination)
-    return _check_sampling_fill_device(rng, storage)
-end
-
 @noinline function _sampling_population_overlap()
     throw(ArgumentError("destination may not overlap the population"))
 end
