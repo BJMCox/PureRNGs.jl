@@ -39,8 +39,10 @@ in `bits.jl` serve scalar draws, while `_local_dense_bits` serves the kernels
 and `_take_dense_bits_unchecked` in `uniform_fill.jl` serves the CPU cursor.
 The `_fill_uniform_grouped_unchecked!` methods in `uniform_fill.jl` store a
 whole block of draws at once for `Bool` and for the 32-bit and 64-bit integers.
-`Float32` and `Float64` take the generic cursor on the CPU and the four-element
-group given by `_device_uniform_fill_group` in the kernels.
+`Float32` and `Float64` take the generic cursor on the CPU, except that
+`Philox4x32` `Float64` fills use the generated `_store_f64_group!`, which decodes
+128 aligned draws from 53 blocks with constant shifts. The kernels use the
+four-element group given by `_device_uniform_fill_group`.
 
 All position arithmetic funnels through `_split_bit_advance` in `generators.jl`,
 which is the single place a bit offset becomes a block and bit pair. Device and
