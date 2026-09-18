@@ -63,7 +63,10 @@ Run it on a supported CUDA device and record the exact source revision.
 AMDGPU remains preview support. Metal remains experimental.
 
 Reactant and Enzyme have separate checks. Neither replaces the CPU or CUDA gates.
-RNGTest BigCrush covers all nine families in both UInt32 and Float64 lanes before release.
+RNGTest BigCrush over all nine families in both UInt32 and Float64 lanes is best-effort
+release evidence, run on explicit request. The release notes record which cases ran.
+The published evidence so far covers ChaCha, Philox4x32R7, and Threefry4x64R13 at commit
+`f8e60b2`, in both lanes, with PractRand as a diagnostic.
 Upload statistical logs as artifacts rather than committing them.
 
 ## Performance

@@ -15,8 +15,9 @@ PureRNGs implements the Philox and Threefry keyed bijections, but its public str
 ## Statistical validation
 
 The Philox and Threefry cores reproduce the Random123 known-answer vectors, and the ChaCha core reproduces the ChaCha8, ChaCha12, and ChaCha20 test vectors.
-Before a release, RNGTest BigCrush runs on the packed uniform stream of every generator in both the `UInt32` and `Float64` lanes.
+RNGTest BigCrush over the packed uniform stream of every generator in both the `UInt32` and `Float64` lanes is best-effort release evidence, run on explicit request, and the release notes record which cases ran.
 PractRand also runs as a diagnostic on the native word stream and on the split and `subrng` children.
+The published evidence so far covers ChaCha, Philox4x32R7, and Threefry4x64R13 at commit `f8e60b2`, in both lanes, with PractRand alongside.
 The logs are attached to GitHub prereleases tagged at the tested commit and are not committed. Hosted CI runs the CPU unit tests only.
 
 ## Separate bits from floating-point transforms
