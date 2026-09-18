@@ -71,5 +71,6 @@ include("sampling.jl")
 include("weighted_sampling.jl")
 include("stateful.jl")
 include("docstrings.jl")
+include("precompile.jl")
 
 end # module PureRNGs
