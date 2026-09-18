@@ -1,4 +1,4 @@
-include(joinpath(@__DIR__, "..", "..", "distribution_transform_cases.jl"))
+include(joinpath(@__DIR__, "..", "..", "..", "distribution_transform_cases.jl"))
 
 const CUDA_FIXED_DISTRIBUTIONS = (
     Normal{Float32}(0.75f0, 1.25f0),
