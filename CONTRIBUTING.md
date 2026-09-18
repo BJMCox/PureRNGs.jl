@@ -4,6 +4,77 @@ Use a Julia session opened at the repository root.
 Keep package code and code documentation in Git.
 Keep private plans, statistical logs, and generated reports outside Git.
 
+## Architecture
+
+Five fill scaffolds cover every array-producing draw: uniform, transformed
+(normal and exponential), range, unweighted sampling, and weighted sampling.
+Each scaffold repeats the same eight steps, so a new scaffold is written by
+following an existing one rather than by inventing a shape.
+
+1. Validate and reserve. Check the destination device and serviceability, then
+   reserve the whole bit span up front so a fill either runs or throws
+   `StreamExhausted` before writing anything.
+2. CPU dense cursor fill. Walk a `_DenseBitCursor` over consecutive blocks and
+   write elements without re-deriving a position for each draw.
+3. Chunked CPU launcher. Split the destination on draw boundaries and hand the
+   chunks to `_run_chunks`, so the threaded result equals the serial result.
+4. Generic KernelAbstractions kernel. One work item per element, addressing its
+   own position from its index, for every backend without a specialised path.
+5. Device plan hook. A `_device_*_fill_plan` method returns `nothing` on the
+   generic path; a backend extension returns a plan to select a tuned kernel.
+6. Allocating entry. Allocate through `_allocate_draw_array` on the generator's
+   device, then call the prevalidated fill.
+7. Continuation entry. The `*_next` and `*_next!` forms return the advanced
+   generator alongside the result.
+8. Pure entry. The `Random` forms return only the result and never advance the
+   caller's generator.
+
+The transformed scaffold takes a codec instead of a result type. A codec is
+`Val{:normal}`, an `_ExponentialCodec`, or an extension subtype of
+`_MappedFillCodec`, and it supplies the per-element map from uniform bits. This
+is the seam an extension uses to add a distribution without a new scaffold.
+
+Bit extraction lives in two files. `_extract_bits_unchecked` and `_chain_bits`
+in `bits.jl` serve scalar draws, while `_local_dense_bits` serves the kernels
+and `_take_dense_bits_unchecked` in `uniform_fill.jl` serves the CPU cursor.
+The `_fill_uniform_grouped_unchecked!` methods in `uniform_fill.jl` store a
+whole block of draws at once for `Bool` and for the 32-bit and 64-bit integers.
+`Float32` and `Float64` take the generic cursor on the CPU and the four-element
+group given by `_device_uniform_fill_group` in the kernels.
+
+All position arithmetic funnels through `_split_bit_advance` in `generators.jl`,
+which is the single place a bit offset becomes a block and bit pair. Device and
+keyword validation funnels through `validation.jl`.
+
+One line per file in `src/`, in include order:
+
+- `PureRNGs.jl` — module: exports, the `_ReactantRNG` declaration both Reactant extensions dispatch on, and the include list.
+- `core_words.jl` — word arithmetic over `_CoreWord`, so one block function serves host words and device words.
+- `philox.jl` — Philox round function, multipliers, and Weyl constants.
+- `threefry.jl` — Threefry round function, rotation tables, and parity constants.
+- `chacha.jl` — ChaCha quarter round, block function, and constants.
+- `generators.jl` — `AbstractPureRNG`, the nine generator types, backend tokens, the two position types, reservation, and `StreamExhausted`.
+- `allocation.jl` — `_allocate_draw_array` and the per-backend `_allocate_array`.
+- `bits.jl` — block evaluation and the scalar bit extractors.
+- `derive.jl` — `splitrng`, `subrng`, and the tagged key derivation behind them.
+- `uniform_scalar.jl` — the generator and result-type unions, `_draw_bits`, `_from_bits`, scalar `rand`, and the untyped-draw guards.
+- `validation.jl` — device, keyword, and serviceability checks for fills and sampling.
+- `uniform_fill.jl` — `_DenseBitCursor`, the dense CPU uniform fill, and the grouped stores.
+- `uniform_kernels.jl` — the KernelAbstractions uniform kernels and `_launch_device_fill!`.
+- `cpu_scheduler.jl` — CPU chunk sizes and the `_run_chunks` work loop.
+- `transformed_fill.jl` — the codec types and the transformed CPU fill and launchers.
+- `uniform.jl` — the uniform fill scaffold and its allocating entries.
+- `addressed.jl` — `randat` and the addressed-position arithmetic it shares with `randnat` and `randexpat`.
+- `normal.jl` — the AS241 inverse normal CDF and the normal scaffold.
+- `exponential.jl` — the exponential transform and the exponential scaffold.
+- `integers.jl` — range span, range bits, and the multiply-shift range reduction.
+- `range_fill.jl` — the range fill scaffold.
+- `sampling.jl` — population preparation and the unweighted sampling scaffold.
+- `weighted_sampling.jl` — `WeightTable`, weight folding, and the weighted sampling scaffold.
+- `stateful.jl` — `StatefulRNG`, the mutable `Random.AbstractRNG` bridge.
+- `docstrings.jl` — docstrings for the extended `Random` names, bound by signature; keep it after every file it documents.
+- `precompile.jl` — the PrecompileTools workload; keep it last.
+
 ## Package tests
 
 ```julia
