@@ -146,7 +146,7 @@ end
             rng.device,
         )
         @test randat(rng, UInt64, final_index) === rand(last, UInt64)
-        @test_throws ArgumentError randat(rng, UInt64, final_index + 1)
+        @test_throws StreamExhausted randat(rng, UInt64, final_index + 1)
     end
 
     for F in (Philox4x64, Threefry4x64)
@@ -162,7 +162,7 @@ end
             rng.device,
         )
         @test randat(rng, UInt64, final_index) === rand(last, UInt64)
-        @test_throws ArgumentError randat(rng, UInt64, final_index + 1)
+        @test_throws StreamExhausted randat(rng, UInt64, final_index + 1)
 
         near_end = IR._rebuild(
             rng,
@@ -177,7 +177,7 @@ end
             ),
             UInt64,
         )
-        @test_throws ArgumentError randat(near_end, UInt64, UInt64(5))
+        @test_throws StreamExhausted randat(near_end, UInt64, UInt64(5))
     end
 end
 
@@ -189,7 +189,7 @@ end
         base.device,
     )
     @test randat(last, UInt32, UInt64(1)) === rand(last, UInt32)
-    @test_throws ArgumentError randat(last, UInt32, UInt64(2))
+    @test_throws StreamExhausted randat(last, UInt32, UInt64(2))
 end
 
 @testset "R26 packed CPU fills, shapes, views, and BitArray" begin
@@ -367,9 +367,9 @@ end
         last = IR._rebuild(base, position, base.device)
         destination = fill(convert(T, T === Bool ? true : 1), 2)
         before = copy(destination)
-        @test_throws ArgumentError rand!(last, destination; threaded = false)
+        @test_throws StreamExhausted rand!(last, destination; threaded = false)
         @test destination == before
-        @test_throws ArgumentError rand_next!(last, destination; threaded = false)
+        @test_throws StreamExhausted rand_next!(last, destination; threaded = false)
         @test destination == before
         @test last.position == position
 

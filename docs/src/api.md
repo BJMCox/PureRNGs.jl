@@ -70,3 +70,9 @@ WeightTable
 ```@docs
 StatefulRNG
 ```
+
+## Errors
+
+```@docs
+StreamExhausted
+```

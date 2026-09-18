@@ -54,8 +54,19 @@ end
         randsample!,
         randsample_next!,
     )
-    @test foreign_functions ==
-          Set((rand, rand!, randn, randn!, randexp, randexp!, Random.seed!, copy, parent))
+    # showerror is R70's StreamExhausted display, dispatched on the package type.
+    @test foreign_functions == Set((
+        rand,
+        rand!,
+        randn,
+        randn!,
+        randexp,
+        randexp!,
+        Random.seed!,
+        copy,
+        parent,
+        showerror,
+    ))
 
     required = Dict(function_ => Set{Method}() for function_ in owned_functions)
     require = function (function_, signature)
@@ -223,10 +234,41 @@ end
         (:invalid_static_split, () -> splitrng(rng, Val(UInt32(1)))),
         (:narrow_split_namespace, () -> splitrng(Philox2x32(1), UInt64(0x1_0000_0000))),
         (:randat_index, () -> randat(rng, UInt32, 0)),
-        (:randat_capacity, () -> randat(exhausted, UInt32, 1)),
         (:randnat_index, () -> randnat(rng, Float32, 0)),
-        (:randnat_capacity, () -> randnat(exhausted, Float32, 1)),
         (:randexpat_index, () -> randexpat(rng, Float32, 0)),
+        (:empty_range, () -> rand(rng, UInt8(2):UInt8(1))),
+        (:empty_range_continuation, () -> rand_next(rng, UInt8(2):UInt8(1))),
+        (:negative_uniform_dimension, () -> rand(rng, UInt32, -1)),
+        (:negative_uniform_continuation_dimension, () -> rand_next(rng, UInt32, -1)),
+        (:negative_normal_dimension, () -> randn(rng, Float32, -1)),
+        (:negative_normal_continuation_dimension, () -> randn_next(rng, Float32, -1)),
+        (:negative_exponential_dimension, () -> randexp(rng, Float32, -1)),
+        (
+            :negative_exponential_continuation_dimension,
+            () -> randexp_next(rng, Float32, -1),
+        ),
+        (:untyped_uniform, () -> rand(rng)),
+        (:untyped_normal, () -> randn(rng)),
+        (:untyped_exponential, () -> randexp(rng)),
+        (:uniform_device_mismatch, () -> rand!(rng, wrong_uniform_destination)),
+        (
+            :uniform_continuation_device_mismatch,
+            () -> rand_next!(rng, wrong_uniform_destination),
+        ),
+        (:normal_device_mismatch, () -> randn!(rng, wrong_normal_destination)),
+        (
+            :normal_continuation_device_mismatch,
+            () -> randn_next!(rng, wrong_normal_destination),
+        ),
+        (:exponential_device_mismatch, () -> randexp!(rng, wrong_exponential_destination)),
+        (
+            :exponential_continuation_device_mismatch,
+            () -> randexp_next!(rng, wrong_exponential_destination),
+        ),
+    )
+    exhausted_errors = (
+        (:randat_capacity, () -> randat(exhausted, UInt32, 1)),
+        (:randnat_capacity, () -> randnat(exhausted, Float32, 1)),
         (:randexpat_capacity, () -> randexpat(exhausted, Float32, 1)),
         (:pure_capacity, () -> rand(exhausted, UInt32)),
         (:continuation_capacity, () -> rand_next(exhausted, UInt32)),
@@ -265,35 +307,6 @@ end
             :range_continuation_allocating_capacity,
             () -> rand_next(exhausted, UInt8(1):UInt8(2), 1),
         ),
-        (:empty_range, () -> rand(rng, UInt8(2):UInt8(1))),
-        (:empty_range_continuation, () -> rand_next(rng, UInt8(2):UInt8(1))),
-        (:negative_uniform_dimension, () -> rand(rng, UInt32, -1)),
-        (:negative_uniform_continuation_dimension, () -> rand_next(rng, UInt32, -1)),
-        (:negative_normal_dimension, () -> randn(rng, Float32, -1)),
-        (:negative_normal_continuation_dimension, () -> randn_next(rng, Float32, -1)),
-        (:negative_exponential_dimension, () -> randexp(rng, Float32, -1)),
-        (
-            :negative_exponential_continuation_dimension,
-            () -> randexp_next(rng, Float32, -1),
-        ),
-        (:untyped_uniform, () -> rand(rng)),
-        (:untyped_normal, () -> randn(rng)),
-        (:untyped_exponential, () -> randexp(rng)),
-        (:uniform_device_mismatch, () -> rand!(rng, wrong_uniform_destination)),
-        (
-            :uniform_continuation_device_mismatch,
-            () -> rand_next!(rng, wrong_uniform_destination),
-        ),
-        (:normal_device_mismatch, () -> randn!(rng, wrong_normal_destination)),
-        (
-            :normal_continuation_device_mismatch,
-            () -> randn_next!(rng, wrong_normal_destination),
-        ),
-        (:exponential_device_mismatch, () -> randexp!(rng, wrong_exponential_destination)),
-        (
-            :exponential_continuation_device_mismatch,
-            () -> randexp_next!(rng, wrong_exponential_destination),
-        ),
     )
     type_errors = (
         (:uniform_threaded_type, () -> rand!(rng, Vector{UInt32}(undef, 1); threaded = 1)),
@@ -329,14 +342,42 @@ end
 
     for (expected, cases) in (
         (ArgumentError, argument_errors),
+        (StreamExhausted, exhausted_errors),
         (TypeError, type_errors),
         (MethodError, method_errors),
     )
         for (name, call) in cases
             @testset "$name" begin
-                @test typeof(_audit_error(call)) === expected
+                # StreamExhausted is parametric, so compare by subtyping.
+                @test typeof(_audit_error(call)) <: expected
             end
         end
     end
 
+end
+
+@testset "R70 StreamExhausted payload" begin
+    base = Philox4x32(0x970)
+    near_end = AuditIR._rebuild(
+        base,
+        _range_position_from_absolute(base, _range_capacity(base) - 10),
+        base.device,
+    )
+    population = Int32[2, 3, 5, 7]
+    for (name, span, call) in (
+        (:scalar, UInt128(32), () -> rand(near_end, UInt32)),
+        (:fill, UInt128(64), () -> rand!(near_end, Vector{UInt32}(undef, 2))),
+        (:addressed, UInt128(64), () -> randat(near_end, UInt32, 2)),
+        (:sampling, UInt128(128), () -> randsample(near_end, population, 2)),
+    )
+        @testset "$name" begin
+            exhausted = _audit_error(call)
+            @test exhausted isa StreamExhausted
+            @test exhausted.rng === near_end
+            @test exhausted.bits === span
+            @test occursin("Philox4x32", sprint(showerror, exhausted))
+        end
+    end
+
+    @test_throws ArgumentError Philox4x32(rngkey(near_end), rngposition(near_end) + 11)
 end

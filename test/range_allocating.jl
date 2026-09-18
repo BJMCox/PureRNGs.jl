@@ -139,8 +139,8 @@ end
 
         insufficient_position = _range_position_from_absolute(base, capacity - 2width + 1)
         insufficient = RangeAllocIR._rebuild(base, insufficient_position, base.device)
-        @test_throws ArgumentError rand(insufficient, range, 2)
-        @test_throws ArgumentError rand_next(insufficient, range, 2)
+        @test_throws StreamExhausted rand(insufficient, range, 2)
+        @test_throws StreamExhausted rand_next(insufficient, range, 2)
         @test insufficient.position === insufficient_position
     end
 end

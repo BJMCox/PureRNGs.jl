@@ -244,7 +244,7 @@ end
     values, terminal = randsample_next(last_rng, 1:3, 1)
     @test values == last(_chained_unweighted(last_rng, 1:3, 1))
     @test terminal.position == SamplingIR._terminal64(typemax(UInt64))
-    @test_throws ArgumentError randsample_next(last_rng, 1:3, 2)
+    @test_throws StreamExhausted randsample_next(last_rng, 1:3, 2)
     again, _ = randsample_next(last_rng, 1:3, 1)
     @test again == values
 end
@@ -295,6 +295,6 @@ end
         rng.device,
     )
     preserved = fill(Int32(-1), 2)
-    @test_throws ArgumentError randsample_next!(terminal, population, preserved)
+    @test_throws StreamExhausted randsample_next!(terminal, population, preserved)
     @test preserved == fill(Int32(-1), 2)
 end

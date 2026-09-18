@@ -44,6 +44,7 @@ using TOML
         :Philox4x64,
         :PureRNGs,
         :StatefulRNG,
+        :StreamExhausted,
         :Threefry2x32,
         :Threefry2x64,
         :Threefry4x32,

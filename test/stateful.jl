@@ -120,7 +120,7 @@ end
         UInt64(0),
     )
     exhausted_bridge = StatefulRNG(exhausted)
-    @test_throws ArgumentError rand(exhausted_bridge, Bool)
+    @test_throws StreamExhausted rand(exhausted_bridge, Bool)
     @test parent(exhausted_bridge) === exhausted
 end
 
@@ -137,7 +137,7 @@ end
 
         @test draw(mutable_rng, T) === expected
         @test parent(mutable_rng) === expected_rng
-        @test_throws ArgumentError draw(mutable_rng, T)
+        @test_throws StreamExhausted draw(mutable_rng, T)
         @test parent(mutable_rng) === expected_rng
     end
 end
@@ -172,7 +172,7 @@ end
     expected, expected_rng = rand_next(near_last, range, 2)
     destination = fill(UInt16(0xdead), 5)
     mutable_rng = StatefulRNG(near_last)
-    @test_throws ArgumentError rand!(mutable_rng, destination, range)
+    @test_throws StreamExhausted rand!(mutable_rng, destination, range)
     @test destination == [expected..., fill(UInt16(0xdead), 3)...]
     @test parent(mutable_rng) === expected_rng
 
@@ -183,7 +183,7 @@ end
     )
     destination = fill(UInt16(0xdead), 1)
     mutable_rng = StatefulRNG(insufficient)
-    @test_throws ArgumentError rand!(mutable_rng, destination, range)
+    @test_throws StreamExhausted rand!(mutable_rng, destination, range)
     @test destination == [UInt16(0xdead)]
     @test parent(mutable_rng) === insufficient
 
@@ -232,28 +232,28 @@ end
     uniform_last = _bridge_last(Philox2x32(0x809), UInt16(64))
     uniform_destination = fill(UInt64(0xdeadbeef), 2)
     uniform_mutable = StatefulRNG(uniform_last)
-    @test_throws ArgumentError rand!(uniform_mutable, uniform_destination)
+    @test_throws StreamExhausted rand!(uniform_mutable, uniform_destination)
     @test uniform_destination == fill(UInt64(0xdeadbeef), 2)
     @test uniform_mutable.rng === uniform_last
 
     bool_last = _bridge_last(Philox2x32(0x80a), UInt16(1))
     bit_destination = trues(2)
     bool_mutable = StatefulRNG(bool_last)
-    @test_throws ArgumentError rand!(bool_mutable, bit_destination)
+    @test_throws StreamExhausted rand!(bool_mutable, bit_destination)
     @test bit_destination == trues(2)
     @test bool_mutable.rng === bool_last
 
     normal_last = _bridge_last(Philox2x32(0x80b), UInt16(52))
     normal_destination = fill(1.0, 2)
     normal_mutable = StatefulRNG(normal_last)
-    @test_throws ArgumentError randn!(normal_mutable, normal_destination)
+    @test_throws StreamExhausted randn!(normal_mutable, normal_destination)
     @test normal_destination == fill(1.0, 2)
     @test normal_mutable.rng === normal_last
 
     exponential_last = _bridge_last(Philox2x32(0x816), UInt16(53))
     exponential_destination = fill(1.0, 2)
     exponential_mutable = StatefulRNG(exponential_last)
-    @test_throws ArgumentError randexp!(exponential_mutable, exponential_destination)
+    @test_throws StreamExhausted randexp!(exponential_mutable, exponential_destination)
     @test exponential_destination == fill(1.0, 2)
     @test exponential_mutable.rng === exponential_last
 
@@ -264,7 +264,7 @@ end
     @test randn!(exhausted_mutable, Float32[]) == Float32[]
     @test randexp!(exhausted_mutable, Float32[]) == Float32[]
     @test exhausted_mutable.rng === exhausted
-    @test_throws ArgumentError rand(exhausted_mutable, Bool)
+    @test_throws StreamExhausted rand(exhausted_mutable, Bool)
     @test exhausted_mutable.rng === exhausted
 end
 
@@ -273,7 +273,7 @@ end
     first_uniform, expected_uniform = rand_next(uniform_root, UInt64)
     uniform_destination = BridgeVector(fill(UInt64(0xdeadbeef), 2))
     uniform_mutable = StatefulRNG(uniform_root)
-    @test_throws ArgumentError rand!(uniform_mutable, uniform_destination)
+    @test_throws StreamExhausted rand!(uniform_mutable, uniform_destination)
     @test uniform_destination.data == [first_uniform, UInt64(0xdeadbeef)]
     @test uniform_mutable.rng === expected_uniform
 
@@ -281,7 +281,7 @@ end
     first_normal, expected_normal = randn_next(normal_root, Float64)
     normal_destination = BridgeVector(fill(1.0, 2))
     normal_mutable = StatefulRNG(normal_root)
-    @test_throws ArgumentError randn!(normal_mutable, normal_destination)
+    @test_throws StreamExhausted randn!(normal_mutable, normal_destination)
     @test normal_destination.data == [first_normal, 1.0]
     @test normal_mutable.rng === expected_normal
 
@@ -289,7 +289,7 @@ end
     first_exponential, expected_exponential = randexp_next(exponential_root, Float64)
     exponential_destination = BridgeVector(fill(1.0, 2))
     exponential_mutable = StatefulRNG(exponential_root)
-    @test_throws ArgumentError randexp!(exponential_mutable, exponential_destination)
+    @test_throws StreamExhausted randexp!(exponential_mutable, exponential_destination)
     @test exponential_destination.data == [first_exponential, 1.0]
     @test exponential_mutable.rng === expected_exponential
 end

@@ -431,9 +431,9 @@ end
 
         sentinel = T === Bool ? true : T(-1)
         failed = CUDA.fill(sentinel, 2)
-        @test_throws ArgumentError rand_next!(last_rng, distribution, failed)
+        @test_throws StreamExhausted rand_next!(last_rng, distribution, failed)
         @test Array(failed) == fill(sentinel, 2)
-        @test_throws ArgumentError rand(terminal, distribution)
+        @test_throws StreamExhausted rand(terminal, distribution)
 
         empty = CUDA.CuArray{T}(undef, 0)
         profile = CUDA.@profile raw = true rand_next!(terminal, distribution, empty)

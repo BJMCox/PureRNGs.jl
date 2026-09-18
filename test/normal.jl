@@ -305,10 +305,10 @@ end
         value, exhausted = randn_next(terminal_rng, T)
         @test value === randn(terminal_rng, T)
         @test exhausted.position.bit === IR._EXHAUSTED_BIT
-        @test_throws ArgumentError randn(exhausted, T)
-        @test_throws ArgumentError randn_next(exhausted, T)
-        @test_throws ArgumentError randnat(terminal_rng, T, 2)
-        @test_throws ArgumentError randnat(exhausted, T, 1)
+        @test_throws StreamExhausted randn(exhausted, T)
+        @test_throws StreamExhausted randn_next(exhausted, T)
+        @test_throws StreamExhausted randnat(terminal_rng, T, 2)
+        @test_throws StreamExhausted randnat(exhausted, T, 1)
     end
 end
 
@@ -494,9 +494,9 @@ end
         last = _terminal_normal_rng(F, T)
         destination = fill(one(T), 2)
         before = copy(destination)
-        @test_throws ArgumentError randn!(last, destination; threaded = false)
+        @test_throws StreamExhausted randn!(last, destination; threaded = false)
         @test destination == before
-        @test_throws ArgumentError randn_next!(last, destination; threaded = false)
+        @test_throws StreamExhausted randn_next!(last, destination; threaded = false)
         @test destination == before
 
         final = Vector{T}(undef, 1)
@@ -519,8 +519,8 @@ end
             IR._Position128(typemax(UInt64), typemax(UInt64), last.position.bit + UInt16(1))
         end
         insufficient = IR._rebuild(last, insufficient_position, last.device)
-        @test_throws ArgumentError randn(insufficient, T, 1)
-        @test_throws ArgumentError randn_next(insufficient, T, 1)
+        @test_throws StreamExhausted randn(insufficient, T, 1)
+        @test_throws StreamExhausted randn_next(insufficient, T, 1)
     end
 
 end

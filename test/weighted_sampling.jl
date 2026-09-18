@@ -190,8 +190,8 @@ end
         value, terminal = randsample_next(last, population, weights, 1)
         @test length(value) == 1
         @test terminal.position.bit == WeightedIR._EXHAUSTED_BIT
-        @test_throws ArgumentError randsample(last, population, weights, 2)
-        @test_throws ArgumentError randsample_next(last, population, weights, 2)
+        @test_throws StreamExhausted randsample(last, population, weights, 2)
+        @test_throws StreamExhausted randsample_next(last, population, weights, 2)
         again, _ = randsample_next(last, population, weights, 1)
         @test again == value
     end
@@ -217,7 +217,7 @@ end
     last = _last_weighted_rng(Philox4x32)
     preserved = fill(Int32(-1), 2)
     before = copy(preserved)
-    @test_throws ArgumentError randsample_next!(last, population, weights, preserved)
+    @test_throws StreamExhausted randsample_next!(last, population, weights, preserved)
     @test preserved == before
 end
 

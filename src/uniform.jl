@@ -85,10 +85,6 @@ const _AddressIndex64 = Union{Bool,Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UI
     throw(ArgumentError("addressed draw index must be positive"))
 end
 
-@noinline function _address_capacity_error()
-    throw(ArgumentError("draw exceeds the generator counter capacity"))
-end
-
 @inline function _addressed_rng_device(
     rng::_ScalarUniformGenerators,
     width::UInt16,
@@ -98,7 +94,7 @@ end
     index = UInt64(i)
     end_lo, end_hi = _bit_span(index, width)
     _, ok = _try_advance(rng, end_lo, end_hi)
-    ok || _address_capacity_error()
+    ok || _stream_exhausted(rng, end_lo, end_hi)
     start_lo, start_hi = _bit_span(index - UInt64(1), width)
     position = _advance_position_unchecked(rng, start_lo, start_hi)
     position == rng.position && return rng
@@ -112,29 +108,31 @@ end
 
 @noinline function _addressed_rng(rng::_Position64Generators, width::UInt16, i::Integer)
     i < 1 && _invalid_address_index()
-    _, valid = _try_advance(rng, UInt64(0), UInt64(0))
-    valid || _address_capacity_error()
     position = rng.position
     block_bits = BigInt(_block_bits(rng))
+    offset = (BigInt(i) - 1) * BigInt(width)
+    span = offset + BigInt(width)
+    _, valid = _try_advance(rng, UInt64(0), UInt64(0))
+    valid || _stream_exhausted(rng, span)
     current = BigInt(position.block) * block_bits + BigInt(position.bit)
     capacity = (BigInt(_max_block(rng)) + 1) * block_bits
-    offset = (BigInt(i) - 1) * BigInt(width)
-    current + offset + BigInt(width) <= capacity || _address_capacity_error()
+    current + span <= capacity || _stream_exhausted(rng, span)
     block, bit = divrem(current + offset, block_bits)
     return _rebuild(rng, _Position64(UInt64(block), UInt16(bit)), rng.device)
 end
 
 @noinline function _addressed_rng(rng::_Position128Generators, width::UInt16, i::Integer)
     i < 1 && _invalid_address_index()
-    _, valid = _try_advance(rng, UInt64(0), UInt64(0))
-    valid || _address_capacity_error()
     position = rng.position
     block_bits = BigInt(_block_bits(rng))
+    offset = (BigInt(i) - 1) * BigInt(width)
+    span = offset + BigInt(width)
+    _, valid = _try_advance(rng, UInt64(0), UInt64(0))
+    valid || _stream_exhausted(rng, span)
     block = (BigInt(position.hi) << 64) + BigInt(position.lo)
     current = block * block_bits + BigInt(position.bit)
     capacity = (BigInt(1) << 128) * block_bits
-    offset = (BigInt(i) - 1) * BigInt(width)
-    current + offset + BigInt(width) <= capacity || _address_capacity_error()
+    current + span <= capacity || _stream_exhausted(rng, span)
     start_block, bit = divrem(current + offset, block_bits)
     mask = BigInt(typemax(UInt64))
     lo = UInt64(start_block & mask)

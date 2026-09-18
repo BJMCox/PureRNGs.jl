@@ -52,6 +52,10 @@ backend rules.
 Eager package-owned fills check deterministic contract errors before writing.
 Exhaustion does not silently wrap the state.
 
+A draw that outruns the stream throws [`StreamExhausted`](@ref), which argument validation never throws.
+Catch it to tell exhaustion from a bad argument: the exception carries the generator it started from and the bit span the draw needed.
+Derive a fresh key with [`splitrng`](@ref) or [`subrng`](@ref) and restart the work there, rather than reusing the exhausted position.
+
 Foreign `Random` methods reaching `StatefulRNG` hooks can write partially before exhaustion.
 Backend and resource failures do not carry the same atomicity guarantee.
 

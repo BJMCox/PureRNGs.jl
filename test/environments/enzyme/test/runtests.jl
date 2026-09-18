@@ -291,7 +291,7 @@ end
         PureRNGs._rebuild(rng, PureRNGs._terminal64(PureRNGs._max_block(rng)), rng.device)
     destination = zeros(8)
     shadow = fill(6.0, 8)
-    @test_throws ArgumentError autodiff(
+    @test_throws StreamExhausted autodiff(
         Forward,
         pure_fill_result!,
         Duplicated,

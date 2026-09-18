@@ -7,6 +7,44 @@ methods assume the key, position, and device layout of its own generators.
 """
 abstract type AbstractPureRNG end
 
+"""
+    StreamExhausted(rng, bits)
+
+Thrown when a draw needs `bits` more logical bits than the generator `rng` has
+left in its stream. Fields: `rng`, the generator at the position where the draw
+started, and `bits::UInt128`, the span the draw required. Construction with an
+out-of-range position and argument validation keep throwing `ArgumentError`.
+
+An addressed draw on `Philox4x64` or `Threefry4x64` can name a span wider than
+`typemax(UInt128)`. The field then holds `typemax(UInt128)`.
+"""
+struct StreamExhausted{R<:AbstractPureRNG} <: Exception
+    rng::R
+    bits::UInt128
+end
+
+function Base.showerror(io::IO, exhausted::StreamExhausted)
+    print(
+        io,
+        "StreamExhausted: ",
+        nameof(typeof(exhausted.rng)),
+        " at position ",
+        rngposition(exhausted.rng),
+        " has fewer bits left than the ",
+        exhausted.bits,
+        " the draw requires",
+    )
+end
+
+# The hot path passes the span as two words so it stays in registers.
+@noinline _stream_exhausted(rng::AbstractPureRNG, bits_lo::UInt64, bits_hi::UInt64) =
+    throw(StreamExhausted(rng, (UInt128(bits_hi) << 64) | UInt128(bits_lo)))
+
+# [R70] fixes the field at UInt128, so a wider addressed span reports the
+# widest value the field holds.
+@noinline _stream_exhausted(rng::AbstractPureRNG, bits::Integer) =
+    throw(StreamExhausted(rng, bits > typemax(UInt128) ? typemax(UInt128) : UInt128(bits)))
+
 struct _CPUBackend end
 struct _CUDABackend end
 struct _AMDGPUBackend end
@@ -604,7 +642,7 @@ end
 
 @inline function _reserve(rng::AbstractPureRNG, bits_lo::UInt64, bits_hi::UInt64)
     position, ok = _try_advance(rng, bits_lo, bits_hi)
-    ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
+    ok || _stream_exhausted(rng, bits_lo, bits_hi)
     position == rng.position && return rng
     return _rebuild(rng, position, rng.device)
 end

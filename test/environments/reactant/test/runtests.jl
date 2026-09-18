@@ -895,8 +895,8 @@ end
         terminal_state = Reactant.to_rarray(terminal).state |> Array
 
         @test value == rand(last, Bool)
-        @test_throws ArgumentError rand(terminal, Bool)
-        @test_throws ArgumentError rand_next(terminal, Bool)
+        @test_throws StreamExhausted rand(terminal, Bool)
+        @test_throws StreamExhausted rand_next(terminal, Bool)
         @test Array(Reactant.to_rarray(terminal).state) == terminal_state
     end
 end
