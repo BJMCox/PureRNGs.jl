@@ -21,45 +21,19 @@ function _collect_weights(weights)
     return converted
 end
 
-@inline function _convert_and_fold_weights!(
-    source,
-    converted,
-    total_result,
-    invalid_result,
-    cumulative,
-    ::Val{validate_elements},
-) where {validate_elements}
-    total = zero(Float64)
-    invalid = false
-    @inbounds for ordinal = 1:length(source)
-        weight = Float64(_population_value(source, UInt64(ordinal)))
-        converted === nothing || (converted[ordinal] = weight)
-        invalid |= validate_elements && (!isfinite(weight) || weight < zero(Float64))
-        total += weight
-        cumulative === nothing || (cumulative[ordinal] = total)
-    end
-    invalid |= !isfinite(total) || total <= zero(Float64)
-    @inbounds begin
-        total_result[1] = total
-        invalid_result[1] = invalid
-    end
-    return converted
-end
-
 @inline function _fold_weights_cpu(weights)
     cumulative = Vector{Float64}(undef, length(weights))
-    total_result = Vector{Float64}(undef, 1)
-    invalid_result = Vector{Bool}(undef, 1)
-    _convert_and_fold_weights!(
-        weights,
-        nothing,
-        total_result,
-        invalid_result,
-        cumulative,
-        Val(true),
-    )
-    invalid_result[1] && _invalid_weights()
-    return total_result[1], cumulative
+    total = zero(Float64)
+    invalid = false
+    @inbounds for ordinal = 1:length(weights)
+        weight = Float64(_population_value(weights, UInt64(ordinal)))
+        invalid |= !isfinite(weight) || weight < zero(Float64)
+        total += weight
+        cumulative[ordinal] = total
+    end
+    invalid |= !isfinite(total) || total <= zero(Float64)
+    invalid && _invalid_weights()
+    return total, cumulative
 end
 
 """
@@ -124,79 +98,86 @@ end
 @inline _prepare_weight_scan(rng::_CPUGenerators, table::WeightTable, _agnostic::Bool) =
     (nothing, table.total, table.cumulative)
 
-KernelAbstractions.@kernel function _prepare_weights_kernel!(
-    source,
-    converted,
-    total_result,
-    invalid_result,
-    cumulative,
-    validate_elements,
-)
-    if @index(Global, Linear) == 1
-        _convert_and_fold_weights!(
-            source,
-            converted,
-            total_result,
-            invalid_result,
-            cumulative,
-            validate_elements,
-        )
-    end
-end
-
-KernelAbstractions.@kernel function _total_weights_kernel!(
-    weights,
-    total_result,
-    invalid_result,
-)
-    if @index(Global, Linear) == 1
-        total = zero(Float64)
-        @inbounds for ordinal = 1:length(weights)
-            total += weights[ordinal]
-        end
-        total_result[1] = total
-        invalid_result[1] = !isfinite(total) || total <= zero(Float64)
-    end
-end
-
 function _transfer_weights(device, weights::Vector{Float64})
     transferred = _allocate_array(device, Float64, (length(weights),))
     copyto!(transferred, weights)
     return transferred
 end
 
-function _prepare_weights(rng, weights, agnostic::Bool)
-    source = agnostic ? _transfer_weights(rng.device, _collect_weights(weights)) : weights
-    converted = agnostic ? source : _allocate_array(rng.device, Float64, (length(source),))
-    total_result = _allocate_array(rng.device, Float64, (1,))
-    invalid_result = _allocate_array(rng.device, Bool, (1,))
-    backend = _fill_backend(converted)
-    if agnostic
-        _total_weights_kernel!(backend)(
-            converted,
-            total_result,
-            invalid_result;
-            ndrange = 1,
-        )
-    else
-        _prepare_weights_kernel!(backend)(
-            source,
-            converted,
-            total_result,
-            invalid_result,
-            nothing,
-            Val(true);
-            ndrange = 1,
-        )
+# One workgroup folds the whole weight vector. A backend whose workgroups cannot
+# hold this many workitems overrides the hook.
+@inline _weight_fold_lanes(_backend) = Val(1024)
+@inline _weight_fold_lane_count(::Val{lanes}) where {lanes} = lanes
+
+# [R59] the cumulative table is a strict Float64 left fold in ordinal order, so
+# lane 1 alone accumulates while the other lanes only stage and store.
+KernelAbstractions.@kernel function _weighted_fold_kernel!(
+    source,
+    total_result,
+    invalid_result,
+    cumulative,
+    ::Val{lanes},
+    ::Val{validate_elements},
+) where {lanes,validate_elements}
+    lane = @index(Local, Linear)
+    staged = @localmem Float64 (lanes,)
+    total = zero(Float64)
+    invalid = false
+    first = 1
+    while first <= length(source)
+        ordinal = first + lane - 1
+        if ordinal <= length(source)
+            @inbounds staged[lane] = Float64(_population_value(source, UInt64(ordinal)))
+        end
+        @synchronize
+
+        if lane == 1
+            last = min(lanes, length(source) - first + 1)
+            @inbounds for slot = 1:last
+                weight = staged[slot]
+                invalid |=
+                    validate_elements && (!isfinite(weight) || weight < zero(Float64))
+                total += weight
+                staged[slot] = total
+            end
+        end
+        @synchronize
+
+        if ordinal <= length(source)
+            @inbounds cumulative[ordinal] = staged[lane]
+        end
+        @synchronize
+        first += lanes
     end
-    invalid = only(Array(invalid_result))
-    invalid && _invalid_weights()
-    return converted, total_result
+    if lane == 1
+        invalid |= !isfinite(total) || total <= zero(Float64)
+        @inbounds begin
+            total_result[1] = total
+            invalid_result[1] = invalid
+        end
+    end
 end
 
-@inline function _prepare_weight_scan(rng, weights, agnostic::Bool)
-    converted, total = _prepare_weights(rng, weights, agnostic)
-    return converted, total, nothing
+function _prepare_weight_scan(rng, weights, agnostic::Bool)
+    source = agnostic ? _transfer_weights(rng.device, _collect_weights(weights)) : weights
+    cumulative = _allocate_array(rng.device, Float64, (length(source),))
+    total_result = _allocate_array(rng.device, Float64, (1,))
+    invalid_result = _allocate_array(rng.device, Bool, (1,))
+    backend = _fill_backend(cumulative)
+    lanes = _weight_fold_lanes(backend)
+    lane_count = _weight_fold_lane_count(lanes)
+    _weighted_fold_kernel!(backend)(
+        source,
+        total_result,
+        invalid_result,
+        cumulative,
+        lanes,
+        Val(!agnostic);
+        ndrange = lane_count,
+        workgroupsize = lane_count,
+    )
+    only(Array(invalid_result)) && _invalid_weights()
+    return nothing, total_result, cumulative
 end
 
 # `threshold < cumulative[end]`; odd spans overlap one index between both halves.
@@ -298,26 +279,18 @@ end
     backend,
     rng,
     population,
-    weights,
+    _weights,
     total,
     cumulative,
     destination,
 )
     thresholds = _allocate_array(rng.device, Float64, (length(destination),))
     _fill_weighted_thresholds!(backend, rng, total, thresholds)
-    return _launch_weighted_scan!(
-        rng.device,
-        backend,
-        population,
-        weights,
-        thresholds,
-        cumulative,
-        destination,
-    )
+    return _launch_weighted_scan!(backend, population, cumulative, thresholds, destination)
 end
 
 @inline function _weighted_threshold_from_bits(raw::UInt64, total::Float64)
-    uniform = Float64(raw) * 0x1p-53
+    uniform = _from_bits(Float64, raw)
     return min(uniform * total, prevfloat(total))
 end
 
@@ -363,82 +336,44 @@ end
     return thresholds
 end
 
-@inline function _scan_weighted!(population, weights, thresholds, order, destination)
-    cumulative = zero(Float64)
-    ordered_draw = 1
-    indices = eachindex(destination)
-    @inbounds for population_index in eachindex(weights)
-        cumulative += weights[population_index]
-        while ordered_draw <= length(order) && thresholds[order[ordered_draw]] < cumulative
-            original_index = order[ordered_draw]
-            index = _sampling_destination_index(indices, original_index)
-            destination[index] = _population_value(population, UInt64(population_index))
-            ordered_draw += 1
+KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
+    population,
+    cumulative,
+    thresholds,
+    destination,
+)
+    index = @index(Global, Linear)
+    threshold = @inbounds thresholds[index]
+    lower = 1
+    upper = length(cumulative)
+    @inbounds while lower < upper
+        middle = lower + ((upper - lower) >>> 1)
+        if threshold < cumulative[middle]
+            upper = middle
+        else
+            lower = middle + 1
         end
     end
-    return destination
-end
-
-KernelAbstractions.@kernel function _weighted_scan_kernel!(
-    population,
-    weights,
-    thresholds,
-    order,
-    destination,
-)
-    if @index(Global, Linear) == 1
-        _scan_weighted!(population, weights, thresholds, order, destination)
+    indices = eachindex(destination)
+    @inbounds begin
+        destination_index = _sampling_destination_index(indices, index)
+        destination[destination_index] = _population_value(population, UInt64(lower))
     end
 end
 
 @inline function _launch_weighted_scan!(
-    ::KernelAbstractions.CPU,
-    population,
-    weights,
-    thresholds,
-    order,
-    destination,
-)
-    return _scan_weighted!(population, weights, thresholds, order, destination)
-end
-
-@inline function _launch_weighted_scan!(
-    _device,
     backend,
     population,
-    weights,
-    thresholds,
     cumulative,
-    destination,
-)
-    # The single-workitem scan walks the thresholds in ascending order. `sortperm`
-    # is stable, so equal thresholds retain their original-index order.
-    order = sortperm(thresholds)
-    return _launch_weighted_scan!(
-        backend,
-        population,
-        weights,
-        thresholds,
-        order,
-        destination,
-    )
-end
-
-@inline function _launch_weighted_scan!(
-    backend,
-    population,
-    weights,
     thresholds,
-    order,
     destination,
 )
-    _weighted_scan_kernel!(backend)(
+    _weighted_binary_search_kernel!(backend)(
         population,
-        weights,
+        cumulative,
         thresholds,
-        order,
         destination;
-        ndrange = 1,
+        ndrange = length(destination),
     )
     return destination
 end

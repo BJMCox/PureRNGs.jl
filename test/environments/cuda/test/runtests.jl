@@ -1719,12 +1719,10 @@ end
     @test reinterpret.(UInt64, Array(scan_cumulative)) ==
           reinterpret.(UInt64, scan_expected)
     IR._launch_weighted_scan!(
-        range_rng.device,
         IR._fill_backend(scan_destination),
         scan_population,
-        scan_weights,
-        CUDA.CuArray(Float64[0x1p53]),
         scan_cumulative,
+        CUDA.CuArray(Float64[0x1p53]),
         scan_destination,
     )
     @test Array(scan_destination) == Int32[1025]
