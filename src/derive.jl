@@ -108,12 +108,15 @@ end
 
 """
     splitrng(rng)
-    splitrng(rng, n)
+    splitrng(rng, n; threaded=true)
     splitrng(rng, Val(N))
 
 Derive child keys from distinct counter addresses. The ordinary `n` form
 returns a vector. The `Val` form returns an allocation-free tuple for static or
 GPU code. The default derives two children.
+
+The `n` form takes `threaded`, which selects a parallel derivation on the CPU
+and defaults to `true`. The children are identical for either value.
 
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts each child at position zero. It never changes the parent.
@@ -149,13 +152,23 @@ splitrng(rng::AbstractPureRNG) = splitrng(rng, Val(2))
     return ntuple(i -> _derive_child(rng, UInt64(i - 1)), Val(N))
 end
 
-function splitrng(rng::R, count::Integer) where {R<:AbstractPureRNG}
+function splitrng(rng::R, count::Integer; threaded = true) where {R<:AbstractPureRNG}
+    threaded = _check_threaded(threaded)
     0 <= count <= typemax(Int) ||
         throw(ArgumentError("n must satisfy 0 <= n <= typemax(Int)"))
     _check_split_count(rng, count)
     children = Vector{R}(undef, count)
-    for i in eachindex(children)
-        @inbounds children[i] = _derive_child(rng, UInt64(i - 1))
+    if threaded
+        # Each child reads only the parent key, so chunks need no shared state.
+        _run_chunks(Int(count), _SPLIT_CHUNK_CHILDREN) do first, last
+            @inbounds for i = first:last
+                children[i] = _derive_child(rng, UInt64(i - 1))
+            end
+        end
+    else
+        for i in eachindex(children)
+            @inbounds children[i] = _derive_child(rng, UInt64(i - 1))
+        end
     end
     return children
 end

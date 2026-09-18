@@ -150,6 +150,41 @@ end
     end
 end
 
+@testset "R21 threaded derivation" begin
+    for F in (Philox4x32, Threefry2x64, ChaCha)
+        rng = F(123)
+        # 4096 is the chunk size, so these counts straddle a chunk boundary.
+        for count in (0, 1, 4095, 4096, 4097, 100_000)
+            @test splitrng(rng, count; threaded = true) ==
+                  splitrng(rng, count; threaded = false)
+        end
+        @test_throws ArgumentError splitrng(rng, 4; threaded = 1)
+    end
+
+    threaded_message = try
+        splitrng(Philox4x32(123), 4; threaded = 1)
+        ""
+    catch error
+        error.msg
+    end
+    @test occursin("threaded", threaded_message)
+end
+
+# Keep both results live so the optimizer cannot drop either measured allocation.
+# A collection inside a measured window skews the counter, so take the minimum.
+function serial_split_overhead(rng, count)
+    R = typeof(rng)
+    reference = Vector{R}(undef, 0)
+    children = Vector{R}(undef, 0)
+    overhead = typemax(Int)
+    for _ = 1:5
+        baseline = @allocated reference = Vector{R}(undef, count)
+        measured = @allocated children = splitrng(rng, count; threaded = false)
+        overhead = min(overhead, measured - baseline)
+    end
+    return overhead, reference !== children && length(children) == count
+end
+
 # Specialize the measurement so Julia 1.10 does not box heterogeneous loop results.
 derive_allocations(rng) = (@allocated(splitrng(rng, Val(3))), @allocated(subrng(rng, 42)))
 
@@ -160,5 +195,10 @@ derive_allocations(rng) = (@allocated(splitrng(rng, Val(3))), @allocated(subrng(
         @test @inferred(subrng(rng, 42)) isa typeof(rng)
         derive_allocations(rng)
         @test derive_allocations(rng) == (0, 0)
+    end
+
+    rng = Philox4x32(123)
+    for count in (1000, 4096)
+        @test serial_split_overhead(rng, count) == (0, true)
     end
 end

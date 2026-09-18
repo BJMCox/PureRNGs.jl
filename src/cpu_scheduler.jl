@@ -22,3 +22,5 @@
     foreach(wait, tasks)
     return nothing
 end
+
+const _SPLIT_CHUNK_CHILDREN = 4096

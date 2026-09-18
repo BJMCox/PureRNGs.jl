@@ -196,7 +196,6 @@ end
             randat,
             randnat,
             randexpat,
-            splitrng,
             subrng,
             randsample,
             randsample_next,
@@ -208,6 +207,13 @@ end
     @test all(
         Base.kwarg_decl(method) == [:threaded] for
         function_ in (randsample!, randsample_next!) for method in _audit_methods(function_)
+    )
+    # R21 gives the dynamic split the fill keyword. The other two forms take none.
+    dynamic_split = which(splitrng, Tuple{R,Int})
+    @test Base.kwarg_decl(dynamic_split) == [:threaded]
+    @test all(
+        isempty(Base.kwarg_decl(method)) for
+        method in _audit_methods(splitrng) if method !== dynamic_split
     )
 
     cpu = AuditIR.MLDataDevices.CPUDevice()
