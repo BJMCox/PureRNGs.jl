@@ -134,16 +134,12 @@ end
     )
 end
 
-@inline function _same_fill_device(generator_device::_BackendToken, destination)
-    return MLDataDevices.get_device_type(generator_device) ===
-           MLDataDevices.get_device_type(destination)
-end
-
+# The destination device is read once: a destination may count the query.
 @inline function _check_fill_device(rng::_ScalarUniformGenerators, destination)
-    _same_fill_device(rng.device, destination) || _fill_device_mismatch(
-        MLDataDevices.get_device_type(rng.device),
-        MLDataDevices.get_device_type(destination),
-    )
+    generator_device = MLDataDevices.get_device_type(rng.device)
+    destination_device = MLDataDevices.get_device_type(destination)
+    generator_device === destination_device ||
+        _fill_device_mismatch(generator_device, destination_device)
     return nothing
 end
 
