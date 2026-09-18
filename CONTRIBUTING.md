@@ -82,6 +82,20 @@ Compare the same workload and hardware against the exact base revision.
 Separate allocation, fills, kernel-local draws, and device transfers.
 Preserve benchmark results outside Git.
 
+## Before pushing
+
+Hosted CI is manual-dispatch only while the repository is private, so this recipe is the gate.
+
+1. Run `Pkg.test()` on the package. It sets `--check-bounds=yes`, so allocation
+   assertions must hold under bounds checking.
+2. Run the Distributions environment suite.
+3. Run JuliaFormatter 2.12.6 `format(["src", "ext", "test", "docs", "benchmark"])`
+   and confirm `git diff` is empty.
+4. Run `Aqua.test_all(PureRNGs; unbound_args = false)`.
+5. Build the documentation with `include("docs/make.jl")`.
+6. Run the CUDA environment on a CUDA host when `ext/PureRNGsCUDAExt.jl` or any
+   kernel changes.
+
 ## Automation
 
 The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded execution,
