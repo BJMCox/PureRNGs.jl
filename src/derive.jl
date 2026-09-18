@@ -117,11 +117,29 @@ GPU code. The default derives two children.
 
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts each child at position zero. It never changes the parent.
+Calling `splitrng` again on an advanced parent therefore returns the same
+children, so derive from stable identifiers rather than from a stream position.
 
 Child keys are core output and can collide. Across `n` program-wide derivations
 with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
 collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> left, right = splitrng(rng);
+
+julia> rand(left, UInt32), rand(right, UInt32)
+(0xea1624f3, 0x34564a30)
+
+julia> advanced = last(rand_next(rng, UInt32));
+
+julia> rand(first(splitrng(advanced)), UInt32)
+0xea1624f3
+```
 """
 splitrng(rng::AbstractPureRNG) = splitrng(rng, Val(2))
 
@@ -241,13 +259,35 @@ independent roles, such as `subrng(root, 1)` for proposals and
 `subrng(root, 2)` for resampling. Use `subrng(root, chunk_id)` to assign
 explicit large-job chunks.
 
+`purpose` is reduced modulo `2^64`, so a negative value or a value at or above
+`2^64` aliases the child of an existing purpose id. Purpose ids are a separate
+namespace from stream positions, which [`rngposition`](@ref) returns as a
+`UInt128`.
+
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts the child at position zero. It never changes the parent.
-The same key and purpose always produce the same child.
+The same key and purpose always produce the same child. Calling `subrng` again
+on an advanced parent therefore returns the same child, so derive from stable
+identifiers rather than from a stream position.
 
 Child keys are core output and can collide. Across `n` program-wide derivations
 with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
 collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> rand(subrng(rng, 1), UInt32)
+0x04970499
+
+julia> rand(subrng(rng, 2), UInt32)
+0x65feaf98
+
+julia> rand(subrng(rng, -1), UInt32) == rand(subrng(rng, big(2)^64 - 1), UInt32)
+true
+```
 """
 @inline subrng(rng::AbstractPureRNG, purpose::Integer) = _subrng(rng, purpose % UInt64)

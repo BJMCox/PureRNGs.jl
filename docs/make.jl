@@ -2,6 +2,7 @@ pushfirst!(LOAD_PATH, normpath(joinpath(@__DIR__, "..")))
 
 using Documenter
 using PureRNGs
+using Random
 
 DocMeta.setdocmeta!(PureRNGs, :DocTestSetup, :(using PureRNGs); recursive = true)
 

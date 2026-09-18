@@ -179,4 +179,19 @@ Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
 
 The distribution form of `randat` takes a single index.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> randat(rng, UInt32, 3)
+0xc25ecc0b
+
+julia> randat(rng, UInt32, 1:3)
+3-element Vector{UInt32}:
+ 0x23b42aea
+ 0x467098dd
+ 0xc25ecc0b
+```
 """ randat

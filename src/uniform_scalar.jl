@@ -101,6 +101,26 @@ also be one tuple, as in `Random`.
 
 The allocating forms create an array on the generator's device. The input
 generator never changes.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> value, next_rng = rand_next(rng, UInt32);
+
+julia> value
+0x23b42aea
+
+julia> first(rand_next(next_rng, UInt32))
+0x467098dd
+
+julia> first(rand_next(rng, UInt32, 3))
+3-element Vector{UInt32}:
+ 0x23b42aea
+ 0x467098dd
+ 0xc25ecc0b
+```
 """ rand_next
 
 @noinline function _fill_device_mismatch()

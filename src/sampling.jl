@@ -384,9 +384,31 @@ Sample with replacement from `population`. Without `count`, return as many
 draws as the population has elements. With `weights`, use non-negative finite
 weights proportional to the desired probabilities.
 
+The no-count form returns `length(pop)` samples, unlike `StatsBase.sample(rng, a)`,
+which returns one element. `randsample(rng, pop, 1)` returns a one-element vector.
+
 The result is a vector on the generator's device. This convenience form does
 not return the advanced generator; use [`randsample_next`](@ref) when subsequent
 draws must continue after the sample.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> pop = [10, 20, 30, 40];
+
+julia> randsample(rng, pop)
+4-element Vector{Int64}:
+ 10
+ 40
+ 30
+ 10
+
+julia> randsample(rng, pop, 1)
+1-element Vector{Int64}:
+ 10
+```
 """
 @inline function randsample(rng::AbstractPureRNG, population)
     return first(_randsample_next_unweighted(rng, population, nothing))
@@ -428,6 +450,22 @@ Inputs and the complete random span are validated before writing. A destination
 that might alias `population` is rejected; it may alias `weights` after the
 weights have been privately prepared. Empty destinations still validate inputs
 and consume no bits. Weighted fills may allocate preparation scratch space.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> destination = zeros(Int, 5);
+
+julia> randsample!(rng, [10, 20, 30, 40], destination)
+5-element Vector{Int64}:
+ 10
+ 40
+ 30
+ 10
+ 10
+```
 """
 @inline function randsample!(
     rng::AbstractPureRNG,

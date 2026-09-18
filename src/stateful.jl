@@ -13,6 +13,23 @@ the held generator after that prefix. A foreign `Random` fill has no
 chained-scalar consumption-order guarantee and may also leave its destination
 partially written. The held generator remains valid at the position after the
 last successful draw.
+
+# Examples
+
+```jldoctest
+julia> using Random
+
+julia> bridge = StatefulRNG(Philox4x32(20250918));
+
+julia> rand(bridge, UInt32)
+0x23b42aea
+
+julia> rand(bridge, UInt32)
+0x467098dd
+
+julia> rand(parent(bridge), UInt32)
+0xc25ecc0b
+```
 """
 mutable struct StatefulRNG{R<:AbstractPureRNG} <: Random.AbstractRNG
     rng::R
