@@ -91,7 +91,7 @@ Hosted CI is manual-dispatch only while the repository is private, so this recip
 2. Run the Distributions environment suite.
 3. Run JuliaFormatter 2.12.6 `format(["src", "ext", "test", "docs", "benchmark"])`
    and confirm `git diff` is empty.
-4. Run `Aqua.test_all(PureRNGs; unbound_args = false)`.
+4. Run `Aqua.test_all(PureRNGs)`.
 5. Build the documentation with `include("docs/make.jl")`.
 6. Run the CUDA environment on a CUDA host when `ext/PureRNGsCUDAExt.jl` or any
    kernel changes.

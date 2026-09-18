@@ -617,7 +617,7 @@ end
 # that it copies on every draw of a chained loop once the generator has more
 # than a handful of words. Rebuilding the tuple from its elements keeps every
 # word in a register. A ChaCha chain of Bool draws ran five times faster.
-@inline _by_element(words::NTuple{N,T}) where {N,T} = ntuple(i -> words[i], Val(N))
+@inline _by_element(words::Tuple{Vararg{Any,N}}) where {N} = ntuple(i -> words[i], Val(N))
 
 # A scalar draw that ends inside the current block cannot exhaust the stream
 # and keeps the carried block, so only the bit offset moves. The terminal

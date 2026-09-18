@@ -3,8 +3,8 @@
 # derived keys never coincide with a draw address. The two-word 32-bit generators
 # reserve the top byte of the second word for that tag, which is why their block
 # counter is 56 bits wide. The 64-bit two-word cores use a whole tag word instead.
-@inline _draw_counter(::Val{N}, address::NTuple{K,T}) where {N,K,T} =
-    (address..., ntuple(_ -> zero(T), Val(N - K))...)
+@inline _draw_counter(::Val{N}, address::Tuple{T,Vararg{T,K}}) where {N,K,T} =
+    (address..., ntuple(_ -> zero(T), Val(N - K - 1))...)
 @inline _address32(block::UInt64) = (block % UInt32, (block >> 32) % UInt32)
 @inline _address32_narrow(block::UInt64) =
     (block % UInt32, ((block >> 32) & 0x00ffffff) % UInt32)

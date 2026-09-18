@@ -82,14 +82,18 @@ for (core, round, bump) in (
     (:_philox4x64, :_philox4x64_round, :_philox4x64_bump),
 )
     @eval begin
-        @inline function $core(ctr::NTuple{N,T}, key::NTuple{K,T}, ::Val{R}) where {N,K,T,R}
+        @inline function $core(
+            ctr::Tuple{T,Vararg{T}},
+            key::Tuple{T,Vararg{T}},
+            ::Val{R},
+        ) where {T,R}
             for r = 1:R
                 ctr = _core_checkpoint($round(ctr, key))
                 r == R || (key = $bump(key))
             end
             return ctr
         end
-        @inline $core(ctr::NTuple{N,T}, key::NTuple{K,T}) where {N,K,T} =
+        @inline $core(ctr::Tuple{T,Vararg{T}}, key::Tuple{T,Vararg{T}}) where {T} =
             $core(ctr, key, Val(_PHILOX_DEFAULT_ROUNDS))
     end
 end
