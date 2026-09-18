@@ -73,7 +73,7 @@ One line per file in `src/`, in include order:
 - `cpu_scheduler.jl` — CPU chunk sizes and the `_run_chunks` work loop.
 - `transformed_fill.jl` — the codec types and the transformed CPU fill and launchers.
 - `uniform.jl` — the uniform fill scaffold and its allocating entries.
-- `addressed.jl` — `randat` and the addressed-position arithmetic it shares with `randnat` and `randexpat`.
+- `addressed.jl` — `rand_at` and the addressed-position arithmetic it shares with `randn_at` and `randexp_at`.
 - `normal.jl` — the AS241 inverse normal CDF and the normal scaffold.
 - `exponential.jl` — the exponential transform and the exponential scaffold.
 - `integers.jl` — range span, range bits, and the multiply-shift range reduction.
@@ -122,10 +122,12 @@ using Pkg
 Pkg.activate(".")
 Pkg.instantiate()
 Pkg.activate("docs")
-Pkg.develop(path=pwd())
 Pkg.instantiate()
 include("docs/make.jl")
 ```
+
+The docs project points at this checkout through a `[sources]` entry, so no
+`Pkg.develop` call is needed and nothing is written back into `docs/Project.toml`.
 
 Open `docs/build/index.html`.
 The strict Documenter build runs CPU examples and checks exported docstrings and links.
@@ -135,12 +137,11 @@ Optional GPU and integration examples need their corresponding environments.
 
 Separate projects live in `test/environments`.
 Every environment is a package with its entry point at `test/runtests.jl`.
-Activate the relevant project and develop this checkout before running its tests:
+Each environment points at this checkout through a `[sources]` entry. Activate it and run its tests:
 
 ```julia
 using Pkg
 Pkg.activate("test/environments/distributions")
-Pkg.develop(path=pwd())
 Pkg.instantiate()
 include("test/environments/distributions/test/runtests.jl")
 ```
