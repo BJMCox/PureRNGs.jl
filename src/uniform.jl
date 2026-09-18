@@ -45,25 +45,21 @@ end
     return _fill_uniform_prevalidated!(rng, destination, threaded)
 end
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-    @eval begin
-        @inline function Random.rand!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded = true,
-        )
-            result, _ = _rand_next_fill!(rng, destination, _check_threaded(threaded))
-            return result
-        end
+@inline function Random.rand!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformResult}
+    result, _ = _rand_next_fill!(rng, destination, _check_threaded(threaded))
+    return result
+end
 
-        @inline function rand_next!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded = true,
-        )
-            return _rand_next_fill!(rng, destination, _check_threaded(threaded))
-        end
-    end
+@inline function rand_next!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformResult}
+    return _rand_next_fill!(rng, destination, _check_threaded(threaded))
 end
 
 @doc """
@@ -152,17 +148,16 @@ end
     return first(fill_next(_addressed_rng(rng, width, first(indices)), T, length(indices)))
 end
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-    @eval begin
-        @inline randat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
-            _draw_unchecked(_addressed_rng(rng, _draw_bits($T), i), $T)
-        @inline randat(
-            rng::_ScalarUniformGenerators,
-            ::Type{$T},
-            indices::AbstractUnitRange{<:Integer},
-        ) = _addressed_array(rng, $T, indices, _draw_bits($T), rand_next)
-    end
-end
+@inline randat(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    i::Integer,
+) where {T<:_UniformResult} = _draw_unchecked(_addressed_rng(rng, _draw_bits(T), i), T)
+@inline randat(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    indices::AbstractUnitRange{<:Integer},
+) where {T<:_UniformResult} = _addressed_array(rng, T, indices, _draw_bits(T), rand_next)
 
 @doc """
     randat(rng, T, i)

@@ -6,6 +6,8 @@ const _ScalarUniformGenerators =
 const _UniformInteger32 = Union{Int32,UInt32}
 const _UniformInteger64 = Union{Int64,UInt64}
 const _UniformInteger = Union{_UniformInteger32,_UniformInteger64}
+const _UniformFloat = Union{Float32,Float64}
+const _UniformResult = Union{Bool,_UniformInteger,_UniformFloat}
 
 @inline _draw_bits(::Type{Bool}) = UInt16(1)
 @inline _draw_bits(::Type{Float32}) = UInt16(24)
@@ -34,35 +36,17 @@ end
     Float32(value % UInt32) * Float32(0x1p-24)
 @inline _from_bits(::Type{Float64}, value::UInt64) = Float64(value) * 0x1p-53
 
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, ::Type{Bool}) =
-    _from_bits(Bool, _draw_raw(rng, Val(1)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, ::Type{Float32}) =
-    _from_bits(Float32, _draw_raw(rng, Val(24)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, ::Type{UInt32}) =
-    _from_bits(UInt32, _draw_raw(rng, Val(32)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, ::Type{Int32}) =
-    _from_bits(Int32, _draw_raw(rng, Val(32)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, ::Type{Float64}) =
-    _from_bits(Float64, _draw_raw(rng, Val(53)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, ::Type{UInt64}) =
-    _from_bits(UInt64, _draw_raw(rng, Val(64)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, ::Type{Int64}) =
-    _from_bits(Int64, _draw_raw(rng, Val(64)))
+@inline _draw_unchecked(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+) where {T<:_UniformResult} = _from_bits(T, _draw_raw(rng, Val(Int(_draw_bits(T)))))
 
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{Bool}) =
-    _from_bits(Bool, _draw_raw(rng, position, Val(1)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{Float32}) =
-    _from_bits(Float32, _draw_raw(rng, position, Val(24)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{UInt32}) =
-    _from_bits(UInt32, _draw_raw(rng, position, Val(32)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{Int32}) =
-    _from_bits(Int32, _draw_raw(rng, position, Val(32)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{Float64}) =
-    _from_bits(Float64, _draw_raw(rng, position, Val(53)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{UInt64}) =
-    _from_bits(UInt64, _draw_raw(rng, position, Val(64)))
-@inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{Int64}) =
-    _from_bits(Int64, _draw_raw(rng, position, Val(64)))
+@inline _draw_unchecked(
+    rng::_ScalarUniformGenerators,
+    position,
+    ::Type{T},
+) where {T<:_UniformResult} =
+    _from_bits(T, _draw_raw(rng, position, Val(Int(_draw_bits(T)))))
 
 @noinline function _untyped_draw_error(held_form::String, next_form::String)
     throw(
@@ -91,14 +75,10 @@ end
 
 @inline rand_next(rng::_ScalarUniformGenerators) = rand_next(rng, Float64)
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-    @eval begin
-        @inline Random.rand(rng::_ScalarUniformGenerators, ::Type{$T}) =
-            _rand_scalar(rng, $T)
-        @inline rand_next(rng::_ScalarUniformGenerators, ::Type{$T}) =
-            _rand_next_scalar(rng, $T)
-    end
-end
+@inline Random.rand(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformResult} =
+    _rand_scalar(rng, T)
+@inline rand_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformResult} =
+    _rand_next_scalar(rng, T)
 
 @doc """
     rand_next(rng[, T]) -> (value, next_rng)

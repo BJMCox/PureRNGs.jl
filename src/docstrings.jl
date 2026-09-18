@@ -1,6 +1,6 @@
 # Docstrings for the `Random` names this package extends. They are bound to
-# signatures rather than written above the definitions, because the methods come
-# from `@eval` loops over the supported element types.
+# signatures rather than written above the definitions, because each name's
+# methods are spread over several files.
 
 @doc """
     rand(rng::AbstractPureRNG, T) -> value

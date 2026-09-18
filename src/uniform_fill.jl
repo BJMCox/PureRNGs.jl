@@ -608,15 +608,15 @@ end
     return nothing
 end
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
-    @eval @inline _fill_uniform_dense_cpu!(
-        rng::Philox4x32,
-        position::_Position64,
-        destination::Array{$T},
-        ::Type{$T},
-        indices,
-    ) = _fill_uniform_blocks4_cpu!(rng, position, destination, $T, indices)
-end
+# Float64 is excluded so the @generated group path above keeps the dispatch.
+@inline _fill_uniform_dense_cpu!(
+    rng::Philox4x32,
+    position::_Position64,
+    destination::Array{T},
+    ::Type{T},
+    indices,
+) where {T<:Union{Bool,_UniformInteger,Float32}} =
+    _fill_uniform_blocks4_cpu!(rng, position, destination, T, indices)
 
 @inline function _fill_uniform_dense_cpu!(
     rng,

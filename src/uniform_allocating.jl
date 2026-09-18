@@ -14,29 +14,31 @@ end
 @inline rand_next(rng::_ScalarUniformGenerators, dims::Dims) =
     _rand_next_uniform_array(rng, Float64, dims)
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-    @eval begin
-        @inline function Random.rand(
-            rng::_ScalarUniformGenerators,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            destination, _ = _rand_next_uniform_array(rng, $T, (dim1, dims...))
-            return destination
-        end
-        @inline Random.rand(rng::_ScalarUniformGenerators, ::Type{$T}, dims::Dims) =
-            first(_rand_next_uniform_array(rng, $T, dims))
-
-        @inline function rand_next(
-            rng::_ScalarUniformGenerators,
-            ::Type{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return _rand_next_uniform_array(rng, $T, (dim1, dims...))
-        end
-        @inline rand_next(rng::_ScalarUniformGenerators, ::Type{$T}, dims::Dims) =
-            _rand_next_uniform_array(rng, $T, dims)
-    end
+@inline function Random.rand(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_UniformResult}
+    destination, _ = _rand_next_uniform_array(rng, T, (dim1, dims...))
+    return destination
 end
+@inline Random.rand(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dims::Dims,
+) where {T<:_UniformResult} = first(_rand_next_uniform_array(rng, T, dims))
+
+@inline function rand_next(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_UniformResult}
+    return _rand_next_uniform_array(rng, T, (dim1, dims...))
+end
+@inline rand_next(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dims::Dims,
+) where {T<:_UniformResult} = _rand_next_uniform_array(rng, T, dims)

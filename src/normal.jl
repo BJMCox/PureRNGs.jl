@@ -159,21 +159,21 @@ end
 
 @inline randn_next(rng::_ScalarUniformGenerators) = randn_next(rng, Float64)
 
-for T in (Float32, Float64)
-    @eval begin
-        @inline Random.randn(rng::_ScalarUniformGenerators, ::Type{$T}) =
-            _randn_scalar(rng, $T)
-        @inline randn_next(rng::_ScalarUniformGenerators, ::Type{$T}) =
-            _randn_next_scalar(rng, $T)
-        @inline randnat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
-            _draw_normal_unchecked(_addressed_rng(rng, _normal_bits($T), i), $T)
-        @inline randnat(
-            rng::_ScalarUniformGenerators,
-            ::Type{$T},
-            indices::AbstractUnitRange{<:Integer},
-        ) = _addressed_array(rng, $T, indices, _normal_bits($T), randn_next)
-    end
-end
+@inline Random.randn(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
+    _randn_scalar(rng, T)
+@inline randn_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
+    _randn_next_scalar(rng, T)
+@inline randnat(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    i::Integer,
+) where {T<:_UniformFloat} =
+    _draw_normal_unchecked(_addressed_rng(rng, _normal_bits(T), i), T)
+@inline randnat(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    indices::AbstractUnitRange{<:Integer},
+) where {T<:_UniformFloat} = _addressed_array(rng, T, indices, _normal_bits(T), randn_next)
 
 @doc """
     randn_next(rng[, T]) -> (value, next_rng)
@@ -214,25 +214,21 @@ positive or the addressed draw exceeds the generator's counter capacity.
     return _rand_transformed_next_fill!(rng, destination, threaded, Val(:normal))
 end
 
-for T in (Float32, Float64)
-    @eval begin
-        @inline function Random.randn!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded = true,
-        )
-            result, _ = _randn_next_fill!(rng, destination, _check_threaded(threaded))
-            return result
-        end
+@inline function Random.randn!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformFloat}
+    result, _ = _randn_next_fill!(rng, destination, _check_threaded(threaded))
+    return result
+end
 
-        @inline function randn_next!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded = true,
-        )
-            return _randn_next_fill!(rng, destination, _check_threaded(threaded))
-        end
-    end
+@inline function randn_next!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformFloat}
+    return _randn_next_fill!(rng, destination, _check_threaded(threaded))
 end
 
 @doc """
