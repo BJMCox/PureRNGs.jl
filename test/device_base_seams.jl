@@ -34,7 +34,7 @@ end
     empty = DeviceValidationProbe(UInt32[])
 
     empty!(DEVICE_VALIDATION_EVENTS)
-    @test_throws TypeError rand_next!(cpu_rng, empty; threaded = 1)
+    @test_throws ArgumentError rand_next!(cpu_rng, empty; threaded = 1)
     @test isempty(DEVICE_VALIDATION_EVENTS)
 
     empty!(DEVICE_VALIDATION_EVENTS)

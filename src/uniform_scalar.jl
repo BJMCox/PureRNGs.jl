@@ -64,9 +64,22 @@ end
 @inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{Int64}) =
     _from_bits(Int64, _draw_raw(rng, position, Val(64)))
 
-function Random.rand(::AbstractPureRNG)
-    throw(ArgumentError("untyped immutable draws are forbidden; use rand(rng, T)"))
+@noinline function _untyped_draw_error(held_form::String, next_form::String)
+    throw(
+        ArgumentError(
+            "untyped immutable draws are forbidden; use $held_form to draw at the " *
+            "held position, or $next_form to advance",
+        ),
+    )
 end
+
+# [R23] Nine guard methods keep Base's untyped fallbacks unreachable. The dims
+# spellings would otherwise reach `Random.Sampler` through the collection path.
+Random.rand(::AbstractPureRNG) = _untyped_draw_error("rand(rng, T)", "rand_next(rng, T)")
+Random.rand(::AbstractPureRNG, ::Integer, ::Integer...) =
+    _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
+Random.rand(::AbstractPureRNG, ::Dims) =
+    _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
 
 @inline function _rand_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve_scalar(rng, _draw_bits(T))
@@ -123,17 +136,30 @@ julia> first(rand_next(rng, UInt32, 3))
 ```
 """ rand_next
 
-@noinline function _fill_device_mismatch()
-    throw(ArgumentError("destination device differs from the generator device"))
+# Section 11 makes a non-Bool `threaded` an ArgumentError, so the public fill
+# keywords stay untyped and pass through here. The asserted return keeps the
+# fill body type-stable.
+@noinline function _check_threaded(threaded)
+    threaded isa Bool ||
+        throw(ArgumentError("threaded must be a Bool, got $(typeof(threaded))"))
+    return threaded::Bool
 end
 
-@inline function _same_fill_device(generator_device::_BackendToken, destination)
-    return MLDataDevices.get_device_type(generator_device) ===
-           MLDataDevices.get_device_type(destination)
+@noinline function _fill_device_mismatch(generator_device, destination_device)
+    throw(
+        ArgumentError(
+            "destination device differs from the generator device: generator on " *
+            "$generator_device, destination on $destination_device",
+        ),
+    )
 end
 
+# The destination device is read once: a destination may count the query.
 @inline function _check_fill_device(rng::_ScalarUniformGenerators, destination)
-    _same_fill_device(rng.device, destination) || _fill_device_mismatch()
+    generator_device = MLDataDevices.get_device_type(rng.device)
+    destination_device = MLDataDevices.get_device_type(destination)
+    generator_device === destination_device ||
+        _fill_device_mismatch(generator_device, destination_device)
     return nothing
 end
 

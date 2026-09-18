@@ -50,18 +50,18 @@ for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
         @inline function Random.rand!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            result, _ = _rand_next_fill!(rng, destination, threaded)
+            result, _ = _rand_next_fill!(rng, destination, _check_threaded(threaded))
             return result
         end
 
         @inline function rand_next!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            return _rand_next_fill!(rng, destination, threaded)
+            return _rand_next_fill!(rng, destination, _check_threaded(threaded))
         end
     end
 end

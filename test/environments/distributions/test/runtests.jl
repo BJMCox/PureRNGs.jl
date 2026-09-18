@@ -259,6 +259,28 @@ end
     @test_throws StreamExhausted randat(last, distribution, 2)
 end
 
+@testset "Section 11 non-Bool threaded on the extension fills" begin
+    rng = Philox4x32(0x906)
+    normal = Normal()
+    categorical = Categorical([0.25, 0.75])
+    calls = (
+        () -> rand!(rng, normal, Vector{Float64}(undef, 4); threaded = 1),
+        () -> rand_next!(rng, normal, Vector{Float64}(undef, 4); threaded = 1),
+        () -> rand!(rng, categorical, Vector{Int}(undef, 4); threaded = 1),
+        () -> rand_next!(rng, categorical, Vector{Int}(undef, 4); threaded = 1),
+    )
+    for call in calls
+        @test_throws ArgumentError call()
+        message = try
+            call()
+            ""
+        catch error
+            sprint(showerror, error)
+        end
+        @test occursin("threaded", message)
+    end
+end
+
 @testset "R1 and R64 allocations and ambiguity freedom" begin
     rng = Philox4x32(0x905)
     normal = Normal{Float32}(0.0f0, 1.0f0)

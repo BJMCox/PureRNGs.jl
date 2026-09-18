@@ -128,9 +128,12 @@ end
 @inline _draw_exponential_unchecked(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
     _draw_exponential_unchecked(rng, rng.position, T)
 
-function Random.randexp(::AbstractPureRNG)
-    throw(ArgumentError("untyped immutable draws are forbidden; use randexp(rng, T)"))
-end
+Random.randexp(::AbstractPureRNG) =
+    _untyped_draw_error("randexp(rng, T)", "randexp_next(rng, T)")
+Random.randexp(::AbstractPureRNG, ::Integer, ::Integer...) =
+    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
+Random.randexp(::AbstractPureRNG, ::Dims) =
+    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
 
 @inline function _randexp_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve_scalar(rng, _exponential_bits(T))
@@ -207,18 +210,18 @@ for T in (Float32, Float64)
         @inline function Random.randexp!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            result, _ = _randexp_next_fill!(rng, destination, threaded)
+            result, _ = _randexp_next_fill!(rng, destination, _check_threaded(threaded))
             return result
         end
 
         @inline function randexp_next!(
             rng::_ScalarUniformGenerators,
             destination::AbstractArray{$T};
-            threaded::Bool = true,
+            threaded = true,
         )
-            return _randexp_next_fill!(rng, destination, threaded)
+            return _randexp_next_fill!(rng, destination, _check_threaded(threaded))
         end
     end
 end

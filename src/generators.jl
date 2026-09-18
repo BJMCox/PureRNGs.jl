@@ -435,23 +435,36 @@ for (alias, F, R) in _ROUND_ALIASES
     end
 end
 
-function _seed_key(::Type{T}, ::Val{N}, seed::Integer) where {T<:Unsigned,N}
+@noinline function _seed_width_error(family::Symbol, key_bits::Int)
+    throw(ArgumentError("seed exceeds the $family key width of $key_bits bits"))
+end
+
+function _seed_key(::Type{T}, ::Val{N}, seed::Integer, family::Symbol) where {T<:Unsigned,N}
     seed < 0 && throw(ArgumentError("seed must be non-negative"))
     bits = 8 * sizeof(T)
     value = seed isa Base.BitInteger ? unsigned(seed) : BigInt(seed)
-    iszero(value >> (bits * N)) || throw(ArgumentError("seed exceeds the key width"))
+    iszero(value >> (bits * N)) || _seed_width_error(family, bits * N)
     return ntuple(i -> (value >> (bits * (i - 1))) % T, Val(N))
 end
 
-@inline _family_key(::Type{<:Philox2x32}, seed::Integer) = _seed_key(UInt32, Val(1), seed)
-@inline _family_key(::Type{<:Philox4x32}, seed::Integer) = _seed_key(UInt32, Val(2), seed)
-@inline _family_key(::Type{<:Philox2x64}, seed::Integer) = _seed_key(UInt64, Val(1), seed)
-@inline _family_key(::Type{<:Philox4x64}, seed::Integer) = _seed_key(UInt64, Val(2), seed)
-@inline _family_key(::Type{<:Threefry2x32}, seed::Integer) = _seed_key(UInt32, Val(2), seed)
-@inline _family_key(::Type{<:Threefry4x32}, seed::Integer) = _seed_key(UInt32, Val(4), seed)
-@inline _family_key(::Type{<:Threefry2x64}, seed::Integer) = _seed_key(UInt64, Val(2), seed)
-@inline _family_key(::Type{<:Threefry4x64}, seed::Integer) = _seed_key(UInt64, Val(4), seed)
-@inline _family_key(::Type{<:ChaCha}, seed::Integer) = _seed_key(UInt32, Val(8), seed)
+@inline _family_key(::Type{<:Philox2x32}, seed::Integer) =
+    _seed_key(UInt32, Val(1), seed, :Philox2x32)
+@inline _family_key(::Type{<:Philox4x32}, seed::Integer) =
+    _seed_key(UInt32, Val(2), seed, :Philox4x32)
+@inline _family_key(::Type{<:Philox2x64}, seed::Integer) =
+    _seed_key(UInt64, Val(1), seed, :Philox2x64)
+@inline _family_key(::Type{<:Philox4x64}, seed::Integer) =
+    _seed_key(UInt64, Val(2), seed, :Philox4x64)
+@inline _family_key(::Type{<:Threefry2x32}, seed::Integer) =
+    _seed_key(UInt32, Val(2), seed, :Threefry2x32)
+@inline _family_key(::Type{<:Threefry4x32}, seed::Integer) =
+    _seed_key(UInt32, Val(4), seed, :Threefry4x32)
+@inline _family_key(::Type{<:Threefry2x64}, seed::Integer) =
+    _seed_key(UInt64, Val(2), seed, :Threefry2x64)
+@inline _family_key(::Type{<:Threefry4x64}, seed::Integer) =
+    _seed_key(UInt64, Val(4), seed, :Threefry4x64)
+@inline _family_key(::Type{<:ChaCha}, seed::Integer) =
+    _seed_key(UInt32, Val(8), seed, :ChaCha)
 
 for F in _GENERATOR_SYMBOLS
     @eval $F(seed::Integer) = $F(_family_key($F, seed))

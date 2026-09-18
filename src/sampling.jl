@@ -18,7 +18,10 @@ end
 @inline _check_sampling_serviceability(rng) = nothing
 
 @inline function _check_sampling_fill_device(rng, destination::Array)
-    rng.device isa _CPUBackend || _fill_device_mismatch()
+    rng.device isa _CPUBackend || _fill_device_mismatch(
+        MLDataDevices.get_device_type(rng.device),
+        MLDataDevices.CPUDevice,
+    )
     return nothing
 end
 
@@ -471,9 +474,16 @@ julia> randsample!(rng, [10, 20, 30, 40], destination)
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
-    return first(_randsample_next_unweighted!(rng, population, destination, threaded))
+    return first(
+        _randsample_next_unweighted!(
+            rng,
+            population,
+            destination,
+            _check_threaded(threaded),
+        ),
+    )
 end
 
 """
@@ -487,7 +497,12 @@ The input generator is not changed.
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
-    return _randsample_next_unweighted!(rng, population, destination, threaded)
+    return _randsample_next_unweighted!(
+        rng,
+        population,
+        destination,
+        _check_threaded(threaded),
+    )
 end

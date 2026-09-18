@@ -79,8 +79,14 @@ end
     rng = Philox4x32(0xa71)
     R = typeof(rng)
     require(rand, Tuple{R})
+    require(rand, Tuple{R,Int})
+    require(rand, Tuple{R,Tuple{Int}})
     require(randn, Tuple{R})
+    require(randn, Tuple{R,Int})
+    require(randn, Tuple{R,Tuple{Int}})
     require(randexp, Tuple{R})
+    require(randexp, Tuple{R,Int})
+    require(randexp, Tuple{R,Tuple{Int}})
     require(rand_next, Tuple{R})
     require(rand_next, Tuple{R,Int})
     require(rand_next, Tuple{R,Tuple{Int}})
@@ -308,7 +314,7 @@ end
             () -> rand_next(exhausted, UInt8(1):UInt8(2), 1),
         ),
     )
-    type_errors = (
+    threaded_errors = (
         (:uniform_threaded_type, () -> rand!(rng, Vector{UInt32}(undef, 1); threaded = 1)),
         (
             :uniform_continuation_threaded_type,
@@ -343,7 +349,7 @@ end
     for (expected, cases) in (
         (ArgumentError, argument_errors),
         (StreamExhausted, exhausted_errors),
-        (TypeError, type_errors),
+        (ArgumentError, threaded_errors),
         (MethodError, method_errors),
     )
         for (name, call) in cases

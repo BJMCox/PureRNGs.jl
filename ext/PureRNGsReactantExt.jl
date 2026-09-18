@@ -840,17 +840,18 @@ for (fill, fill_next, draw_next, T) in (
         @inline function $fill_next(
             rng::_ReactantRNG,
             destination::_TracedArray{T};
-            threaded::Bool = true,
+            threaded = true,
         ) where {T<:$T}
+            IR._check_threaded(threaded)
             values, next_rng = $draw_next(rng, T, size(destination)...)
             return _store!(destination, values), next_rng
         end
         @inline function $fill(
             rng::_ReactantRNG,
             destination::_TracedArray{T};
-            threaded::Bool = true,
+            threaded = true,
         ) where {T<:$T}
-            return first($fill_next(rng, destination))
+            return first($fill_next(rng, destination; threaded))
         end
     end
 end

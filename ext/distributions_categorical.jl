@@ -164,9 +164,10 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     destination::AbstractArray{Int};
-    threaded::Bool = true,
+    threaded = true,
 )
-    result, _ = _rand_categorical_next_fill!(rng, d, destination, threaded)
+    result, _ =
+        _rand_categorical_next_fill!(rng, d, destination, IR._check_threaded(threaded))
     return result
 end
 
@@ -174,7 +175,7 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     destination::AbstractArray{Int};
-    threaded::Bool = true,
+    threaded = true,
 )
-    return _rand_categorical_next_fill!(rng, d, destination, threaded)
+    return _rand_categorical_next_fill!(rng, d, destination, IR._check_threaded(threaded))
 end
