@@ -116,18 +116,18 @@ end
     for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         last = _terminal_exponential_rng(F, T)
         position = last.position
-        @test randexpat(last, T, 1) === randexp(last, T)
+        @test randexp_at(last, T, 1) === randexp(last, T)
         @test last.position == position
-        @test_throws ArgumentError randexpat(last, T, 0)
-        @test_throws ArgumentError randexpat(last, T, -1)
-        @test_throws StreamExhausted randexpat(last, T, 2)
+        @test_throws ArgumentError randexp_at(last, T, 0)
+        @test_throws ArgumentError randexp_at(last, T, -1)
+        @test_throws StreamExhausted randexp_at(last, T, 2)
         @test last.position == position
 
         exhausted_position =
             position isa IR._Position64 ? IR._terminal64(IR._max_block(last)) :
             IR._terminal128()
         exhausted = IR._rebuild(last, exhausted_position, last.device)
-        @test_throws StreamExhausted randexpat(exhausted, T, 1)
+        @test_throws StreamExhausted randexp_at(exhausted, T, 1)
         @test exhausted.position == exhausted_position
     end
 end
@@ -141,13 +141,13 @@ end
             value, next_rng = randexp_next(rng, T)
             @test value === pure
             @test next_rng.position == _reference_position(rng, _exponential_width(T))
-            @test randexpat(rng, T, 1) === pure
+            @test randexp_at(rng, T, 1) === pure
             third_rng = IR._rebuild(
                 rng,
                 _reference_position(rng, 2 * _exponential_width(T)),
                 rng.device,
             )
-            @test randexpat(rng, T, 3) === randexp(third_rng, T)
+            @test randexp_at(rng, T, 3) === randexp(third_rng, T)
         end
     end
 

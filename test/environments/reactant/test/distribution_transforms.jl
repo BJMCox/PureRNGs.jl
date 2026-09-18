@@ -17,7 +17,7 @@ function _six_transform_snapshot(rng, d)
         six_transform_formula(d, input, muladd),
         next_rng,
         expected_next,
-        randat(rng, d, 3),
+        rand_at(rng, d, 3),
         six_transform_formula(d, addressed_input, muladd),
     )
 end

@@ -17,8 +17,11 @@ function _reference_chain(rng, ::Type{T}, count::Int) where {T}
     return cursor, values
 end
 
-uniform_allocations(rng, ::Type{T}) where {T} =
-    (@allocated(rand(rng, T)), @allocated(rand_next(rng, T)), @allocated(randat(rng, T, 3)))
+uniform_allocations(rng, ::Type{T}) where {T} = (
+    @allocated(rand(rng, T)),
+    @allocated(rand_next(rng, T)),
+    @allocated(rand_at(rng, T, 3))
+)
 
 function _serial_fill_allocations(rng, destination)
     rand_next!(rng, destination; threaded = false)
@@ -93,7 +96,7 @@ end
         @test reinterpret(U, signed_value) === unsigned_value
         @test signed_next.position == unsigned_next.position
 
-        @test reinterpret(U, randat(rng, S, 7)) === randat(rng, U, 7)
+        @test reinterpret(U, rand_at(rng, S, 7)) === rand_at(rng, U, 7)
 
         signed_fill = Vector{S}(undef, 129)
         unsigned_fill = Vector{U}(undef, 129)
@@ -125,7 +128,7 @@ end
         cursor = rng
         for i = 1:9
             expected = _reference_uniform(cursor, T)
-            @test randat(rng, T, i) === expected
+            @test rand_at(rng, T, i) === expected
             cursor = IR._rebuild(
                 cursor,
                 _reference_position(cursor, _uniform_width(T)),
@@ -133,8 +136,8 @@ end
             )
         end
         @test rng.position.bit === UInt16(47)
-        @test_throws ArgumentError randat(rng, T, 0)
-        @test_throws ArgumentError randat(rng, T, -1)
+        @test_throws ArgumentError rand_at(rng, T, 0)
+        @test_throws ArgumentError rand_at(rng, T, -1)
     end
 
     for F in (Philox2x64, Threefry2x64)
@@ -145,8 +148,8 @@ end
             IR._Position64(typemax(UInt64), IR._block_bits(rng) - UInt16(64)),
             rng.device,
         )
-        @test randat(rng, UInt64, final_index) === rand(last, UInt64)
-        @test_throws StreamExhausted randat(rng, UInt64, final_index + 1)
+        @test rand_at(rng, UInt64, final_index) === rand(last, UInt64)
+        @test_throws StreamExhausted rand_at(rng, UInt64, final_index + 1)
     end
 
     for F in (Philox4x64, Threefry4x64)
@@ -161,15 +164,15 @@ end
             ),
             rng.device,
         )
-        @test randat(rng, UInt64, final_index) === rand(last, UInt64)
-        @test_throws StreamExhausted randat(rng, UInt64, final_index + 1)
+        @test rand_at(rng, UInt64, final_index) === rand(last, UInt64)
+        @test_throws StreamExhausted rand_at(rng, UInt64, final_index + 1)
 
         near_end = IR._rebuild(
             rng,
             IR._Position128(typemax(UInt64), typemax(UInt64), UInt16(0)),
             rng.device,
         )
-        @test randat(near_end, UInt64, UInt64(4)) === rand(
+        @test rand_at(near_end, UInt64, UInt64(4)) === rand(
             IR._rebuild(
                 near_end,
                 IR._Position128(typemax(UInt64), typemax(UInt64), UInt16(192)),
@@ -177,7 +180,7 @@ end
             ),
             UInt64,
         )
-        @test_throws StreamExhausted randat(near_end, UInt64, UInt64(5))
+        @test_throws StreamExhausted rand_at(near_end, UInt64, UInt64(5))
     end
 end
 
@@ -188,8 +191,8 @@ end
         IR._Position64(IR._max_block(base), IR._block_bits(base) - UInt16(32)),
         base.device,
     )
-    @test randat(last, UInt32, UInt64(1)) === rand(last, UInt32)
-    @test_throws StreamExhausted randat(last, UInt32, UInt64(2))
+    @test rand_at(last, UInt32, UInt64(1)) === rand(last, UInt32)
+    @test_throws StreamExhausted rand_at(last, UInt32, UInt64(2))
 end
 
 @testset "R26 packed CPU fills, shapes, views, and BitArray" begin
@@ -409,7 +412,7 @@ end
     for (function_, signature) in (
         (rand, Tuple{typeof(rng),Type{UInt64}}),
         (rand_next, Tuple{typeof(rng),Type{Float64}}),
-        (randat, Tuple{typeof(rng),Type{UInt32},Int}),
+        (rand_at, Tuple{typeof(rng),Type{UInt32},Int}),
     )
         typed_ir = sprint(show, code_typed(function_, signature; optimize = true))
         llvm_ir = sprint() do io
@@ -455,11 +458,11 @@ end
 
 @testset "R29 addressed draw ranges" begin
     rng = _positioned(Philox4x64, 0x524, UInt64(5), UInt16(47))
-    @test randat(rng, Float64, 3:7) == [randat(rng, Float64, i) for i = 3:7]
-    @test randnat(rng, Float32, 2:5) == [randnat(rng, Float32, i) for i = 2:5]
-    @test randexpat(rng, Float64, 4:9) == [randexpat(rng, Float64, i) for i = 4:9]
-    @test randat(rng, UInt32, 5:4) == UInt32[]
-    @test_throws ArgumentError randat(rng, UInt32, 0:3)
+    @test rand_at(rng, Float64, 3:7) == [rand_at(rng, Float64, i) for i = 3:7]
+    @test randn_at(rng, Float32, 2:5) == [randn_at(rng, Float32, i) for i = 2:5]
+    @test randexp_at(rng, Float64, 4:9) == [randexp_at(rng, Float64, i) for i = 4:9]
+    @test rand_at(rng, UInt32, 5:4) == UInt32[]
+    @test_throws ArgumentError rand_at(rng, UInt32, 0:3)
 end
 
 @testset "R8 fills keep one stream across index styles" begin

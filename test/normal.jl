@@ -149,7 +149,7 @@ end
 normal_allocations(rng, ::Type{T}) where {T} = (
     @allocated(randn(rng, T)),
     @allocated(randn_next(rng, T)),
-    @allocated(randnat(rng, T, 3)),
+    @allocated(randn_at(rng, T, 3)),
 )
 
 function _serial_normal_fill_allocations(rng, destination)
@@ -278,8 +278,8 @@ end
             value, next_rng = randn_next(rng, T)
             @test value === expected
             @test next_rng.position == _reference_position(rng, _normal_width(T))
-            @test randnat(rng, T, 1) === expected
-            @test randnat(rng, T, 3) === _reference_normal(
+            @test randn_at(rng, T, 1) === expected
+            @test randn_at(rng, T, 3) === _reference_normal(
                 IR._rebuild(
                     rng,
                     _reference_position(rng, 2 * _normal_width(T)),
@@ -307,8 +307,8 @@ end
         @test exhausted.position.bit === IR._EXHAUSTED_BIT
         @test_throws StreamExhausted randn(exhausted, T)
         @test_throws StreamExhausted randn_next(exhausted, T)
-        @test_throws StreamExhausted randnat(terminal_rng, T, 2)
-        @test_throws StreamExhausted randnat(exhausted, T, 1)
+        @test_throws StreamExhausted randn_at(terminal_rng, T, 2)
+        @test_throws StreamExhausted randn_at(exhausted, T, 1)
     end
 end
 
@@ -343,7 +343,7 @@ end
     for (function_, signature) in (
         (randn, Tuple{typeof(rng),Type{Float64}}),
         (randn_next, Tuple{typeof(rng),Type{Float32}}),
-        (randnat, Tuple{typeof(rng),Type{Float64},Int}),
+        (randn_at, Tuple{typeof(rng),Type{Float64},Int}),
     )
         typed_ir = sprint(show, code_typed(function_, signature; optimize = true))
         llvm_ir = sprint() do io
@@ -361,8 +361,8 @@ end
         @test !occursin(r"\bi128\b", llvm_ir)
     end
 
-    @test_throws ArgumentError randnat(rng, Float64, 0)
-    @test_throws ArgumentError randnat(rng, Float32, -1)
+    @test_throws ArgumentError randn_at(rng, Float64, 0)
+    @test_throws ArgumentError randn_at(rng, Float32, -1)
 end
 
 @testset "R23, R24, and R26 packed normal fills and allocations" begin

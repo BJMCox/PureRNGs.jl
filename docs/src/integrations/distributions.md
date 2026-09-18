@@ -11,7 +11,7 @@ values, rng = rand_next(rng, distribution, 1024)
 
 buffer = similar(values)
 _, rng = rand_next!(rng, distribution, buffer; threaded=false)
-x = randat(rng, distribution, 1)
+x = rand_at(rng, distribution, 1)
 ```
 
 ## Direct immutable methods
@@ -109,7 +109,7 @@ labels, rng = rand_next(rng, distribution, 1024)
 
 buffer = similar(labels)
 _, rng = rand_next!(rng, distribution, buffer; threaded=false)
-label = randat(rng, distribution, 1)
+label = rand_at(rng, distribution, 1)
 ```
 
 Scalar and addressed Categorical calls prepare their cumulative weights on the

@@ -50,7 +50,7 @@ end
         @test actual === expected_scalar
         @test actual_next === expected_scalar_next
 
-        @test [randat(rng, distribution, index) for index in eachindex(expected)] == expected
+        @test [rand_at(rng, distribution, index) for index in eachindex(expected)] == expected
 
         allocated = rand(rng, distribution, length(expected))
         @test allocated == expected

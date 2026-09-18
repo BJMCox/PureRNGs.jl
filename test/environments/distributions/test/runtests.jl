@@ -59,20 +59,20 @@ end
 primitive_next(rng, d::DiscreteUniform) = rand_next(rng, d.a:d.b)
 
 function primitive_at(rng, d::Normal{T}, index) where {T}
-    return fma(d.σ, randnat(rng, T, index), d.μ)
+    return fma(d.σ, randn_at(rng, T, index), d.μ)
 end
 
 function primitive_at(rng, d::Uniform{T}, index) where {T}
     width = d.b - d.a
-    scaled = width * randat(rng, T, index)
+    scaled = width * rand_at(rng, T, index)
     return d.a + scaled
 end
 
-primitive_at(rng, d::Exponential{T}, index) where {T} = d.θ * randexpat(rng, T, index)
+primitive_at(rng, d::Exponential{T}, index) where {T} = d.θ * randexp_at(rng, T, index)
 
-primitive_at(rng, d::Bernoulli{T}, index) where {T} = randat(rng, T, index) < d.p
+primitive_at(rng, d::Bernoulli{T}, index) where {T} = rand_at(rng, T, index) < d.p
 
-primitive_at(rng, d::DiscreteUniform, index) = randat(rng, d.a:d.b, index)
+primitive_at(rng, d::DiscreteUniform, index) = rand_at(rng, d.a:d.b, index)
 
 function primitive_chain(rng, distribution, count)
     values = Vector{fixed_result_type(distribution)}(undef, count)
@@ -88,12 +88,12 @@ invalid_error(f) = @test_throws ArgumentError f()
 function distribution_allocations(rng, distribution, destination)
     rand(rng, distribution)
     rand_next(rng, distribution)
-    randat(rng, distribution, 2)
+    rand_at(rng, distribution, 2)
     rand_next!(rng, distribution, destination; threaded = false)
     return (
         @allocated(rand(rng, distribution)),
         @allocated(rand_next(rng, distribution)),
-        @allocated(randat(rng, distribution, 2)),
+        @allocated(rand_at(rng, distribution, 2)),
         @allocated(rand_next!(rng, distribution, destination; threaded = false)),
     )
 end
@@ -110,7 +110,7 @@ end
         actual, actual_next = rand_next(rng, distribution)
         @test actual === expected
         @test actual_next === expected_next
-        @test randat(rng, distribution, 4) === primitive_at(rng, distribution, 4)
+        @test rand_at(rng, distribution, 4) === primitive_at(rng, distribution, 4)
         @test rand(rng, distribution) === rand(rng, distribution)
     end
 end
@@ -229,7 +229,7 @@ end
     result_type = fixed_result_type(distribution)
     destination = Vector{result_type}(undef, 0)
     invalid_error(() -> rand_next(exhausted, distribution))
-    invalid_error(() -> randat(exhausted, distribution, 0))
+    invalid_error(() -> rand_at(exhausted, distribution, 0))
     invalid_error(() -> rand(exhausted, distribution, -1))
     invalid_error(() -> rand_next(exhausted, distribution, -1))
     invalid_error(() -> rand!(exhausted, distribution, destination))
@@ -243,14 +243,14 @@ end
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     @test_throws StreamExhausted rand(exhausted, distribution)
     @test_throws StreamExhausted rand_next(exhausted, distribution)
-    @test_throws ArgumentError randat(rng, distribution, 0)
+    @test_throws ArgumentError rand_at(rng, distribution, 0)
     width = EXT._distribution_span(distribution)
     last = IR._rebuild(
         rng,
         IR._Position64(IR._max_block(rng), IR._block_bits(rng) - width),
         rng.device,
     )
-    @test_throws StreamExhausted randat(last, distribution, 2)
+    @test_throws StreamExhausted rand_at(last, distribution, 2)
 end
 
 @testset "Section 11 non-Bool threaded on the extension fills" begin

@@ -428,7 +428,7 @@ for T in (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64)
         @inline function IR.rand_next(rng::_ReactantRNG, ::Type{$T})
             return _draw(rng, $T), _advance(rng, UInt64(IR._draw_bits($T)))
         end
-        @inline function IR.randat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
+        @inline function IR.rand_at(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _draw(IR._addressed_rng(rng, IR._draw_bits($T), index), $T)
         end
     end
@@ -531,7 +531,7 @@ for T in (Float32, Float64)
         @inline function IR.randn_next(rng::_ReactantRNG, ::Type{$T})
             return _normal_value(rng, $T), _advance(rng, UInt64(IR._normal_bits($T)))
         end
-        @inline function IR.randnat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
+        @inline function IR.randn_at(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _normal_value(IR._addressed_rng(rng, IR._normal_bits($T), index), $T)
         end
         @inline Random.randexp(rng::_ReactantRNG, ::Type{$T}) = _exponential_value(rng, $T)
@@ -539,7 +539,7 @@ for T in (Float32, Float64)
             return _exponential_value(rng, $T),
             _advance(rng, UInt64(IR._exponential_bits($T)))
         end
-        @inline function IR.randexpat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
+        @inline function IR.randexp_at(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _exponential_value(
                 IR._addressed_rng(rng, IR._exponential_bits($T), index),
                 $T,
@@ -795,13 +795,13 @@ end
 
 for (at, fill_next, bits, types) in (
     (
-        :(IR.randat),
+        :(IR.rand_at),
         :(IR.rand_next),
         :(IR._draw_bits),
         (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64),
     ),
-    (:(IR.randnat), :(IR.randn_next), :(IR._normal_bits), (Float32, Float64)),
-    (:(IR.randexpat), :(IR.randexp_next), :(IR._exponential_bits), (Float32, Float64)),
+    (:(IR.randn_at), :(IR.randn_next), :(IR._normal_bits), (Float32, Float64)),
+    (:(IR.randexp_at), :(IR.randexp_next), :(IR._exponential_bits), (Float32, Float64)),
 )
     for T in types
         @eval @inline function $at(

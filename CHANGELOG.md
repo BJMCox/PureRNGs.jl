@@ -19,7 +19,7 @@ Initial development release.
 - A host-only `Random.AbstractRNG` bridge.
 - `rngkey` and `rngposition` accessors, and constructors that rebuild a generator at a saved position.
 - Array dimensions as one tuple, integer-range destination fills, and addressed draws over an index range.
-- `randat(rng, range, i)` addresses a single integer-range draw.
+- `rand_at(rng, range, i)` addresses a single integer-range draw.
 - `WeightTable` for reusable weighted sampling preparation.
 - Every GPU backend prepares weighted samples with a parallel fold kernel and selects them by binary search over the cumulative table. AMDGPU and Metal no longer run a single-work-item scan with a device `sortperm`.
 - `splitrng(rng, n; threaded=true)` derives large child vectors on all CPU threads. The children do not depend on the keyword.
@@ -29,3 +29,7 @@ Initial development release.
 - A PrecompileTools workload over every public draw kind, in the package and in the Distributions extension. The first fill, scalar draw, and distribution draw of a session no longer compile.
 - KernelAbstractions is a weak dependency. The device kernels moved to `PureRNGsKernelAbstractionsExt`, which every GPU backend package loads transitively. A CPU-only environment resolves 22 packages instead of 34 and loads in 0.04 s instead of 0.17 s.
 - A workflow-led manual, CPU and GPU tutorials, and an exported API reference.
+
+### Changed
+
+- The addressed draws are `rand_at`, `randn_at`, and `randexp_at`, matching the `_next` continuation family. They were `randat`, `randnat`, and `randexpat`, and those spellings are gone.

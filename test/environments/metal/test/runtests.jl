@@ -241,7 +241,7 @@ end
         next_value, next_rng = IR.rand_next(rng, distribution)
         @test isequal(value, rand(rng, distribution))
         @test isequal(next_value, value)
-        @test isequal(IR.randat(rng, distribution, 1), value)
+        @test isequal(IR.rand_at(rng, distribution, 1), value)
         @test next_rng.device === IR._METAL_BACKEND
 
         for count in (0, 1)

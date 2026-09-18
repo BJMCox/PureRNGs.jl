@@ -57,7 +57,7 @@ end
     return _draw_categorical_next(rng, d)
 end
 
-@inline function IR.randat(
+@inline function IR.rand_at(
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     index::Integer,

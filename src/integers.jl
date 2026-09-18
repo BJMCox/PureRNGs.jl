@@ -114,7 +114,7 @@ end
     range::AbstractRange{T},
 ) where {T<:_RangeInteger} = _rand_next_range(rng, range)
 
-@inline function randat(
+@inline function rand_at(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
     i::Integer,

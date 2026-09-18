@@ -150,13 +150,13 @@ end
     _randexp_scalar(rng, T)
 @inline randexp_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
     _randexp_next_scalar(rng, T)
-@inline randexpat(
+@inline randexp_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     i::Integer,
 ) where {T<:_UniformFloat} =
     _draw_exponential_unchecked(_addressed_rng(rng, _exponential_bits(T), i), T)
-@inline randexpat(
+@inline randexp_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     indices::AbstractUnitRange{<:Integer},
@@ -176,8 +176,8 @@ generator never changes.
 """ randexp_next
 
 @doc """
-    randexpat(rng, T, i)
-    randexpat(rng, T, i:j)
+    randexp_at(rng, T, i)
+    randexp_at(rng, T, i:j)
 
 Return the `i`th standard exponential draw at or after the current position of
 `rng`, where `i` is one-based, or the vector of draws `i` through `j`. `T` is
@@ -185,7 +185,7 @@ Return the `i`th standard exponential draw at or after the current position of
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
-""" randexpat
+""" randexp_at
 
 @inline _cooperative_value(codec::_ExponentialCodec, ::Type{T}, raw) where {T} =
     _exponential_from_bits(codec.backend, T, raw)

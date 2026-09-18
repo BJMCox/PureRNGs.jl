@@ -4,7 +4,7 @@ using Random: rand
 integer_allocations(rng, range) =
     (@allocated(rand(rng, range)), @allocated(rand_next(rng, range)))
 
-addressed_range_allocations(rng, range) = @allocated(randat(rng, range, 3))
+addressed_range_allocations(rng, range) = @allocated(rand_at(rng, range, 3))
 
 const RangeIR = PureRNGs
 
@@ -272,26 +272,28 @@ end
         rng = _positioned(F, 0x558, UInt64(3), UInt16(17))
         cursor = rng
         for i = 1:maximum(indices)
-            i in indices && @test randat(rng, range, i) === first(rand_next(cursor, range))
+            i in indices && @test rand_at(rng, range, i) === first(rand_next(cursor, range))
             cursor = last(rand_next(cursor, range))
         end
     end
 
     rng = Philox4x32(0x559)
     for range in (1:6, 1:(2^40))
-        @inferred randat(rng, range, 3)
+        # [R29] pins the addressed draw to the fill element at the same index.
+        @test [rand_at(rng, range, i) for i = 1:8] == rand(rng, range, 8)
+        @inferred rand_at(rng, range, 3)
         addressed_range_allocations(rng, range)
         @test addressed_range_allocations(rng, range) == 0
     end
 
-    @test_throws ArgumentError randat(rng, Int8(2):Int8(1), 1)
-    @test_throws ArgumentError randat(rng, 1:6, 0)
+    @test_throws ArgumentError rand_at(rng, Int8(2):Int8(1), 1)
+    @test_throws ArgumentError rand_at(rng, 1:6, 0)
 
     capacity = _range_capacity(rng)
     last_position = _range_position_from_absolute(rng, capacity - 64)
     terminal = RangeIR._rebuild(rng, last_position, rng.device)
-    @test randat(terminal, 1:6, 1) === rand(terminal, 1:6)
-    @test_throws StreamExhausted randat(terminal, 1:6, 2)
+    @test rand_at(terminal, 1:6, 1) === rand(terminal, 1:6)
+    @test_throws StreamExhausted rand_at(terminal, 1:6, 2)
 end
 
 @testset "R30 and R55 fixed-work range codegen" begin

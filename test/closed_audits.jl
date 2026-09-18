@@ -44,9 +44,9 @@ end
         randn_next!,
         randexp_next,
         randexp_next!,
-        randat,
-        randnat,
-        randexpat,
+        rand_at,
+        randn_at,
+        randexp_at,
         splitrng,
         subrng,
         randsample,
@@ -105,8 +105,8 @@ end
         require(rand_next, Tuple{R,Type{T},Int})
         require(rand_next, Tuple{R,Type{T},Tuple{Int}})
         require(rand_next!, Tuple{R,Vector{T}})
-        require(randat, Tuple{R,Type{T},Int})
-        require(randat, Tuple{R,Type{T},UnitRange{Int}})
+        require(rand_at, Tuple{R,Type{T},Int})
+        require(rand_at, Tuple{R,Type{T},UnitRange{Int}})
     end
     for T in NORMAL_TYPES
         require(randn, Tuple{R,Type{T}})
@@ -117,8 +117,8 @@ end
         require(randn_next, Tuple{R,Type{T},Int})
         require(randn_next, Tuple{R,Type{T},Tuple{Int}})
         require(randn_next!, Tuple{R,Vector{T}})
-        require(randnat, Tuple{R,Type{T},Int})
-        require(randnat, Tuple{R,Type{T},UnitRange{Int}})
+        require(randn_at, Tuple{R,Type{T},Int})
+        require(randn_at, Tuple{R,Type{T},UnitRange{Int}})
     end
     for T in EXPONENTIAL_TYPES
         require(randexp, Tuple{R,Type{T}})
@@ -129,8 +129,8 @@ end
         require(randexp_next, Tuple{R,Type{T},Int})
         require(randexp_next, Tuple{R,Type{T},Tuple{Int}})
         require(randexp_next!, Tuple{R,Vector{T}})
-        require(randexpat, Tuple{R,Type{T},Int})
-        require(randexpat, Tuple{R,Type{T},UnitRange{Int}})
+        require(randexp_at, Tuple{R,Type{T},Int})
+        require(randexp_at, Tuple{R,Type{T},UnitRange{Int}})
     end
     for T in RANGE_INTS
         Range = typeof(T(1):T(2))
@@ -142,7 +142,7 @@ end
         require(rand_next, Tuple{R,Range,Int})
         require(rand_next, Tuple{R,Range,Tuple{Int}})
         require(rand_next!, Tuple{R,Vector{T},Range})
-        require(randat, Tuple{R,Range,Int})
+        require(rand_at, Tuple{R,Range,Int})
     end
     require(splitrng, Tuple{R})
     require(splitrng, Tuple{R,Int})
@@ -194,9 +194,9 @@ end
             rand_next,
             randn_next,
             randexp_next,
-            randat,
-            randnat,
-            randexpat,
+            rand_at,
+            randn_at,
+            randexp_at,
             subrng,
             randsample,
             randsample_next,
@@ -246,9 +246,9 @@ end
         (:negative_split, () -> splitrng(rng, -1)),
         (:invalid_static_split, () -> splitrng(rng, Val(UInt32(1)))),
         (:narrow_split_namespace, () -> splitrng(Philox2x32(1), UInt64(0x1_0000_0000))),
-        (:randat_index, () -> randat(rng, UInt32, 0)),
-        (:randnat_index, () -> randnat(rng, Float32, 0)),
-        (:randexpat_index, () -> randexpat(rng, Float32, 0)),
+        (:rand_at_index, () -> rand_at(rng, UInt32, 0)),
+        (:randn_at_index, () -> randn_at(rng, Float32, 0)),
+        (:randexp_at_index, () -> randexp_at(rng, Float32, 0)),
         (:empty_range, () -> rand(rng, UInt8(2):UInt8(1))),
         (:empty_range_continuation, () -> rand_next(rng, UInt8(2):UInt8(1))),
         (:negative_uniform_dimension, () -> rand(rng, UInt32, -1)),
@@ -280,9 +280,9 @@ end
         ),
     )
     exhausted_errors = (
-        (:randat_capacity, () -> randat(exhausted, UInt32, 1)),
-        (:randnat_capacity, () -> randnat(exhausted, Float32, 1)),
-        (:randexpat_capacity, () -> randexpat(exhausted, Float32, 1)),
+        (:rand_at_capacity, () -> rand_at(exhausted, UInt32, 1)),
+        (:randn_at_capacity, () -> randn_at(exhausted, Float32, 1)),
+        (:randexp_at_capacity, () -> randexp_at(exhausted, Float32, 1)),
         (:pure_capacity, () -> rand(exhausted, UInt32)),
         (:continuation_capacity, () -> rand_next(exhausted, UInt32)),
         (:fill_capacity, () -> rand!(exhausted, Vector{UInt32}(undef, 1))),
@@ -380,7 +380,7 @@ end
     for (name, span, call) in (
         (:scalar, UInt128(32), () -> rand(near_end, UInt32)),
         (:fill, UInt128(64), () -> rand!(near_end, Vector{UInt32}(undef, 2))),
-        (:addressed, UInt128(64), () -> randat(near_end, UInt32, 2)),
+        (:addressed, UInt128(64), () -> rand_at(near_end, UInt32, 2)),
         (:sampling, UInt128(128), () -> randsample(near_end, population, 2)),
     )
         @testset "$name" begin

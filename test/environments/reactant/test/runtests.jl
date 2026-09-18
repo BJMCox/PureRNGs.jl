@@ -142,12 +142,12 @@ _normal_observation(rng, ::Type{T}, value) where {T} =
 
 function _normal_at_observation(rng::AbstractPureRNG, ::Type{T}, index) where {T}
     addressed = PureRNGs._addressed_rng(rng, PureRNGs._normal_bits(T), index)
-    return _normal_observation(addressed, T, randnat(rng, T, index))
+    return _normal_observation(addressed, T, randn_at(rng, T, index))
 end
 
 function _normal_at_observation(rng::REACTANT_EXT._ReactantRNG, ::Type{T}, index) where {T}
     addressed = PureRNGs._addressed_rng(rng, PureRNGs._normal_bits(T), index)
-    return _normal_observation(addressed, T, randnat(rng, T, index))
+    return _normal_observation(addressed, T, randn_at(rng, T, index))
 end
 
 function _exponential_components(rng::AbstractPureRNG, ::Type{T}) where {T}
@@ -209,11 +209,11 @@ function _snapshot(rng)
     pure_addressed = (
         rand(rng, range),
         rand(rng, linrange),
-        randat(rng, UInt64, 3),
-        randat(rng, Int32, 3),
-        randat(rng, Int64, 3),
+        rand_at(rng, UInt64, 3),
+        rand_at(rng, Int32, 3),
+        rand_at(rng, Int64, 3),
     )
-    pure_addressed_exponentials = (randexpat(rng, Float32, 3), randexpat(rng, Float64, 3))
+    pure_addressed_exponentials = (randexp_at(rng, Float32, 3), randexp_at(rng, Float64, 3))
     pure = (pure_values, pure_exponentials, pure_addressed, pure_addressed_exponentials)
     normals = (
         _normal_observation(rng, Float32, randn(rng, Float32)),
@@ -274,7 +274,7 @@ function _normal_probe64(rng)
     raw = REACTANT_EXT._raw(addressed, Val(52))
     midpoint =
         REACTANT_EXT._convert(Float64, (raw * UInt64(2)) | UInt64(1)) * Float64(0x1p-53)
-    return raw, midpoint, randnat(rng, Float64, 3)
+    return raw, midpoint, randn_at(rng, Float64, 3)
 end
 
 function _same_normal_observation(got, expected)
@@ -337,10 +337,10 @@ _distribution_primitive(rng, ::Bernoulli{T}) where {T} = rand(rng, T)
 _distribution_primitive(rng, distribution::DiscreteUniform) =
     rand(rng, distribution.a:distribution.b)
 
-_distribution_primitive_at(rng, ::Uniform{T}, index) where {T} = randat(rng, T, index)
+_distribution_primitive_at(rng, ::Uniform{T}, index) where {T} = rand_at(rng, T, index)
 _distribution_primitive_at(rng, ::Exponential{T}, index) where {T} =
     _exponential_at_components(rng, T, index)
-_distribution_primitive_at(rng, ::Bernoulli{T}, index) where {T} = randat(rng, T, index)
+_distribution_primitive_at(rng, ::Bernoulli{T}, index) where {T} = rand_at(rng, T, index)
 
 function _distribution_primitive_at(rng, distribution::DiscreteUniform, index)
     width = REACTANT_DISTRIBUTIONS_EXT._distribution_span(distribution)
@@ -390,7 +390,7 @@ function _continuous_distribution_snapshot(rng)
             _continuous_formula(distribution, primitive),
             actual_next,
             expected_next,
-            randat(rng, distribution, 3),
+            rand_at(rng, distribution, 3),
             _continuous_formula(distribution, addressed_primitive),
         )
     end
@@ -419,7 +419,7 @@ function _distribution_pair_at(rng, distribution, index)
     primitive = _distribution_primitive_at(rng, distribution, index)
     return (
         primitive,
-        randat(rng, distribution, index),
+        rand_at(rng, distribution, index),
         _distribution_formula(distribution, primitive),
     )
 end
@@ -441,7 +441,7 @@ end
 
 function _normal_distribution_pair_at(rng, d::Normal{T}, index) where {T}
     primitive = _normal_at_observation(rng, T, index)
-    return primitive, randat(rng, d, index), muladd(d.σ, primitive[3], d.μ)
+    return primitive, rand_at(rng, d, index), muladd(d.σ, primitive[3], d.μ)
 end
 
 _normal_distribution_type(::Normal{T}) where {T} = T
@@ -589,7 +589,7 @@ _same_cancellation_distribution_snapshot(got, expected) =
 
 _subnormal_bernoulli_snapshot(rng) = _distribution_pair(rng, SUBNORMAL_BERNOULLI)
 
-_large_addressed_uint64(rng) = randat(rng, UInt64, (big(1) << 122) + 1)
+_large_addressed_uint64(rng) = rand_at(rng, UInt64, (big(1) << 122) + 1)
 
 function _last_bit_rng(::Type{F}) where {F}
     rng = F(0x123456)
@@ -957,7 +957,7 @@ end
                 _fill_snapshot(second),
             )
             expected = rand(first, Float32, 70)
-            @test expected == [randat(first, Float32, i) for i = 1:70]
+            @test expected == [rand_at(first, Float32, i) for i = 1:70]
         end
     end
 end
@@ -973,7 +973,7 @@ function _range_snapshot(rng)
     whole, after_whole = randsample_next(rng, 10:20)
     tupled =
         (rand(rng, Float32, (2, 3)), rand(rng, 1:1000, (3, 2)), rand_next(rng, (4,))...)
-    addressed = randat(rng, Float64, 3:7)
+    addressed = rand_at(rng, Float64, 3:7)
     return narrow,
     stepped,
     after_stepped,
@@ -986,7 +986,7 @@ function _range_snapshot(rng)
     addressed
 end
 
-_addressed_transforms(rng) = (randnat(rng, Float32, 2:5), randexpat(rng, Float64, 4:9))
+_addressed_transforms(rng) = (randn_at(rng, Float32, 2:5), randexp_at(rng, Float64, 4:9))
 
 function _destination_snapshot(rng, uniform, normal, exponential)
     _, after_uniform = rand_next!(rng, uniform)

@@ -59,9 +59,9 @@ randexp_next!
 ## Addressed draws
 
 ```@docs
-randat
-randnat
-randexpat
+rand_at
+randn_at
+randexp_at
 ```
 
 ## Key derivation

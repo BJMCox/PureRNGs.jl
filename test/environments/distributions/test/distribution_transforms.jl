@@ -57,7 +57,7 @@ end
         destination = similar(expected)
 
         @test rand(rng, d, 5) == expected
-        @test randat(rng, d, 3) === expected[3]
+        @test rand_at(rng, d, 3) === expected[3]
         @test rand!(rng, d, destination; threaded = false) === destination
         @test destination == expected
         returned, next_rng = rand_next!(rng, d, destination; threaded = false)
@@ -86,8 +86,8 @@ end
 
         triangular = TriangularDist(T(-1.5), T(2.25), T(0.25))
         for index in (1, 2, 3)
-            mapped = randat(rng, triangular, index)
-            @test isapprox(cdf(triangular, mapped), randat(rng, T, index); rtol = 8eps(T))
+            mapped = rand_at(rng, triangular, index)
+            @test isapprox(cdf(triangular, mapped), rand_at(rng, T, index); rtol = 8eps(T))
         end
     end
 

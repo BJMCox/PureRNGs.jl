@@ -153,13 +153,13 @@ end
     _randn_scalar(rng, T)
 @inline randn_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
     _randn_next_scalar(rng, T)
-@inline randnat(
+@inline randn_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     i::Integer,
 ) where {T<:_UniformFloat} =
     _draw_normal_unchecked(_addressed_rng(rng, _normal_bits(T), i), T)
-@inline randnat(
+@inline randn_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     indices::AbstractUnitRange{<:Integer},
@@ -178,8 +178,8 @@ generator never changes.
 """ randn_next
 
 @doc """
-    randnat(rng, T, i)
-    randnat(rng, T, i:j)
+    randn_at(rng, T, i)
+    randn_at(rng, T, i:j)
 
 Return the `i`th standard normal draw at or after the current position of `rng`,
 where `i` is one-based, or the vector of draws `i` through `j`. `T` is
@@ -187,7 +187,7 @@ where `i` is one-based, or the vector of draws `i` through `j`. `T` is
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
-""" randnat
+""" randn_at
 
 @inline _normal_from_bits(::Type{T}, value::UInt64) where {T} =
     _as241(_normal_midpoint(T, value))

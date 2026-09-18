@@ -49,7 +49,7 @@ end
     return _draw_distribution_next(rng, d)
 end
 
-@inline function IR.randat(
+@inline function IR.rand_at(
     rng::IR._ScalarUniformGenerators,
     d::_FixedDistribution,
     index::Integer,

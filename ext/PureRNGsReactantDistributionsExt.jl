@@ -86,13 +86,13 @@ end
 @inline _primitive_next(rng, d::Distributions.DiscreteUniform) = IR.rand_next(rng, d.a:d.b)
 
 @inline _primitive_at(rng, ::Distributions.Normal{T}, index) where {T<:_FloatType} =
-    IR.randnat(rng, T, index)
+    IR.randn_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Uniform{T}, index) where {T<:_FloatType} =
-    IR.randat(rng, T, index)
+    IR.rand_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Exponential{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.LogNormal{T}, index) where {T<:_FloatType} =
-    IR.randnat(rng, T, index)
+    IR.randn_at(rng, T, index)
 @inline function _primitive_at(
     rng,
     d::Union{
@@ -106,13 +106,13 @@ end
     return _primitive(IR._addressed_rng(rng, _distribution_span(d), index), d)
 end
 @inline _primitive_at(rng, ::Distributions.Weibull{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Rayleigh{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Pareto{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.TriangularDist{T}, index) where {T<:_FloatType} =
-    IR.randat(rng, T, index)
+    IR.rand_at(rng, T, index)
 @inline function _primitive_at(
     rng,
     d::Distributions.Laplace{T},
@@ -121,7 +121,7 @@ end
     return _primitive(IR._addressed_rng(rng, _distribution_span(d), index), d)
 end
 @inline _primitive_at(rng, ::Distributions.Bernoulli{T}, index) where {T<:_FloatType} =
-    IR.randat(rng, T, index)
+    IR.rand_at(rng, T, index)
 @inline function _primitive_at(rng, d::Distributions.DiscreteUniform, index)
     range = d.a:d.b
     addressed = IR._addressed_rng(rng, _distribution_span(d), index)
@@ -164,7 +164,7 @@ end
     return _map_primitive(d, value), next_rng
 end
 
-@inline function IR.randat(rng::_ReactantRNG, d::_FixedDistribution, index::Integer)
+@inline function IR.rand_at(rng::_ReactantRNG, d::_FixedDistribution, index::Integer)
     _validate_distribution(d)
     return _map_primitive(d, _primitive_at(rng, d, index))
 end

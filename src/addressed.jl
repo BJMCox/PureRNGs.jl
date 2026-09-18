@@ -71,21 +71,21 @@ end
     return first(fill_next(_addressed_rng(rng, width, first(indices)), T, length(indices)))
 end
 
-@inline randat(
+@inline rand_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     i::Integer,
 ) where {T<:_UniformResult} = _draw_unchecked(_addressed_rng(rng, _draw_bits(T), i), T)
-@inline randat(
+@inline rand_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     indices::AbstractUnitRange{<:Integer},
 ) where {T<:_UniformResult} = _addressed_array(rng, T, indices, _draw_bits(T), rand_next)
 
 @doc """
-    randat(rng, T, i)
-    randat(rng, T, i:j)
-    randat(rng, range, i)
+    rand_at(rng, T, i)
+    rand_at(rng, T, i:j)
+    rand_at(rng, range, i)
 
 Return the `i`th uniform draw at or after the current position of `rng`, where
 `i` is one-based, or the vector of draws `i` through `j`. Supported result
@@ -96,20 +96,20 @@ from that range.
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
 
-The range and distribution forms of `randat` take a single index.
+The range and distribution forms of `rand_at` take a single index.
 
 # Examples
 
 ```jldoctest
 julia> rng = Philox4x32(20250918);
 
-julia> randat(rng, UInt32, 3)
+julia> rand_at(rng, UInt32, 3)
 0xc25ecc0b
 
-julia> randat(rng, UInt32, 1:3)
+julia> rand_at(rng, UInt32, 1:3)
 3-element Vector{UInt32}:
  0x23b42aea
  0x467098dd
  0xc25ecc0b
 ```
-""" randat
+""" rand_at

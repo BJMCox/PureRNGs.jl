@@ -66,21 +66,21 @@ function _signed_exponential_kernel!(signed32, signed64, exp32, exp64, raw, stat
             signed32[1] = rand(rng, Int32)
             signed32[2] = continued_signed32
             signed32[3] = rand(next_signed32, Int32)
-            signed32[4] = randat(rng, Int32, 1)
+            signed32[4] = rand_at(rng, Int32, 1)
             signed64[1] = rand(rng, Int64)
             signed64[2] = continued_signed64
             signed64[3] = rand(next_signed64, Int64)
-            signed64[4] = randat(rng, Int64, 1)
+            signed64[4] = rand_at(rng, Int64, 1)
             exp32[1] = randexp(rng, Float32)
             exp32[2] = continued_exp32
-            exp32[3] = randexpat(rng, Float32, 1)
+            exp32[3] = randexp_at(rng, Float32, 1)
             exp32[4] = randexp(next_exp32, Float32)
-            exp32[5] = randexpat(rng, Float32, 2)
+            exp32[5] = randexp_at(rng, Float32, 2)
             exp64[1] = randexp(rng, Float64)
             exp64[2] = continued_exp64
-            exp64[3] = randexpat(rng, Float64, 1)
+            exp64[3] = randexp_at(rng, Float64, 1)
             exp64[4] = randexp(next_exp64, Float64)
-            exp64[5] = randexpat(rng, Float64, 2)
+            exp64[5] = randexp_at(rng, Float64, 2)
             raw[1] = _exponential_raw(rng, Float32)
             raw[2] = _exponential_raw(rng, Float64)
         end
@@ -98,9 +98,9 @@ function _distribution_kernel!(values, state, rng, distribution)
         @inbounds begin
             values[1] = rand(rng, distribution)
             values[2] = continued
-            values[3] = randat(rng, distribution, 1)
+            values[3] = rand_at(rng, distribution, 1)
             values[4] = rand(next_rng, distribution)
-            values[5] = randat(rng, distribution, 2)
+            values[5] = rand_at(rng, distribution, 2)
         end
         _store_position!(state, 0, next_rng.position)
     end
@@ -282,7 +282,7 @@ if AMDGPU.functional()
                     reinterpret(T, rand(cpu_rng, U)),
                     reinterpret(T, continued_unsigned),
                     reinterpret(T, rand(next_unsigned, U)),
-                    reinterpret(T, randat(cpu_rng, U, 1)),
+                    reinterpret(T, rand_at(cpu_rng, U, 1)),
                 ]
                 @test Array(values) == expected
                 allocated, next_rng = rand_next(rng, T, 17)

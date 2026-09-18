@@ -131,14 +131,14 @@ end
 function _address_kernel!(destination, rng, offset)
     index = (CUDA.blockIdx().x - 1) * CUDA.blockDim().x + CUDA.threadIdx().x
     index <= length(destination) &&
-        (@inbounds destination[index] = randat(rng, eltype(destination), offset + index))
+        (@inbounds destination[index] = rand_at(rng, eltype(destination), offset + index))
     return
 end
 
 function _normal_address_kernel!(destination, rng)
     index = (CUDA.blockIdx().x - 1) * CUDA.blockDim().x + CUDA.threadIdx().x
     index <= length(destination) &&
-        (@inbounds destination[index] = randnat(rng, eltype(destination), index))
+        (@inbounds destination[index] = randn_at(rng, eltype(destination), index))
     return
 end
 
@@ -169,9 +169,9 @@ function _exponential_api_kernel!(values, raw, lattice, rng)
         @inbounds begin
             values[1] = randexp(rng, T)
             values[2] = continued
-            values[3] = randexpat(rng, T, 1)
+            values[3] = randexp_at(rng, T, 1)
             values[4] = randexp(next_rng, T)
-            values[5] = randexpat(rng, T, 2)
+            values[5] = randexp_at(rng, T, 2)
             raw[1] = k
             lattice[1] = u
             lattice[2] = v
@@ -193,7 +193,7 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, sign
         children = splitrng(rng, Val(2))
         @inbounds begin
             uniform[1] = rand(rng, UInt32)
-            uniform[2] = randat(rng, UInt32, 1)
+            uniform[2] = rand_at(rng, UInt32, 1)
             uniform[3] = continued_uniform
             uniform[4] = rand(next_uniform, UInt32)
             uniform[5] = rand(child, UInt32)
@@ -205,15 +205,15 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, sign
             signed64[2] = continued_signed64
             signed64[3] = rand(next_signed64, Int64)
             normal32[1] = randn(rng, Float32)
-            normal32[2] = randnat(rng, Float32, 1)
+            normal32[2] = randn_at(rng, Float32, 1)
             normal32[3] = continued_normal32
             normal32[4] = randn(next_normal32, Float32)
-            normal32[5] = randnat(rng, Float32, 2)
+            normal32[5] = randn_at(rng, Float32, 2)
             normal64[1] = randn(rng, Float64)
-            normal64[2] = randnat(rng, Float64, 1)
+            normal64[2] = randn_at(rng, Float64, 1)
             normal64[3] = continued_normal64
             normal64[4] = randn(next_normal64, Float64)
-            normal64[5] = randnat(rng, Float64, 2)
+            normal64[5] = randn_at(rng, Float64, 2)
             ranges[1] = continued_range
             ranges[2] = rand(next_range, range)
         end
@@ -403,7 +403,7 @@ function _check_public_packed_addresses(rng, ::Type{T}, count) where {T}
 
     values = Array(destination)
     indices = (1, 2, count ÷ 2, count)
-    @test values[collect(indices)] == map(index -> randat(rng, T, index), collect(indices))
+    @test values[collect(indices)] == map(index -> rand_at(rng, T, index), collect(indices))
 
     bits_lo, bits_hi = IR._bit_span(UInt64(count), IR._draw_bits(T))
     @test next_rng.position == IR._reserve(rng, bits_lo, bits_hi).position
@@ -1227,7 +1227,7 @@ end
         continued_uniform, next_uniform = rand_next(rng, UInt32)
         @test Array(args[1]) == UInt32[
             rand(rng, UInt32),
-            randat(rng, UInt32, 1),
+            rand_at(rng, UInt32, 1),
             continued_uniform,
             rand(next_uniform, UInt32),
             rand(subrng(rng, UInt64(0x71)), UInt32),
@@ -1612,8 +1612,8 @@ end
         _check_scalar_allocation(() -> rand_next(rng, UInt32))
         _check_scalar_allocation(() -> randn_next(rng, Float32))
         _check_scalar_allocation(() -> rand_next(rng, range))
-        _check_scalar_allocation(() -> randat(rng, UInt64, 2))
-        _check_scalar_allocation(() -> randnat(rng, Float64, 2))
+        _check_scalar_allocation(() -> rand_at(rng, UInt64, 2))
+        _check_scalar_allocation(() -> randn_at(rng, Float64, 2))
         _check_scalar_allocation(() -> subrng(rng, UInt64(0x71)))
         _check_scalar_allocation(() -> splitrng(rng, Val(2)))
     end

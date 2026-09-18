@@ -32,7 +32,7 @@ dice
 
 The range follows the destination.
 
-`randat(rng, range, i)` returns the `i`th range draw without advancing `rng`.
+`rand_at(rng, range, i)` returns the `i`th range draw without advancing `rng`.
 
 ## Sample a population
 
