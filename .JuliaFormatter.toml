@@ -1,0 +1,16 @@
+# JuliaFormatter 2.12.6 defaults, written out so a local `format(".")` produces the
+# same result as the CI job's `format(["src", "ext", "test", "docs", "benchmark"])`.
+style = "default"
+indent = 4
+margin = 92
+always_for_in = false
+whitespace_typedefs = false
+whitespace_ops_in_indices = false
+whitespace_in_kwargs = true
+separate_kwargs_with_semicolon = false
+trailing_comma = true
+trailing_zero = true
+remove_extra_newlines = false
+join_lines_based_on_source = false
+format_docstrings = false
+normalize_line_endings = "auto"
