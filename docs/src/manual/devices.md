@@ -49,9 +49,9 @@ Use allocating draws, fills, or [GPU kernels](@ref) to generate values on the de
 | Metal | Experimental | Restricted primitive draws and fills |
 
 AMDGPU is a backend extension, not a required release gate. It has no tuned
-fill plan, so fills run the portable kernel path. Weighted population sampling
-on AMDGPU runs the selection scan on a single work-item and scales with the
-population size.
+fill plan, so fills run the portable kernel path. Every GPU backend prepares
+weights with the parallel fold kernel and selects each weighted sample by a
+binary search over the cumulative table.
 
 Metal device execution supports 32-bit generators with `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, and `Float32` results.
 Normal and exponential results must be `Float32`.

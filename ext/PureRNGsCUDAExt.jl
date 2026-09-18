@@ -26,7 +26,6 @@ const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32}
 const _CUDAPackedIntegerGenerators =
     Union{_CUDAPhilox2x64,_CUDAPhilox4x64,_CUDAThreefry4x64}
 const _CUDA_FILL_THREADS = 256
-const _CUDA_WEIGHT_FOLD_LANES = 1024
 # Large-fill benchmarks select this multiple of the device thread-capacity block count.
 const _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER = 128
 const _CUDA_U32X4 = NTuple{4,VecElement{UInt32}}
@@ -382,115 +381,5 @@ end
 
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
-
-KernelAbstractions.@kernel function _prepare_weights_cuda_fold_kernel!(
-    source,
-    total_result,
-    invalid_result,
-    cumulative,
-    ::Val{validate_elements},
-) where {validate_elements}
-    lane = KernelAbstractions.@index(Local, Linear)
-    staged = KernelAbstractions.@localmem Float64 (_CUDA_WEIGHT_FOLD_LANES,)
-    total = zero(Float64)
-    invalid = false
-    first = 1
-    while first <= length(source)
-        ordinal = first + lane - 1
-        if ordinal <= length(source)
-            @inbounds staged[lane] = Float64(IR._population_value(source, UInt64(ordinal)))
-        end
-        KernelAbstractions.@synchronize
-
-        if lane == 1
-            last = min(_CUDA_WEIGHT_FOLD_LANES, length(source) - first + 1)
-            @inbounds for slot = 1:last
-                weight = staged[slot]
-                invalid |=
-                    validate_elements && (!isfinite(weight) || weight < zero(Float64))
-                total += weight
-                staged[slot] = total
-            end
-        end
-        KernelAbstractions.@synchronize
-
-        if ordinal <= length(source)
-            @inbounds cumulative[ordinal] = staged[lane]
-        end
-        KernelAbstractions.@synchronize
-        first += _CUDA_WEIGHT_FOLD_LANES
-    end
-    if lane == 1
-        invalid |= !isfinite(total) || total <= zero(Float64)
-        @inbounds begin
-            total_result[1] = total
-            invalid_result[1] = invalid
-        end
-    end
-end
-
-function IR._prepare_weight_scan(rng::_CUDAGenerators, weights, agnostic::Bool)
-    source =
-        agnostic ? IR._transfer_weights(rng.device, IR._collect_weights(weights)) : weights
-    cumulative = IR._allocate_array(rng.device, Float64, (length(source),))
-    total_result = IR._allocate_array(rng.device, Float64, (1,))
-    invalid_result = IR._allocate_array(rng.device, Bool, (1,))
-    backend = IR._fill_backend(cumulative)
-    _prepare_weights_cuda_fold_kernel!(backend)(
-        source,
-        total_result,
-        invalid_result,
-        cumulative,
-        Val(!agnostic);
-        ndrange = _CUDA_WEIGHT_FOLD_LANES,
-        workgroupsize = _CUDA_WEIGHT_FOLD_LANES,
-    )
-    only(Array(invalid_result)) && IR._invalid_weights()
-    return nothing, total_result, cumulative
-end
-
-KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
-    population,
-    cumulative,
-    thresholds,
-    destination,
-)
-    index = KernelAbstractions.@index(Global, Linear)
-    threshold = @inbounds thresholds[index]
-    lower = 1
-    upper = length(cumulative)
-    @inbounds while lower < upper
-        middle = lower + ((upper - lower) >>> 1)
-        if threshold < cumulative[middle]
-            upper = middle
-        else
-            lower = middle + 1
-        end
-    end
-    indices = eachindex(destination)
-    @inbounds begin
-        destination_index = IR._sampling_destination_index(indices, index)
-        destination[destination_index] = IR._population_value(population, UInt64(lower))
-    end
-end
-
-@inline function IR._launch_weighted_scan!(
-    ::IR._CUDABackend,
-    backend,
-    population,
-    _weights,
-    thresholds,
-    cumulative,
-    destination,
-)
-    _weighted_binary_search_kernel!(backend)(
-        population,
-        cumulative,
-        thresholds,
-        destination;
-        ndrange = length(destination),
-    )
-    return destination
-end
 
 end
