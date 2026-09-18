@@ -1,6 +1,7 @@
 using CUDA
 using Distributions
 using Enzyme
+using KernelAbstractions
 using PureRNGs
 using MLDataDevices
 using Random
@@ -40,7 +41,12 @@ CUDA.allowscalar(false)
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
 @testset "R1 extension ambiguities" begin
-    for name in (:PureRNGsCUDAExt, :PureRNGsEnzymeCoreExt, :PureRNGsDistributionsExt)
+    for name in (
+        :PureRNGsCUDAExt,
+        :PureRNGsEnzymeCoreExt,
+        :PureRNGsDistributionsExt,
+        :PureRNGsKernelAbstractionsExt,
+    )
         extension = Base.get_extension(IR, name)
         @testset "$name" begin
             @test isempty(Test.detect_ambiguities(extension; recursive = true))
@@ -419,7 +425,7 @@ function _check_cooperative_kernel_code(
     outputs_per_store = CUDA_EXT._outputs_per_store(plan)
     workgroup = IR._fill_group_size(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
-    typed = IR.KernelAbstractions.@ka_code_typed kernel(
+    typed = KernelAbstractions.@ka_code_typed kernel(
         rng,
         packed,
         Val(T),
@@ -1053,7 +1059,7 @@ end
         packed_rng = device(F(0x785))
         destination = CUDA.CuArray{T}(undef, 1024)
         storage_type = extension_module._CUDANatural128Pack{T}
-        packed_typed = IR.KernelAbstractions.@ka_code_typed kernel(
+        packed_typed = KernelAbstractions.@ka_code_typed kernel(
             packed_rng,
             destination,
             Val(storage_type),
@@ -1097,7 +1103,7 @@ end
             extension_module._CUDA_B8X16,
             CUDA.CuArray{Bool}(undef, Int(IR._block_bits(bool_rng))),
         )
-        bool_typed = IR.KernelAbstractions.@ka_code_typed bool_kernel(
+        bool_typed = KernelAbstractions.@ka_code_typed bool_kernel(
             bool_rng,
             packed,
             packs_per_block,
@@ -1722,7 +1728,7 @@ end
     @test reinterpret.(UInt64, Array(scan_cumulative)) ==
           reinterpret.(UInt64, scan_expected)
     IR._launch_weighted_scan!(
-        IR._fill_backend(scan_destination),
+        KernelAbstractions.get_backend(scan_destination),
         scan_population,
         scan_cumulative,
         CUDA.CuArray(Float64[0x1p53]),

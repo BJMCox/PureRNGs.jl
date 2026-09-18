@@ -137,22 +137,6 @@ end
     return @inbounds population[index]
 end
 
-KernelAbstractions.@kernel function _unweighted_sample_kernel!(
-    rng,
-    population,
-    cardinality::UInt64,
-    destination,
-    width::UInt16,
-)
-    draw_ordinal = @index(Global, Linear)
-    bits_lo, bits_hi = _bit_span(UInt64(draw_ordinal - 1), width)
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    population_ordinal = _range_offset(rng, position, cardinality) + UInt64(1)
-    indices = eachindex(destination)
-    index = _sampling_destination_index(indices, draw_ordinal)
-    @inbounds destination[index] = _population_value(population, population_ordinal)
-end
-
 @inline function _fill_unweighted_cpu_unchecked!(
     rng,
     position,
@@ -206,28 +190,6 @@ end
     return nothing
 end
 
-KernelAbstractions.@kernel function _unweighted_sample_grouped_kernel!(
-    rng,
-    population,
-    cardinality::UInt64,
-    destination,
-    group::Val{2},
-)
-    workitem = @index(Global, Linear)
-    first_ordinal = (workitem - 1) * 2 + 1
-    bits_lo, bits_hi = _bit_span(UInt64(first_ordinal - 1), UInt16(64))
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_unweighted_grouped_unchecked!(
-        rng,
-        position,
-        population,
-        cardinality,
-        destination,
-        first_ordinal,
-        group,
-    )
-end
-
 # The unweighted scaffold needs no per-element map, so its codec only carries
 # what a backend plan reads.
 struct _PopulationCodec
@@ -235,41 +197,7 @@ struct _PopulationCodec
 end
 
 @inline function _launch_unweighted_sample!(
-    backend,
-    rng,
-    population,
-    cardinality::UInt64,
-    destination,
-    width::UInt16,
-)
-    plan =
-        _device_fill_plan(backend, rng, _PopulationCodec(cardinality), eltype(destination))
-    if plan !== nothing
-        group = plan[2]
-        workitems = cld(length(destination), _fill_group_size(group))
-        _unweighted_sample_grouped_kernel!(backend)(
-            rng,
-            population,
-            cardinality,
-            destination,
-            group;
-            ndrange = workitems,
-        )
-        return destination
-    end
-    _unweighted_sample_kernel!(backend)(
-        rng,
-        population,
-        cardinality,
-        destination,
-        width;
-        ndrange = length(destination),
-    )
-    return destination
-end
-
-@inline function _launch_unweighted_sample!(
-    ::KernelAbstractions.CPU,
+    ::_CPUBackend,
     rng,
     population,
     cardinality::UInt64,
@@ -320,7 +248,7 @@ function _randsample_next_unweighted!(rng, population, destination, threaded::Bo
         return destination, next_rng
     end
     _launch_unweighted_sample!(
-        _fill_backend(destination),
+        _fill_backend(rng.device, destination),
         rng,
         indexed,
         cardinality,
@@ -348,7 +276,7 @@ function _randsample_next_unweighted(rng, population, requested_count)
     next_rng = _sampling_reservation(rng, count, width)
     destination = _allocate_sampling_result(rng, indexed, count)
     isempty(destination) && return destination, next_rng
-    backend = _fill_backend(destination)
+    backend = _fill_backend(rng.device, destination)
     _launch_unweighted_sample!(backend, rng, indexed, cardinality, destination, width)
     return destination, next_rng
 end

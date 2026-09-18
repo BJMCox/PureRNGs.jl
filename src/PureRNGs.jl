@@ -1,7 +1,5 @@
 module PureRNGs
 
-import KernelAbstractions
-using KernelAbstractions: @index, @localmem, @synchronize
 import MLDataDevices
 import Random
 
@@ -57,7 +55,7 @@ include("derive.jl")
 include("uniform_scalar.jl")
 include("validation.jl")
 include("uniform_fill.jl")
-include("uniform_kernels.jl")
+include("fill_hooks.jl")
 include("cpu_scheduler.jl")
 include("transformed_fill.jl")
 include("uniform.jl")

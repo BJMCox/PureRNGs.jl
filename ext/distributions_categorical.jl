@@ -100,7 +100,7 @@ end
         return destination, next_rng
     end
     IR._fill_weighted_samples!(
-        IR._fill_backend(destination),
+        IR._fill_backend(rng.device, destination),
         rng,
         labels,
         prepared,

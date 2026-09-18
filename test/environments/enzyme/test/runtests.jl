@@ -19,8 +19,6 @@ function Base.setindex!(array::CountingVector, value, index::Int)
     return setindex!(array.data, value, index)
 end
 PureRNGs.MLDataDevices.get_device(::CountingVector) = PureRNGs.MLDataDevices.CPUDevice()
-PureRNGs.KernelAbstractions.get_backend(::CountingVector) =
-    PureRNGs.KernelAbstractions.CPU()
 
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.

@@ -4,7 +4,6 @@ using PureRNGs
 # included alone once this file is included.
 
 const IR = PureRNGs
-const KA = PureRNGs.KernelAbstractions
 const MLD = PureRNGs.MLDataDevices
 
 const GENERATOR_TYPES = (
@@ -40,7 +39,6 @@ function Base.setindex!(array::TaskWriteProbe, value, indices...)
     return setindex!(array.data, value, indices...)
 end
 MLD.get_device(array::TaskWriteProbe) = MLD.get_device(array.data)
-KA.get_backend(array::TaskWriteProbe) = KA.get_backend(array.data)
 
 struct WrongDeviceArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
     data::A
@@ -71,7 +69,6 @@ function Base.setindex!(array::ZeroBasedVector, value, index::Int)
     return value
 end
 MLD.get_device(::ZeroBasedVector) = MLD.CPUDevice()
-KA.get_backend(::ZeroBasedVector) = KA.CPU()
 
 struct IdentityAxesMatrix{T} <: AbstractMatrix{T}
     data::Matrix{T}
@@ -91,7 +88,6 @@ function Base.setindex!(array::IdentityAxesMatrix, value, row::Int, column::Int)
     return value
 end
 MLD.get_device(::IdentityAxesMatrix) = MLD.CPUDevice()
-KA.get_backend(::IdentityAxesMatrix) = KA.CPU()
 
 struct SamplingCUDAProbe{T} <: AbstractVector{T}
     values::Vector{T}
@@ -112,7 +108,8 @@ Base.setindex!(destination::SamplingSerialProbe, value, index::Int) =
     setindex!(destination.values, value, index)
 MLD.get_device(::SamplingSerialProbe) = MLD.CPUDevice()
 MLD.get_device_type(::SamplingSerialProbe) = MLD.CPUDevice
-KA.get_backend(::SamplingSerialProbe) = error("serial sampling must not get a backend")
+IR._fill_backend(::IR._CPUBackend, ::SamplingSerialProbe) =
+    error("serial sampling must not get a backend")
 
 _reference_block(rng::IR._Position64Generators, block::UInt64) = IR._block(rng, block)
 _reference_block(rng::IR._Position128Generators, block::NTuple{2,UInt64}) =
@@ -276,4 +273,6 @@ function _packed_golden_rng(F, key)
     return IR._rebuild(base, position, base.device)
 end
 
-sync_cpu() = KA.synchronize(KA.CPU())
+# Every CPU fill returns with its work complete, so the device-suite call sites
+# that share these tests need no host barrier.
+sync_cpu() = nothing

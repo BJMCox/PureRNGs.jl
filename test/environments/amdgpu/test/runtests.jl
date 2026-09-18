@@ -1,6 +1,7 @@
 using AMDGPU
 using Distributions
 using Enzyme
+using KernelAbstractions
 using PureRNGs
 using MLDataDevices
 using Random
@@ -134,7 +135,7 @@ function _software_identity()
         machine = Sys.MACHINE,
         kernel = Sys.KERNEL,
         amdgpu = string(Base.pkgversion(AMDGPU)),
-        kernelabstractions = string(Base.pkgversion(IR.KernelAbstractions)),
+        kernelabstractions = string(Base.pkgversion(KernelAbstractions)),
         mldatadevices = string(Base.pkgversion(MLDataDevices)),
         distributions = string(Base.pkgversion(Distributions)),
         enzyme = string(Base.pkgversion(Enzyme)),
@@ -214,7 +215,8 @@ end
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
 @testset "R1 extension ambiguities" begin
-    for name in (:PureRNGsAMDGPUExt, :PureRNGsDistributionsExt)
+    for name in
+        (:PureRNGsAMDGPUExt, :PureRNGsDistributionsExt, :PureRNGsKernelAbstractionsExt)
         extension = Base.get_extension(IR, name)
         @testset "$name" begin
             @test isempty(Test.detect_ambiguities(extension; recursive = true))

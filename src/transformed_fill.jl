@@ -68,73 +68,6 @@ end
     )
 end
 
-KernelAbstractions.@kernel function _transformed_fill_kernel!(
-    rng,
-    destination,
-    ::Val{T},
-    codec,
-) where {T}
-    ordinal = @index(Global, Linear)
-    indices = eachindex(destination)
-    index = @inbounds indices[firstindex(indices)+ordinal-1]
-    bits_lo, bits_hi = _bit_span(UInt64(ordinal - 1), _fill_width(codec, T))
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    @inbounds destination[index] = _transformed_draw_unchecked(codec, rng, position, T)
-end
-
-KernelAbstractions.@kernel function _transformed_fill_grouped_kernel!(
-    rng,
-    destination,
-    ::Val{T},
-    group::Val{N},
-    codec,
-) where {T,N}
-    workitem = @index(Global, Linear)
-    first = (workitem - 1) * N + 1
-    bits_lo, bits_hi = _bit_span(UInt64(first - 1), _fill_width(codec, T))
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    _fill_transformed_grouped_unchecked!(rng, position, destination, T, first, group, codec)
-end
-
-@inline function _launch_device_fill!(
-    backend,
-    rng,
-    destination,
-    ::Type{T},
-    codec::_TransformedFillCodec,
-    ::Nothing,
-) where {T}
-    _transformed_fill_kernel!(backend)(
-        rng,
-        destination,
-        Val(T),
-        codec;
-        ndrange = length(destination),
-    )
-    return destination
-end
-
-@inline function _launch_device_fill!(
-    backend,
-    rng,
-    destination,
-    ::Type{T},
-    codec::_TransformedFillCodec,
-    plan::Tuple{Val{:grouped},Val{N}},
-) where {T,N}
-    group = plan[2]
-    workitems = cld(length(destination), _fill_group_size(group))
-    _transformed_fill_grouped_kernel!(backend)(
-        rng,
-        destination,
-        Val(T),
-        group,
-        codec;
-        ndrange = workitems,
-    )
-    return destination
-end
-
 const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
 
 @inline _transformed_fill_chunk_elements(codec, ::Type{T}) where {T} =
@@ -152,7 +85,7 @@ const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
 end
 
 function _launch_transformed!(
-    ::KernelAbstractions.CPU,
+    ::_CPUBackend,
     rng,
     destination::AbstractArray{T},
     ::Type{T},
@@ -170,7 +103,7 @@ function _launch_transformed!(
 end
 
 function _launch_transformed!(
-    ::KernelAbstractions.CPU,
+    ::_CPUBackend,
     rng,
     destination::BitArray,
     ::Type{Bool},
@@ -207,7 +140,7 @@ end
         )
         return destination, next_rng
     end
-    backend = _fill_backend(destination)
+    backend = _fill_backend(rng.device, destination)
     _launch_transformed!(backend, rng, destination, T, codec)
     return destination, next_rng
 end

@@ -4,7 +4,7 @@
 end
 
 function _launch_uniform!(
-    ::KernelAbstractions.CPU,
+    ::_CPUBackend,
     rng,
     destination::AbstractArray{T},
     ::Type{T},
@@ -32,7 +32,7 @@ end
         _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
         return destination, next_rng
     end
-    backend = _fill_backend(destination)
+    backend = _fill_backend(rng.device, destination)
     _launch_uniform!(backend, rng, destination, T)
     return destination, next_rng
 end

@@ -20,6 +20,8 @@ following an existing one rather than by inventing a shape.
    chunks to `_run_chunks`, so the threaded result equals the serial result.
 4. Generic KernelAbstractions kernel. One work item per element, addressing its
    own position from its index, for every backend without a specialised path.
+   It lives in `ext/PureRNGsKernelAbstractionsExt.jl`, with the rest of the
+   device launchers.
 5. Device plan hook. All five scaffolds share one `_device_fill_plan(backend,
    rng, codec, T)` seam, which returns `nothing` on the generic path; a backend
    extension dispatches on the codec and returns a plan to select a tuned kernel.
@@ -45,8 +47,9 @@ whole block of draws at once for `Bool` and for the 32-bit and 64-bit integers.
 `Float32` and `Float64` take the generic cursor on the CPU, except that
 `Philox4x32` `Float64` fills use the generated `_store_f64_group!`, which decodes
 128 aligned draws from 53 blocks with constant shifts. The generic device kernels
-draw one element per work item; the CUDA extension owns the grouped and
-cooperative kernels and their workgroup tables.
+draw one element per work item and live in the KernelAbstractions extension; the
+CUDA extension owns the grouped and cooperative kernels and their workgroup
+tables.
 
 All position arithmetic funnels through `_split_bit_advance` in `generators.jl`,
 which is the single place a bit offset becomes a block and bit pair. Device and
@@ -66,7 +69,7 @@ One line per file in `src/`, in include order:
 - `uniform_scalar.jl` — the generator and result-type unions, `_draw_bits`, `_from_bits`, scalar `rand`, and the untyped-draw guards.
 - `validation.jl` — device, keyword, and serviceability checks for fills and sampling.
 - `uniform_fill.jl` — `_DenseBitCursor`, the dense CPU uniform fill, and the grouped stores.
-- `uniform_kernels.jl` — the generic KernelAbstractions uniform kernels and `_launch_device_fill!`; the CUDA extension adds the grouped and cooperative kernels.
+- `fill_hooks.jl` — the uniform codec accessors, `_fill_backend`, and the `_launch_device_fill!` declaration the KernelAbstractions extension fills in.
 - `cpu_scheduler.jl` — CPU chunk sizes and the `_run_chunks` work loop.
 - `transformed_fill.jl` — the codec types and the transformed CPU fill and launchers.
 - `uniform.jl` — the uniform fill scaffold and its allocating entries.
@@ -80,6 +83,19 @@ One line per file in `src/`, in include order:
 - `stateful.jl` — `StatefulRNG`, the mutable `Random.AbstractRNG` bridge.
 - `docstrings.jl` — docstrings for the extended `Random` names, bound by signature; keep it after every file it documents.
 - `precompile.jl` — the PrecompileTools workload; keep it last.
+
+## Dependencies
+
+The package depends on MLDataDevices, PrecompileTools, and Random. Everything
+else is a weak dependency. KernelAbstractions is one of them: it carries every
+device kernel through `ext/PureRNGsKernelAbstractionsExt.jl`, and CUDA, AMDGPU
+and Metal each depend on it, so a GPU user still gets it. Moving it out of the
+normal dependencies took a scratch environment holding only PureRNGs from 34
+resolved packages to 22, and `using PureRNGs` in a fresh process from 0.165 s to
+0.038 s on an Apple M4 Pro (best of seven).
+
+Adding a normal dependency needs the same justification. Prefer a weak
+dependency and an extension whenever a CPU-only user does not execute the code.
 
 ## Package tests
 

@@ -254,7 +254,7 @@ end
         )
         return destination, next_rng
     end
-    backend = IR._fill_backend(destination)
+    backend = IR._fill_backend(rng.device, destination)
     IR._launch_range!(backend, rng, destination, range, span)
     return destination, next_rng
 end
