@@ -10,7 +10,7 @@ const _ReactantRNG = IR._ReactantRNG
 
 include("distributions_common.jl")
 
-struct _ReactantDistributionOps end
+struct _ReactantDistributionOps <: _DistributionOps end
 
 @inline _distribution_muladd(::_ReactantDistributionOps, a, b, c) = muladd(a, b, c)
 @inline _distribution_product(::_ReactantDistributionOps, a, b, half) =
