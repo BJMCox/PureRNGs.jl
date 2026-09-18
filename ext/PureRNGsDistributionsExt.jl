@@ -3,6 +3,7 @@ module PureRNGsDistributionsExt
 import Distributions
 import PureRNGs
 import Random
+using PrecompileTools: @compile_workload, @setup_workload
 
 const IR = PureRNGs
 include("distributions_common.jl")
@@ -356,5 +357,26 @@ for (distribution_type, result_type) in (
 end
 
 include("distributions_categorical.jl")
+
+@setup_workload begin
+    draws = 128
+    distributions = (
+        Distributions.Normal(),
+        Distributions.Uniform(),
+        Distributions.Exponential(),
+        Distributions.Bernoulli(),
+        Distributions.DiscreteUniform(1, 6),
+    )
+
+    @compile_workload begin
+        rng = IR.Philox4x32(20250918)
+        for d in distributions
+            Random.rand(rng, d)
+            value, _ = IR.rand_next(rng, d)
+            destination = Vector{_result_type(d)}(undef, draws)
+            IR.rand_next!(rng, d, destination)
+        end
+    end
+end
 
 end

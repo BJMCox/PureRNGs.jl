@@ -22,4 +22,5 @@ Initial development release.
 - `rand(m, T, n)` on `StatefulRNG` uses the package fill.
 - Optional Distributions, Enzyme, and Reactant integrations. Reactant array fills of any size trace, with no per-element constants in the compiled module.
 - `StreamExhausted`, thrown when a draw outruns the generator's stream, carrying the generator and the required bit span. Argument validation keeps throwing `ArgumentError`.
+- A PrecompileTools workload over every public draw kind, in the package and in the Distributions extension. The first fill, scalar draw, and distribution draw of a session no longer compile.
 - A workflow-led manual, CPU and GPU tutorials, and an exported API reference.

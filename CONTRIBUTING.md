@@ -82,6 +82,19 @@ Compare the same workload and hardware against the exact base revision.
 Separate allocation, fills, kernel-local draws, and device transfers.
 Preserve benchmark results outside Git.
 
+Load and first-call latency come from the PrecompileTools workload in
+`src/precompile.jl` and the matching one at the end of
+`ext/PureRNGsDistributionsExt.jl`. Extend the workload when a new public draw
+kind appears. Check it with a fresh `julia --trace-compile=stderr` run over the
+README quickstart and `docs/src/getting-started.md`, and add any method that
+still compiles.
+
+On an Apple M4 Pro the workload moved the first 128-element `Float64` fill from
+0.50 s to 0.07 ms and the first `Normal` fill from 72 ms to 0.04 ms, at the cost
+of `Base.compilecache` rising from 0.9 s to 9.4 s and `using PureRNGs` from
+0.39 s to 0.65 s. These numbers are references for the trade on one machine, not
+gates.
+
 ## Before pushing
 
 Hosted CI is manual-dispatch only while the repository is private, so this recipe is the gate.
