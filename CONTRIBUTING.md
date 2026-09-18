@@ -44,8 +44,9 @@ The `_fill_uniform_grouped_unchecked!` methods in `uniform_fill.jl` store a
 whole block of draws at once for `Bool` and for the 32-bit and 64-bit integers.
 `Float32` and `Float64` take the generic cursor on the CPU, except that
 `Philox4x32` `Float64` fills use the generated `_store_f64_group!`, which decodes
-128 aligned draws from 53 blocks with constant shifts. The kernels use the
-four-element group given by `_device_uniform_fill_group`.
+128 aligned draws from 53 blocks with constant shifts. The generic device kernels
+draw one element per work item; the CUDA extension owns the grouped and
+cooperative kernels and their workgroup tables.
 
 All position arithmetic funnels through `_split_bit_advance` in `generators.jl`,
 which is the single place a bit offset becomes a block and bit pair. Device and
@@ -65,7 +66,7 @@ One line per file in `src/`, in include order:
 - `uniform_scalar.jl` — the generator and result-type unions, `_draw_bits`, `_from_bits`, scalar `rand`, and the untyped-draw guards.
 - `validation.jl` — device, keyword, and serviceability checks for fills and sampling.
 - `uniform_fill.jl` — `_DenseBitCursor`, the dense CPU uniform fill, and the grouped stores.
-- `uniform_kernels.jl` — the KernelAbstractions uniform kernels and `_launch_device_fill!`.
+- `uniform_kernels.jl` — the generic KernelAbstractions uniform kernels and `_launch_device_fill!`; the CUDA extension adds the grouped and cooperative kernels.
 - `cpu_scheduler.jl` — CPU chunk sizes and the `_run_chunks` work loop.
 - `transformed_fill.jl` — the codec types and the transformed CPU fill and launchers.
 - `uniform.jl` — the uniform fill scaffold and its allocating entries.
