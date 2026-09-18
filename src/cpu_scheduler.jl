@@ -1,5 +1,6 @@
 const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
-const _CPU_FILL_MIN_WORKITEMS = 4
+# Two work items lose at small sizes, four leaves 4947 to 7418 Float64 elements serial.
+const _CPU_FILL_MIN_WORKITEMS = 3
 
 @inline function _dense_fill_chunk_elements(::Type{T}) where {T}
     raw = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_draw_bits(T)))

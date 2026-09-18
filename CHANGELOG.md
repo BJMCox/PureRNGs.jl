@@ -14,6 +14,7 @@ Initial development release.
 - CPU-bound 64-bit Philox generators use the host widening multiply. Kernel code keeps the portable four-product form.
 - The Philox4x32 Float64 fill extracts 128 draws per 53 blocks with fixed shifts, with a bit buffer for the remainder.
 - The Philox4x32 normal and exponential fills decode whole groups of aligned draws with fixed shifts instead of walking a per-element bit cursor. Serial fills run 21% to 24% faster for `Float64` and 27% to 47% faster for `Float32`.
+- Threaded CPU fills spread over the threads from three chunks instead of four. Fills that produce three chunks run up to 2.5 times faster, and no size measured between 1024 and 16384 elements gets slower.
 - The packed CPU fills dispatch on `IndexStyle`, so every linearly indexed destination reaches them, not only `Array`. A contiguous or strided `view`, or a `reshape` of one, now fills about five times faster serially and matches an `Array` when threaded.
 - A host-only `Random.AbstractRNG` bridge.
 - `rngkey` and `rngposition` accessors, and constructors that rebuild a generator at a saved position.
