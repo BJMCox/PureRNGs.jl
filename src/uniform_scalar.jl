@@ -64,9 +64,22 @@ end
 @inline _draw_unchecked(rng::_ScalarUniformGenerators, position, ::Type{Int64}) =
     _from_bits(Int64, _draw_raw(rng, position, Val(64)))
 
-function Random.rand(::AbstractPureRNG)
-    throw(ArgumentError("untyped immutable draws are forbidden; use rand(rng, T)"))
+@noinline function _untyped_draw_error(held_form::String, next_form::String)
+    throw(
+        ArgumentError(
+            "untyped immutable draws are forbidden; use $held_form to draw at the " *
+            "held position, or $next_form to advance",
+        ),
+    )
 end
+
+# [R23] Nine guard methods keep Base's untyped fallbacks unreachable. The dims
+# spellings would otherwise reach `Random.Sampler` through the collection path.
+Random.rand(::AbstractPureRNG) = _untyped_draw_error("rand(rng, T)", "rand_next(rng, T)")
+Random.rand(::AbstractPureRNG, ::Integer, ::Integer...) =
+    _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
+Random.rand(::AbstractPureRNG, ::Dims) =
+    _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
 
 @inline function _rand_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve_scalar(rng, _draw_bits(T))

@@ -128,9 +128,12 @@ end
 @inline _draw_exponential_unchecked(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
     _draw_exponential_unchecked(rng, rng.position, T)
 
-function Random.randexp(::AbstractPureRNG)
-    throw(ArgumentError("untyped immutable draws are forbidden; use randexp(rng, T)"))
-end
+Random.randexp(::AbstractPureRNG) =
+    _untyped_draw_error("randexp(rng, T)", "randexp_next(rng, T)")
+Random.randexp(::AbstractPureRNG, ::Integer, ::Integer...) =
+    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
+Random.randexp(::AbstractPureRNG, ::Dims) =
+    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
 
 @inline function _randexp_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve_scalar(rng, _exponential_bits(T))

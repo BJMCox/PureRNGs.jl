@@ -142,9 +142,11 @@ end
 @inline _draw_normal_unchecked(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
     _draw_normal_unchecked(rng, rng.position, T)
 
-function Random.randn(::AbstractPureRNG)
-    throw(ArgumentError("untyped immutable draws are forbidden; use randn(rng, T)"))
-end
+Random.randn(::AbstractPureRNG) = _untyped_draw_error("randn(rng, T)", "randn_next(rng, T)")
+Random.randn(::AbstractPureRNG, ::Integer, ::Integer...) =
+    _untyped_draw_error("randn(rng, T, dims...)", "randn_next(rng, dims...)")
+Random.randn(::AbstractPureRNG, ::Dims) =
+    _untyped_draw_error("randn(rng, T, dims...)", "randn_next(rng, dims...)")
 
 @inline function _randn_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve_scalar(rng, _normal_bits(T))
