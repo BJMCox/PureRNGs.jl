@@ -73,8 +73,9 @@ Upload statistical logs as artifacts rather than committing them.
 
 ## Performance
 
-Use `benchmark/throughput.jl` from a Julia session.
-Set the device, family, result type, and sample size before including it.
+Start Julia at the repository root with `julia --project=benchmark`.
+Set the device, family, result type, and sample size, then run
+`include("benchmark/throughput.jl")`.
 Keep runs long enough to measure steady-state performance.
 
 Compare the same workload and hardware against the exact base revision.
