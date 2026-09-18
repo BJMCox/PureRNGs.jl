@@ -435,6 +435,26 @@ end
 
 end
 
+@testset "R23 and R26 Philox4x32 grouped normal fill stream" begin
+    # The Philox4x32 fill decodes whole groups of aligned draws, so the stream
+    # has to match the scalar chain on either side of a group boundary and at a
+    # start bit no group can align to.
+    for T in NORMAL_TYPES, count in (1, 31, 32, 33, 1000, 100_003)
+        for bit in (UInt16(0), UInt16(3))
+            rng = _positioned(Philox4x32, 0x74b, UInt64(9), bit)
+            expected_rng, expected = _reference_normal_chain(rng, T, count)
+            serial = Vector{T}(undef, count)
+            _, serial_next = randn_next!(rng, serial; threaded = false)
+            threaded = similar(serial)
+            randn!(rng, threaded; threaded = true)
+            sync_cpu()
+            @test serial == expected
+            @test threaded == expected
+            @test serial_next.position == expected_rng.position
+        end
+    end
+end
+
 @testset "R26 normal fill parallel seams and caller task" begin
     for T in NORMAL_TYPES
         rng = _positioned(Philox4x32, 0x74a, UInt64(4), UInt16(61))

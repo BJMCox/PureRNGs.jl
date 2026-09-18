@@ -259,6 +259,26 @@ end
     @test next_rng.position == expected_rng.position
 end
 
+@testset "R23 and R26 Philox4x32 grouped exponential fill stream" begin
+    # The Philox4x32 fill decodes whole groups of aligned draws, so the stream
+    # has to match the scalar chain on either side of a group boundary and at a
+    # start bit no group can align to.
+    for T in EXPONENTIAL_TYPES, count in (1, 31, 32, 33, 1000, 100_003)
+        for bit in (UInt16(0), UInt16(3))
+            rng = _positioned(Philox4x32, 0x86b, UInt64(9), bit)
+            expected_rng, expected = _scalar_exponential_chain(rng, T, count)
+            serial = Vector{T}(undef, count)
+            _, serial_next = randexp_next!(rng, serial; threaded = false)
+            threaded = similar(serial)
+            randexp!(rng, threaded; threaded = true)
+            sync_cpu()
+            @test serial == expected
+            @test threaded == expected
+            @test serial_next.position == expected_rng.position
+        end
+    end
+end
+
 @testset "R26 small allocating exponential boundary" begin
     rng = _positioned(Philox4x32, 0x86a1, UInt64(5), UInt16(61))
     for count in (128, 129)
