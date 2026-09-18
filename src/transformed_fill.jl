@@ -96,9 +96,9 @@ end
     chunks = blocks ÷ 4
     chunk_words = 8chunks
     function word_ref(word)
-        word < chunk_words && return :($(Symbol(:group_, word >> 3))[$((word&7)+1)])
+        word < chunk_words && return :($(Symbol(:group_, word>>3))[$((word&7)+1)])
         rest = word - chunk_words
-        return :($(Symbol(:group_, chunks + (rest >> 1)))[$((rest&1)+1)])
+        return :($(Symbol(:group_, chunks+(rest>>1)))[$((rest&1)+1)])
     end
     body = Expr[:(mask = _low_mask(UInt16($W)))]
     for source = 0:(chunks+blocks%4-1)
@@ -164,7 +164,7 @@ end
             cursor = _ensure_dense_cursor(rng, cursor)
             block = cursor.block
             while index + group - 1 <= last_index &&
-                      block <= _max_block(rng) - (span - UInt64(1))
+                  block <= _max_block(rng) - (span - UInt64(1))
                 _store_transformed_group!(destination, index, rng, block, codec, T, width)
                 index += group
                 block += span
