@@ -328,9 +328,14 @@ for (distribution_type, result_type) in (
             rng::IR._ScalarUniformGenerators,
             d::$distribution_type,
             destination::AbstractArray{$result_type};
-            threaded::Bool = true,
+            threaded = true,
         )
-            result, _ = _rand_distribution_next_fill!(rng, d, destination, threaded)
+            result, _ = _rand_distribution_next_fill!(
+                rng,
+                d,
+                destination,
+                IR._check_threaded(threaded),
+            )
             return result
         end
 
@@ -338,9 +343,14 @@ for (distribution_type, result_type) in (
             rng::IR._ScalarUniformGenerators,
             d::$distribution_type,
             destination::AbstractArray{$result_type};
-            threaded::Bool = true,
+            threaded = true,
         )
-            return _rand_distribution_next_fill!(rng, d, destination, threaded)
+            return _rand_distribution_next_fill!(
+                rng,
+                d,
+                destination,
+                IR._check_threaded(threaded),
+            )
         end
     end
 end
