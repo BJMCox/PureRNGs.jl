@@ -90,6 +90,8 @@ The current Julia/Linux core job and independent Distributions, Enzyme, and Reac
 each upload source and extension coverage to Codecov, which merges their reports.
 Each job retains its `lcov.info` in a separate `coverage-*` artifact.
 Extension suites run on current stable Julia only. The core job also covers the 1.10 LTS floor.
+The conformance environments in `test/environments` declare and require current stable Julia,
+because they use `[sources]`, which 1.10 does not support. The package itself still supports 1.10.
 The Reactant job tests Philox4x32, Threefry4x64, Threefry4x32, and ChaCha.
 Full-family Reactant and GPU validation remain separate release gates.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
