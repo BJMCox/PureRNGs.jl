@@ -158,7 +158,7 @@ end
 @inline function _check_fill_device(rng::_ScalarUniformGenerators, destination)
     generator_device = MLDataDevices.get_device_type(rng.device)
     destination_device = MLDataDevices.get_device_type(destination)
-    generator_device === destination_device ||
+    generator_device <: destination_device ||
         _fill_device_mismatch(generator_device, destination_device)
     return nothing
 end

@@ -23,8 +23,10 @@ end
 @inline _reduce_range_candidate(lo::UInt64, hi::UInt64, span::UInt64) =
     iszero(span) ? hi : _mulhi128_by64(lo, hi, span)
 
+@noinline _empty_range_error() = throw(ArgumentError("range must be non-empty"))
+
 @inline function _range_span(range::AbstractRange{T}) where {T<:_RangeInteger}
-    isempty(range) && throw(ArgumentError("range must be non-empty"))
+    isempty(range) && _empty_range_error()
     return length(range) % UInt64
 end
 
