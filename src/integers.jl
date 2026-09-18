@@ -103,11 +103,11 @@ end
 @inline _rand_range(rng::_ScalarUniformGenerators, range::AbstractRange{T}) where {T} =
     first(_rand_next_range(rng, range))
 
-for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-    @eval begin
-        @inline Random.rand(rng::_ScalarUniformGenerators, range::AbstractRange{$T}) =
-            _rand_range(rng, range)
-        @inline rand_next(rng::_ScalarUniformGenerators, range::AbstractRange{$T}) =
-            _rand_next_range(rng, range)
-    end
-end
+@inline Random.rand(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+) where {T<:_RangeInteger} = _rand_range(rng, range)
+@inline rand_next(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+) where {T<:_RangeInteger} = _rand_next_range(rng, range)

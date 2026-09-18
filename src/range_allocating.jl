@@ -151,60 +151,49 @@ end
     return _rand_next_range_fill!(rng, destination, range, true)
 end
 
-for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-    @eval begin
-        @inline function Random.rand(
-            rng::_ScalarUniformGenerators,
-            range::AbstractRange{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            destination, _ = _rand_next_range_array(rng, range, (dim1, dims...))
-            return destination
-        end
-        @inline Random.rand(
-            rng::_ScalarUniformGenerators,
-            range::AbstractRange{$T},
-            dims::Dims,
-        ) = first(_rand_next_range_array(rng, range, dims))
+@inline function Random.rand(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_RangeInteger}
+    destination, _ = _rand_next_range_array(rng, range, (dim1, dims...))
+    return destination
+end
+@inline Random.rand(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+    dims::Dims,
+) where {T<:_RangeInteger} = first(_rand_next_range_array(rng, range, dims))
 
-        @inline function rand_next(
-            rng::_ScalarUniformGenerators,
-            range::AbstractRange{$T},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return _rand_next_range_array(rng, range, (dim1, dims...))
-        end
-        @inline rand_next(
-            rng::_ScalarUniformGenerators,
-            range::AbstractRange{$T},
-            dims::Dims,
-        ) = _rand_next_range_array(rng, range, dims)
+@inline function rand_next(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_RangeInteger}
+    return _rand_next_range_array(rng, range, (dim1, dims...))
+end
+@inline rand_next(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+    dims::Dims,
+) where {T<:_RangeInteger} = _rand_next_range_array(rng, range, dims)
 
-        @inline function Random.rand!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T},
-            range::AbstractRange{$T};
-            threaded = true,
-        )
-            return first(
-                _rand_next_range_fill!(rng, destination, range, _check_threaded(threaded)),
-            )
-        end
+@inline function Random.rand!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T},
+    range::AbstractRange{T};
+    threaded = true,
+) where {T<:_RangeInteger}
+    return first(_rand_next_range_fill!(rng, destination, range, _check_threaded(threaded)))
+end
 
-        @inline function rand_next!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T},
-            range::AbstractRange{$T};
-            threaded = true,
-        )
-            return _rand_next_range_fill!(
-                rng,
-                destination,
-                range,
-                _check_threaded(threaded),
-            )
-        end
-    end
+@inline function rand_next!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T},
+    range::AbstractRange{T};
+    threaded = true,
+) where {T<:_RangeInteger}
+    return _rand_next_range_fill!(rng, destination, range, _check_threaded(threaded))
 end
