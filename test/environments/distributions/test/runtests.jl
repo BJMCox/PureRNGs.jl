@@ -72,13 +72,7 @@ primitive_at(rng, d::Exponential{T}, index) where {T} = d.θ * randexpat(rng, T,
 
 primitive_at(rng, d::Bernoulli{T}, index) where {T} = randat(rng, T, index) < d.p
 
-function primitive_at(rng, d::DiscreteUniform, index)
-    range = d.a:d.b
-    span = IR._range_span(range)
-    width = IR._range_bits(span)
-    addressed = IR._addressed_rng(rng, width, index)
-    return IR._draw_range_unchecked(addressed, range, span)
-end
+primitive_at(rng, d::DiscreteUniform, index) = randat(rng, d.a:d.b, index)
 
 function primitive_chain(rng, distribution, count)
     values = Vector{fixed_result_type(distribution)}(undef, count)

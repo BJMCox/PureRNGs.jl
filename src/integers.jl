@@ -113,3 +113,13 @@ end
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
 ) where {T<:_RangeInteger} = _rand_next_range(rng, range)
+
+@inline function randat(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+    i::Integer,
+) where {T<:_RangeInteger}
+    span = _range_span(range)
+    addressed = _addressed_rng(rng, _range_bits(span), i)
+    return _draw_range_unchecked(addressed, range, span)
+end

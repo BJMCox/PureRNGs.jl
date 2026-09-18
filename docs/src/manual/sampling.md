@@ -32,6 +32,8 @@ dice
 
 The range follows the destination.
 
+`randat(rng, range, i)` returns the `i`th range draw without advancing `rng`.
+
 ## Sample a population
 
 ```@example sampling

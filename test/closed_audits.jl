@@ -142,6 +142,7 @@ end
         require(rand_next, Tuple{R,Range,Int})
         require(rand_next, Tuple{R,Range,Tuple{Int}})
         require(rand_next!, Tuple{R,Vector{T},Range})
+        require(randat, Tuple{R,Range,Int})
     end
     require(splitrng, Tuple{R})
     require(splitrng, Tuple{R,Int})

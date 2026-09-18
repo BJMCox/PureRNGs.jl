@@ -85,16 +85,18 @@ end
 @doc """
     randat(rng, T, i)
     randat(rng, T, i:j)
+    randat(rng, range, i)
 
 Return the `i`th uniform draw at or after the current position of `rng`, where
 `i` is one-based, or the vector of draws `i` through `j`. Supported result
 types are `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, `Float32`, and
-`Float64`.
+`Float64`. Passing an integer range in place of `T` returns the `i`th draw
+from that range.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
 
-The distribution form of `randat` takes a single index.
+The range and distribution forms of `randat` take a single index.
 
 # Examples
 

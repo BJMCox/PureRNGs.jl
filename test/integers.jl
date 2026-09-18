@@ -4,6 +4,8 @@ using Random: rand
 integer_allocations(rng, range) =
     (@allocated(rand(rng, range)), @allocated(rand_next(rng, range)))
 
+addressed_range_allocations(rng, range) = @allocated(randat(rng, range, 3))
+
 const RangeIR = PureRNGs
 
 function _range_reference_offset(rng, span::UInt64)
@@ -260,6 +262,36 @@ end
     @test rand(rng, rounded) === _range_reference_draw(rng, rounded)
     long = LinRange{Int64}(0, 0, typemax(UInt64))
     @test rand(rng, long) === Int64(0)
+end
+
+@testset "R29 and R55 addressed range draws" begin
+    # The addressed draw lands where a chain of same-span draws reaches.
+    ranges = (1:6, -3:3, Int32(10):Int32(-2):Int32(-10), 1:(2^40), UInt64(1):(UInt64(2)^40))
+    indices = (1, 2, 7, 1000)
+    for F in (Philox4x32, Threefry4x64, ChaCha), range in ranges
+        rng = _positioned(F, 0x558, UInt64(3), UInt16(17))
+        cursor = rng
+        for i = 1:maximum(indices)
+            i in indices && @test randat(rng, range, i) === first(rand_next(cursor, range))
+            cursor = last(rand_next(cursor, range))
+        end
+    end
+
+    rng = Philox4x32(0x559)
+    for range in (1:6, 1:(2^40))
+        @inferred randat(rng, range, 3)
+        addressed_range_allocations(rng, range)
+        @test addressed_range_allocations(rng, range) == 0
+    end
+
+    @test_throws ArgumentError randat(rng, Int8(2):Int8(1), 1)
+    @test_throws ArgumentError randat(rng, 1:6, 0)
+
+    capacity = _range_capacity(rng)
+    last_position = _range_position_from_absolute(rng, capacity - 64)
+    terminal = RangeIR._rebuild(rng, last_position, rng.device)
+    @test randat(terminal, 1:6, 1) === rand(terminal, 1:6)
+    @test_throws StreamExhausted randat(terminal, 1:6, 2)
 end
 
 @testset "R30 and R55 fixed-work range codegen" begin

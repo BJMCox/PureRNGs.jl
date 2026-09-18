@@ -19,6 +19,7 @@ Initial development release.
 - A host-only `Random.AbstractRNG` bridge.
 - `rngkey` and `rngposition` accessors, and constructors that rebuild a generator at a saved position.
 - Array dimensions as one tuple, integer-range destination fills, and addressed draws over an index range.
+- `randat(rng, range, i)` addresses a single integer-range draw.
 - `WeightTable` for reusable weighted sampling preparation.
 - Every GPU backend prepares weighted samples with a parallel fold kernel and selects them by binary search over the cumulative table. AMDGPU and Metal no longer run a single-work-item scan with a device `sortperm`.
 - `splitrng(rng, n; threaded=true)` derives large child vectors on all CPU threads. The children do not depend on the keyword.
