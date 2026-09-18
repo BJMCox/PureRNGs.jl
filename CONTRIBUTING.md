@@ -204,25 +204,34 @@ Hosted CI is manual-dispatch only while the repository is private, so this recip
 
 ## Automation
 
-The CI workflow checks Julia 1.10 and current stable Julia, serial and threaded execution,
-Linux/macOS/Windows.
+The CI workflow checks Julia 1.10, current stable Julia, and current prerelease Julia, serial and
+threaded execution, Linux/macOS/Windows. The prerelease row runs on Linux only, with 4 threads,
+and does not block the workflow when it fails.
 
-The current Julia/Linux core job and independent Distributions, Enzyme, and Reactant CPU jobs
-each upload source and extension coverage to Codecov, which merges their reports.
+A separate downgrade job installs Julia 1.10, downgrades every non-stdlib dependency to its
+declared `[compat]` floor, and runs the test suite. This checks the floors in `[compat]`,
+not only the latest releases.
+
+The current Julia/Linux core job and five independent CPU extension jobs (Distributions, Enzyme,
+Reactant, MeasureBase, Turing) each upload source and extension coverage to Codecov, which merges
+their reports.
 Each job retains its `lcov.info` in a separate `coverage-*` artifact.
-Extension suites run on current stable Julia only. The core job also covers the 1.10 LTS floor.
+Extension suites run on current stable Julia only. The core job also covers the 1.10 LTS floor,
+and the downgrade job covers the compat floors of the package's own dependencies.
 The conformance environments in `test/environments` declare and require current stable Julia,
 because they use `[sources]`, which 1.10 does not support. The package itself still supports 1.10.
 The Reactant job tests Philox4x32, Threefry4x64, Threefry4x32, and ChaCha.
+The Turing job runs only on manual dispatch, and later on schedule; it is skipped on pull requests.
 Full-family Reactant and GPU validation remain separate release gates.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
 Automatic CI and documentation runs are disabled while the repository is private.
-Both workflows support manual dispatch only.
+Every job above is authored now, but both workflows support manual dispatch only until publication.
 TagBot is removed. The package is not registered and must not be registered
-while the repository is private.
+while the repository is private. Release-ready means merged and pushed to the default branch,
+with no tag and no registration.
 
 ## Before the first release
 
