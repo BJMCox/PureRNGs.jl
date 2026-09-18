@@ -26,4 +26,5 @@ Initial development release.
 - Optional Distributions, Enzyme, and Reactant integrations. Reactant array fills of any size trace, with no per-element constants in the compiled module.
 - `StreamExhausted`, thrown when a draw outruns the generator's stream, carrying the generator and the required bit span. Argument validation keeps throwing `ArgumentError`.
 - A PrecompileTools workload over every public draw kind, in the package and in the Distributions extension. The first fill, scalar draw, and distribution draw of a session no longer compile.
+- KernelAbstractions is a weak dependency. The device kernels moved to `PureRNGsKernelAbstractionsExt`, which every GPU backend package loads transitively. A CPU-only environment resolves 22 packages instead of 34 and loads in 0.04 s instead of 0.17 s.
 - A workflow-led manual, CPU and GPU tutorials, and an exported API reference.

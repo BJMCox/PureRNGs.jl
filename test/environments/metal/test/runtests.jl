@@ -1,4 +1,5 @@
 using Distributions
+using KernelAbstractions
 using PureRNGs
 using Metal
 using MLDataDevices
@@ -90,8 +91,8 @@ function _metal_exponential_max_ulp(values::Vector{Float32})
     end
 end
 
-IR.KernelAbstractions.@kernel function _metal_exponential_lattice_kernel!(values)
-    index = IR.KernelAbstractions.@index(Global, Linear)
+KernelAbstractions.@kernel function _metal_exponential_lattice_kernel!(values)
+    index = KernelAbstractions.@index(Global, Linear)
     raw = UInt64(index - 1)
     @inbounds values[index] = IR._exponential_from_bits(IR._METAL_BACKEND, Float32, raw)
 end
@@ -99,7 +100,8 @@ end
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
 @testset "R1 extension ambiguities" begin
-    for name in (:PureRNGsMetalExt, :PureRNGsDistributionsExt)
+    for name in
+        (:PureRNGsMetalExt, :PureRNGsDistributionsExt, :PureRNGsKernelAbstractionsExt)
         extension = Base.get_extension(IR, name)
         @testset "$name" begin
             @test isempty(Test.detect_ambiguities(extension; recursive = true))
@@ -177,7 +179,7 @@ end
     @test_throws ArgumentError IR.randn_next!(rng, Float32[])
     @test_throws ArgumentError randexp!(rng, Float32[])
     @test_throws ArgumentError IR.randexp_next!(rng, Float32[])
-    @test_throws TypeError rand!(rng, UInt32[]; threaded = 1)
+    @test_throws ArgumentError rand!(rng, UInt32[]; threaded = 1)
 
     population = MetalDeviceArrayProbe(Int32[1, 2, 3])
     weights = MetalDeviceArrayProbe(Float64[1, 2, 3])
@@ -323,12 +325,12 @@ if Metal.functional()
         end
 
         device_lattice = Metal.MtlArray{Float32}(undef, METAL_EXPONENTIAL_LATTICE_LENGTH)
-        backend = IR._fill_backend(device_lattice)
+        backend = KernelAbstractions.get_backend(device_lattice)
         _metal_exponential_lattice_kernel!(backend)(
             device_lattice;
             ndrange = METAL_EXPONENTIAL_LATTICE_LENGTH,
         )
-        IR.KernelAbstractions.synchronize(backend)
+        KernelAbstractions.synchronize(backend)
         lattice = Array(device_lattice)
 
         @test isequal(first(lattice), -zero(Float32))

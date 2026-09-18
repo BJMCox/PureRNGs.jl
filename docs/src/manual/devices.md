@@ -13,6 +13,9 @@ values, rng = rand_next(rng, Float32, 1_000_000)
 @assert values isa CuArray
 ```
 
+KernelAbstractions is a weak dependency that carries the device kernels, and every
+GPU backend package pulls it in, so a CPU-only environment installs neither.
+
 Allocating draws create backend arrays. Fills require a destination on the same backend.
 No unsupported operation silently falls back to the CPU. The one exception is
 explicit: `StatefulRNG(rng)` rebinds a device generator to the CPU. See

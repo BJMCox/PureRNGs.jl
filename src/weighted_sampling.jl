@@ -104,82 +104,6 @@ function _transfer_weights(device, weights::Vector{Float64})
     return transferred
 end
 
-# One workgroup folds the whole weight vector. A backend whose workgroups cannot
-# hold this many workitems overrides the hook.
-@inline _weight_fold_lanes(_backend) = Val(1024)
-@inline _weight_fold_lane_count(::Val{lanes}) where {lanes} = lanes
-
-# [R59] the cumulative table is a strict Float64 left fold in ordinal order, so
-# lane 1 alone accumulates while the other lanes only stage and store.
-KernelAbstractions.@kernel function _weighted_fold_kernel!(
-    source,
-    total_result,
-    invalid_result,
-    cumulative,
-    ::Val{lanes},
-    ::Val{validate_elements},
-) where {lanes,validate_elements}
-    lane = @index(Local, Linear)
-    staged = @localmem Float64 (lanes,)
-    total = zero(Float64)
-    invalid = false
-    first = 1
-    while first <= length(source)
-        ordinal = first + lane - 1
-        if ordinal <= length(source)
-            @inbounds staged[lane] = Float64(_population_value(source, UInt64(ordinal)))
-        end
-        @synchronize
-
-        if lane == 1
-            last = min(lanes, length(source) - first + 1)
-            @inbounds for slot = 1:last
-                weight = staged[slot]
-                invalid |=
-                    validate_elements && (!isfinite(weight) || weight < zero(Float64))
-                total += weight
-                staged[slot] = total
-            end
-        end
-        @synchronize
-
-        if ordinal <= length(source)
-            @inbounds cumulative[ordinal] = staged[lane]
-        end
-        @synchronize
-        first += lanes
-    end
-    if lane == 1
-        invalid |= !isfinite(total) || total <= zero(Float64)
-        @inbounds begin
-            total_result[1] = total
-            invalid_result[1] = invalid
-        end
-    end
-end
-
-function _prepare_weight_scan(rng, weights, agnostic::Bool)
-    source = agnostic ? _transfer_weights(rng.device, _collect_weights(weights)) : weights
-    cumulative = _allocate_array(rng.device, Float64, (length(source),))
-    total_result = _allocate_array(rng.device, Float64, (1,))
-    invalid_result = _allocate_array(rng.device, Bool, (1,))
-    backend = _fill_backend(cumulative)
-    lanes = _weight_fold_lanes(backend)
-    lane_count = _weight_fold_lane_count(lanes)
-    _weighted_fold_kernel!(backend)(
-        source,
-        total_result,
-        invalid_result,
-        cumulative,
-        lanes,
-        Val(!agnostic);
-        ndrange = lane_count,
-        workgroupsize = lane_count,
-    )
-    only(Array(invalid_result)) && _invalid_weights()
-    return nothing, total_result, cumulative
-end
-
 # `threshold < cumulative[end]`; odd spans overlap one index between both halves.
 @inline function _weighted_cdf_index(cumulative, threshold)
     lower = 1
@@ -248,7 +172,7 @@ end
 end
 
 @inline function _fill_weighted_samples!(
-    ::KernelAbstractions.CPU,
+    ::_CPUBackend,
     rng::_CPUGenerators,
     population,
     _weights,
@@ -275,6 +199,10 @@ end
     return destination
 end
 
+# The device scan runs a KernelAbstractions kernel, so the extension owns every
+# method of this launcher.
+function _launch_weighted_scan! end
+
 @inline function _fill_weighted_samples!(
     backend,
     rng,
@@ -299,24 +227,7 @@ end
     return _weighted_threshold_from_bits(raw, total)
 end
 
-KernelAbstractions.@kernel function _weighted_threshold_kernel!(
-    rng,
-    total_result,
-    thresholds,
-)
-    index = @index(Global, Linear)
-    bits_lo, bits_hi = _bit_span(UInt64(index - 1), _WEIGHT_BITS)
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    total = @inbounds total_result[1]
-    @inbounds thresholds[index] = _weighted_threshold(rng, position, total)
-end
-
-@inline function _fill_weighted_thresholds!(
-    ::KernelAbstractions.CPU,
-    rng,
-    total::Float64,
-    thresholds,
-)
+@inline function _fill_weighted_thresholds!(::_CPUBackend, rng, total::Float64, thresholds)
     isempty(thresholds) && return thresholds
     cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
     @inbounds for index in eachindex(thresholds)
@@ -324,58 +235,6 @@ end
         thresholds[index] = _weighted_threshold_from_bits(raw, total)
     end
     return thresholds
-end
-
-@inline function _fill_weighted_thresholds!(backend, rng, total_result, thresholds)
-    _weighted_threshold_kernel!(backend)(
-        rng,
-        total_result,
-        thresholds;
-        ndrange = length(thresholds),
-    )
-    return thresholds
-end
-
-KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
-    population,
-    cumulative,
-    thresholds,
-    destination,
-)
-    index = @index(Global, Linear)
-    threshold = @inbounds thresholds[index]
-    lower = 1
-    upper = length(cumulative)
-    @inbounds while lower < upper
-        middle = lower + ((upper - lower) >>> 1)
-        if threshold < cumulative[middle]
-            upper = middle
-        else
-            lower = middle + 1
-        end
-    end
-    indices = eachindex(destination)
-    @inbounds begin
-        destination_index = _sampling_destination_index(indices, index)
-        destination[destination_index] = _population_value(population, UInt64(lower))
-    end
-end
-
-@inline function _launch_weighted_scan!(
-    backend,
-    population,
-    cumulative,
-    thresholds,
-    destination,
-)
-    _weighted_binary_search_kernel!(backend)(
-        population,
-        cumulative,
-        thresholds,
-        destination;
-        ndrange = length(destination),
-    )
-    return destination
 end
 
 function _randsample_next_weighted(rng, population, weights, requested_count)
@@ -397,7 +256,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     destination = _allocate_sampling_result(rng, indexed, count)
     isempty(destination) && return destination, next_rng
 
-    backend = _fill_backend(destination)
+    backend = _fill_backend(rng.device, destination)
     _fill_weighted_samples!(
         backend,
         rng,
@@ -440,7 +299,7 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
         return destination, next_rng
     end
     _fill_weighted_samples!(
-        _fill_backend(destination),
+        _fill_backend(rng.device, destination),
         rng,
         indexed,
         converted,
