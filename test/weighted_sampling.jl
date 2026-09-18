@@ -270,10 +270,13 @@ end
     sync_cpu()
     @test serial == threaded
     @test after_serial === after_threaded
-    # The cumulative vector is the only allocation the serial fill keeps.
+    # The serial fill allocates one cumulative vector, never per element.
+    longer = Vector{Int}(undef, 900_000)
+    randsample_next!(rng, population, weights, serial; threaded = false)
+    randsample_next!(rng, population, weights, longer; threaded = false)
     @test @allocated(
         randsample_next!(rng, population, weights, serial; threaded = false)
-    ) == 8 * length(weights) + 64
+    ) == @allocated(randsample_next!(rng, population, weights, longer; threaded = false))
 
     # A length of four whole chunks plus five leaves a final chunk under one lane width.
     ragged = Vector{Int}(undef, 4 * 2464 + 5)
@@ -315,13 +318,26 @@ end
     )
     # A top-level `@allocated` also counts the boxed return tuple, so measure in a
     # function where only the fill's own allocations remain.
-    serial_fill_bytes(rng, weights, destination) = @allocated(
+    serial_fill_bytes(rng, population, weights, destination) = @allocated(
         randsample_next!(rng, population, weights, destination; threaded = false)
     )
     rng = Philox4x32(0x9771)
     destination = Vector{Int32}(undef, 64)
-    serial_fill_bytes(rng, table, destination)
-    serial_fill_bytes(rng, weights, destination)
-    @test serial_fill_bytes(rng, table, destination) == 0
-    @test serial_fill_bytes(rng, weights, destination) == 8 * length(weights) + 64
+    wide_population = Int32[10, 20, 30, 40, 50, 60, 70, 80]
+    wide_weights = Float64[1, 2, 3, 4, 5, 6, 7, 8]
+    wide_table = WeightTable(wide_weights)
+    for _ = 1:2
+        serial_fill_bytes(rng, population, table, destination)
+        serial_fill_bytes(rng, wide_population, wide_table, destination)
+        serial_fill_bytes(rng, population, weights, destination)
+        serial_fill_bytes(rng, wide_population, wide_weights, destination)
+    end
+    # Bounds-check and coverage flags add a fixed cost to every fill, so compare two
+    # weight lengths instead of a byte count. The table carries its cumulative vector.
+    @test serial_fill_bytes(rng, wide_population, wide_table, destination) ==
+          serial_fill_bytes(rng, population, table, destination)
+    # The weight vector allocates one Float64 cumulative entry per weight.
+    @test serial_fill_bytes(rng, wide_population, wide_weights, destination) -
+          serial_fill_bytes(rng, population, weights, destination) ==
+          8 * (length(wide_weights) - length(weights))
 end
