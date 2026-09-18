@@ -54,6 +54,8 @@ fixed = splitrng(root, Val(3))    # Tuple with compile-time length
 
 Derivation leaves the parent unchanged and ignores its current position. Children start at position zero and retain the backend.
 
+`splitrng(root, n)` takes `threaded=true` by default and derives large child vectors in parallel, with the same children as `threaded=false`.
+
 Repeated derivation with the same parent and purpose returns the same key. It does not allocate a fresh stream automatically.
 
 Splitting in a loop is the common mistake. The parent advances, the derivation
