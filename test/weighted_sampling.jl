@@ -267,7 +267,6 @@ end
     _, after_serial = randsample_next!(rng, population, weights, serial; threaded = false)
     _, after_threaded =
         randsample_next!(rng, population, weights, threaded; threaded = true)
-    sync_cpu()
     @test serial == threaded
     @test after_serial === after_threaded
     # The serial fill allocates one cumulative vector, never per element.
@@ -283,7 +282,6 @@ end
     ragged_serial = similar(ragged)
     randsample_next!(rng, population, weights, ragged_serial; threaded = false)
     randsample_next!(rng, population, weights, ragged; threaded = true)
-    sync_cpu()
     @test ragged == ragged_serial
 end
 

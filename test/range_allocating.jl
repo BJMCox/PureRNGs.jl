@@ -61,7 +61,6 @@ end
         count = 3 * Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width)) + 3
         expected_next, expected = _chained_range(rng, range, count)
         values, next_rng = rand_next(rng, range, count)
-        sync_cpu()
         @test values == expected
         @test next_rng === expected_next
     end
@@ -77,7 +76,6 @@ end
     count = 3chunk_elements + 3
     expected_next, expected = _chained_range(rng, range, count)
     values, next_rng = rand_next(rng, range, count)
-    sync_cpu()
     @test values == expected
     @test next_rng === expected_next
 end

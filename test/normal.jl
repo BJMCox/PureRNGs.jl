@@ -375,23 +375,19 @@ end
             threaded = similar(serial)
             @test randn!(rng, serial; threaded = false) === serial
             @test randn!(rng, threaded; threaded = true) === threaded
-            sync_cpu()
             @test serial == threaded == expected
             @test rng.position.bit == bit
 
             continued, continued_next = randn_next!(rng, similar(serial))
-            sync_cpu()
             @test continued == expected
             @test continued_next.position == next_rng.position
 
             matrix = randn(rng, T, 1, 17)
-            sync_cpu()
             @test vec(matrix) == expected
             @test size(matrix) == (1, 17)
             @test rng.position.bit == bit
 
             allocated, allocated_next = randn_next(rng, T, 17)
-            sync_cpu()
             @test allocated == expected
             @test allocated_next.position == next_rng.position
         end
@@ -409,7 +405,6 @@ end
         threaded_storage = fill(zero(T), 24)
         threaded_view = @view threaded_storage[2:2:24]
         randn!(rng, threaded_view; threaded = true)
-        sync_cpu()
         @test collect(threaded_view) == expected
         @test all(iszero, @view threaded_storage[1:2:23])
     end
@@ -426,7 +421,6 @@ end
     rng = Philox4x32(0x749)
     default_values, default_next = randn_next(rng, 2, 3)
     typed_values, typed_next = randn_next(rng, Float64, 2, 3)
-    sync_cpu()
     @test default_values == typed_values
     @test default_next.position == typed_next.position
     @test size(default_values) == (2, 3)
@@ -447,7 +441,6 @@ end
             _, serial_next = randn_next!(rng, serial; threaded = false)
             threaded = similar(serial)
             randn!(rng, threaded; threaded = true)
-            sync_cpu()
             @test serial == expected
             @test threaded == expected
             @test serial_next.position == expected_rng.position
@@ -465,7 +458,6 @@ end
             threaded = similar(serial)
             _, serial_next = randn_next!(rng, serial; threaded = false)
             _, threaded_next = randn_next!(rng, threaded; threaded = true)
-            sync_cpu()
             @test threaded == serial
             @test threaded_next.position == serial_next.position
         end
@@ -487,7 +479,6 @@ end
     for count in (128, 129)
         expected_next, expected = _reference_normal_chain(rng, Float64, count)
         values, next_rng = randn_next(rng, Float64, count)
-        sync_cpu()
         @test values == expected
         @test next_rng.position == expected_next.position
     end
@@ -529,7 +520,6 @@ end
 
         pure_final = randn(last, T, 1)
         allocating_final, allocating_final_next = randn_next(last, T, 1)
-        sync_cpu()
         @test pure_final == allocating_final == final
         @test allocating_final_next.position == expected_terminal
 
