@@ -179,7 +179,7 @@ end
     @test_throws ArgumentError IR.randn_next!(rng, Float32[])
     @test_throws ArgumentError randexp!(rng, Float32[])
     @test_throws ArgumentError IR.randexp_next!(rng, Float32[])
-    @test_throws TypeError rand!(rng, UInt32[]; threaded = 1)
+    @test_throws ArgumentError rand!(rng, UInt32[]; threaded = 1)
 
     population = MetalDeviceArrayProbe(Int32[1, 2, 3])
     weights = MetalDeviceArrayProbe(Float64[1, 2, 3])
