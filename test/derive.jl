@@ -199,6 +199,8 @@ derive_allocations(rng) = (@allocated(splitrng(rng, Val(3))), @allocated(subrng(
 
     rng = Philox4x32(123)
     for count in (1000, 4096)
-        @test serial_split_overhead(rng, count) == (0, true)
+        overhead, valid = serial_split_overhead(rng, count)
+        # An allocation budget permits lower allocation than the reference.
+        @test overhead <= 0 && valid
     end
 end

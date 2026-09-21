@@ -1,4 +1,4 @@
-using PrecompileTools: @compile_workload, @setup_workload
+using PrecompileTools: PrecompileTools, @compile_workload, @setup_workload
 
 # The generated 128-draw Float64 group and the fill schedulers dominate first-call
 # latency, so the workload runs a real fill for every public draw kind rather than

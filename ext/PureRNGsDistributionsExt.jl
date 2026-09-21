@@ -3,7 +3,7 @@ module PureRNGsDistributionsExt
 import Distributions
 import PureRNGs
 import Random
-using PrecompileTools: @compile_workload, @setup_workload
+using PrecompileTools: PrecompileTools, @compile_workload, @setup_workload
 
 const IR = PureRNGs
 include("distributions_common.jl")
