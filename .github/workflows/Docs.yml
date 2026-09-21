@@ -1,7 +1,7 @@
 name: Documentation
 
 on:
-  # Automatic runs are disabled while the repository is private. Trigger manually if needed.
+  # Automatic runs are disabled. Trigger manually if needed.
   workflow_dispatch:
 
 permissions:

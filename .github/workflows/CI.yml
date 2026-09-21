@@ -2,7 +2,7 @@ name: CI
 
 # GPU and statistical release gates stay outside hosted CI.
 on:
-  # Automatic runs are disabled while the repository is private. Trigger manually if needed.
+  # Automatic runs are disabled. Trigger manually if needed.
   workflow_dispatch:
 
 permissions:

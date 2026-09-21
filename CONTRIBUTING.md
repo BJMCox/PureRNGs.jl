@@ -202,7 +202,7 @@ Measure precompile cost, package load and first-call latency separately.
 
 ## Before pushing
 
-Hosted CI is manual-dispatch only while the repository is private, so this recipe is the gate.
+Hosted CI is manual-dispatch only, so this recipe is the gate.
 
 1. Run `Pkg.test()` on the package. It sets `--check-bounds=yes`, so allocation
    assertions must hold under bounds checking.
@@ -266,10 +266,9 @@ Every successful coverage run uploads to Codecov using GitHub OIDC, without an o
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
-Automatic CI and documentation runs are disabled while the repository is private.
-Every job above is authored now, but both workflows support manual dispatch only until publication.
-TagBot is removed. The package is not registered and must not be registered
-while the repository is private. Release-ready means merged and pushed to the default branch,
+Automatic CI and documentation runs remain disabled. Both workflows support manual dispatch only.
+TagBot is removed. The package is not registered. Tagging and registration require maintainer approval.
+Release-ready means merged and pushed to the default branch,
 with no tag and no registration.
 
 ## Before the first release
