@@ -231,17 +231,21 @@ KernelAbstractions.@kernel function _cooperative_fill_kernel!(
     group = @index(Group, Linear)
     lane = @index(Local, Linear)
     shared = @localmem UInt64 (
-        S ? 2 * cld(O * W, B) : _cooperative_shared_words(block_width, Val(O), Val(W)),
+        S ? (B ÷ 64) * cld(O * W, B) :
+        _cooperative_shared_words(block_width, Val(O), Val(W)),
     )
     if S
         blocks = cld(O * W, B)
-        first_block = IR._position_block(rng.position) + UInt64((group - 1) * blocks)
+        first_block = _stream_block_offset(
+            IR._position_block(rng.position),
+            UInt64((group - 1) * blocks),
+        )
         block_offset = lane - 1
         while block_offset < blocks
-            block_words = IR._block_words(rng, first_block + UInt64(block_offset))
-            @inbounds begin
-                shared[2block_offset+1] = block_words[1]
-                shared[2block_offset+2] = block_words[2]
+            block = _stream_block_offset(first_block, UInt64(block_offset))
+            block_words = IR._block_words(rng, block)
+            @inbounds for word in eachindex(block_words)
+                shared[block_offset*length(block_words)+word] = block_words[word]
             end
             block_offset += L
         end
@@ -414,6 +418,7 @@ end
         )
     end
 
+    aligned = _stream_aligned_fill(rng, destination, plan[2], IR._fill_width(codec, T))
     _launch_cooperative_fill!(
         backend,
         rng,
@@ -421,7 +426,7 @@ end
         T,
         codec,
         plan,
-        Val(false),
+        aligned ? Val(true) : Val(false),
         _packed_type(T),
     )
     return destination
@@ -446,7 +451,8 @@ end
         )
     end
 
-    stream_aligned = Val(_stream_aligned_philox4x32_f32_fill(rng, destination, plan[2]))
+    aligned =
+        _stream_aligned_fill(rng, destination, plan[2], IR._fill_width(codec, Float32))
     _launch_cooperative_fill!(
         backend,
         rng,
@@ -454,7 +460,7 @@ end
         Float32,
         codec,
         plan,
-        stream_aligned,
+        aligned ? Val(true) : Val(false),
         _CUDA_F32X4,
     )
     return destination
@@ -553,8 +559,10 @@ end
            _dense_16byte_aligned(destination, T)
 end
 
-@inline _stream_aligned_philox4x32_f32_fill(rng, destination, outputs) =
-    iszero(rng.position.bit) && iszero(length(destination) % IR._val_count(outputs))
+@inline _stream_aligned_fill(rng, destination, outputs, width) =
+    iszero(rng.position.bit) &&
+    iszero(length(destination) % IR._val_count(outputs)) &&
+    iszero((IR._val_count(outputs) * Int(width)) % Int(IR._block_bits(rng)))
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,

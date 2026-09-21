@@ -861,6 +861,9 @@ end
         _check_public_packed_addresses(positioned, T, count)
     end
 
+    carry_rng = _positioned_at_bit(device(Philox4x64(0x784)), typemax(UInt64), UInt16(0))
+    _check_public_packed_fill(carry_rng, Float64, 4096, rand_next, rand_next!)
+
     for (unsigned, signed, count) in ((UInt32, Int32, 8192), (UInt64, Int64, 4096))
         rng = device(Threefry4x64(0x785))
         unsigned_values = CUDA.CuArray{unsigned}(undef, count)
