@@ -21,6 +21,17 @@ A bang modifies the destination, not the immutable generator.
 
 The same forms exist for `randn!`, `randn_next!`, `randexp!`, and `randexp_next!`.
 
+## Destinations that take the packed CPU path
+
+Any destination is filled with the same stream, but the speed depends on how it
+indexes. A CPU destination whose `IndexStyle` is `IndexLinear` takes the packed
+fill, which decodes whole generator blocks at once: an `Array`, a contiguous or
+strided `view` of one, and a `reshape` of either. A destination whose style is
+`IndexCartesian`, such as a `transpose` or a `view` with a strided second index,
+falls back to one draw per element and runs several times slower. Copy such a
+destination into an `Array`, fill the `Array`, and copy back when the fill is on
+a hot path.
+
 ## Process a long stream in chunks
 
 ```@example arrays

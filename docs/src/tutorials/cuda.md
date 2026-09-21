@@ -30,7 +30,7 @@ using KernelAbstractions
 
 @kernel function centered_noise!(out, rng)
     i = @index(Global, Linear)
-    out[i] = 2f0 * randat(rng, Float32, i) - 1f0
+    out[i] = 2f0 * rand_at(rng, Float32, i) - 1f0
 end
 
 rng = Philox4x32(123456) |> CUDADevice()

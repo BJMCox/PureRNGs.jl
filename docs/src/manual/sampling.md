@@ -17,8 +17,12 @@ Ranges support signed and unsigned integer element types from 8 through 64 bits.
 Range sampling uses a fixed-width multiply-high mapping, not rejection sampling.
 Arbitrary range lengths can have a small finite mapping bias. Preimage counts differ by at most one.
 
-The candidate uses 64 bits for lengths up to 2^32 and 128 bits for larger lengths.
-The relative probability imbalance between two values is therefore at most 2^-32 for lengths up to 2^32, and at most 2^-64 above that.
+The candidate uses 64 bits for spans up to 2^32 and 128 bits for larger spans.
+For a span `s` and a candidate width `K`, the relative probability imbalance
+between two values is exactly `1/floor(2^K / s)`. It is zero when `s` divides
+`2^K`, so powers of two are unbiased. It is largest just below each width
+change: about 2.33e-10 at `s = 2^32 - 1`, and about 5.42e-20 at
+`s = 2^64 - 1`.
 
 ```@example sampling
 dice = Vector{Int}(undef, 16)
@@ -27,6 +31,8 @@ dice
 ```
 
 The range follows the destination.
+
+`rand_at(rng, range, i)` returns the `i`th range draw without advancing `rng`.
 
 ## Sample a population
 
@@ -67,8 +73,8 @@ Pass a plain vector of real weights.
 Weights follow population positions. They must convert to finite, nonnegative `Float64` values with a finite, positive left-fold total.
 Zero weights exclude elements. Zero requested samples still require valid weights.
 
-On CPU, a weighted batch builds its exact cumulative `Float64` weights once per call and
-looks up samples in draw order. Other backends may sort thresholds for a batch.
+Each weighted batch builds its cumulative `Float64` weights once per call and
+selects samples by binary search, preserving draw order on CPU and GPU.
 The preparation is shared within that call, not cached across calls. It allocates
 weighted scratch space, so an in-place weighted fill does not promise zero
 allocations. CPU weighted fills follow the `threaded` keyword like the other
@@ -79,8 +85,8 @@ table = WeightTable([1.0, 3.0, 0.0])
 draws, rng = randsample_next(rng, population, table, 12)
 ```
 
-Build a `WeightTable` once to reuse the cumulative table across calls. It holds
-CPU data and is accepted wherever a weight vector is.
+Build a `WeightTable` once to reuse the cumulative table across CPU calls.
+Device generators reject it.
 
 Each category's realized share is a whole number of `2^-53` cells of the
 cumulative total. Shares below about `1e-16` of the total are not represented
