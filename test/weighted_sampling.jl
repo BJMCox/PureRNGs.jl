@@ -1,5 +1,3 @@
-const WeightedIR = PureRNGs
-
 mutable struct CountedWeights{T} <: AbstractVector{T}
     values::Vector{T}
     reads::Int
@@ -34,19 +32,19 @@ function _weighted_reference(rng, population, weights, k::Int)
     thresholds = Vector{Float64}(undef, k)
     position = rng.position
     for index in eachindex(thresholds)
-        raw = WeightedIR._extract_bits_unchecked(
+        raw = IR._extract_bits_unchecked(
             rng,
-            WeightedIR._position_block(position),
+            IR._position_block(position),
             position.bit,
             Val(53),
         )
         uniform = Float64(raw) * 0x1p-53
         thresholds[index] = min(uniform * total, prevfloat(total))
-        position = WeightedIR._advance_position_unchecked(
+        position = IR._advance_position_unchecked(
             position,
             UInt64(53),
             UInt64(0),
-            WeightedIR._block_shift(rng),
+            IR._block_shift(rng),
         )
     end
 
@@ -64,19 +62,11 @@ function _weighted_reference(rng, population, weights, k::Int)
         end
     end
     @assert ordered_draw == k + 1
-    return WeightedIR._reserve(rng, UInt64(53k), UInt64(0)), result
+    return IR._reserve(rng, UInt64(53k), UInt64(0)), result
 end
 
-function _last_weighted_rng(F)
-    rng = F(0x9751)
-    bit = WeightedIR._block_bits(rng) - UInt16(53)
-    position = if rng.position isa WeightedIR._Position64
-        WeightedIR._Position64(WeightedIR._max_block(rng), bit)
-    else
-        WeightedIR._Position128(typemax(UInt64), typemax(UInt64), bit)
-    end
-    return WeightedIR._rebuild(rng, position, rng.device)
-end
+# A weighted draw takes 53 bits.
+_last_weighted_rng(F) = _terminal_rng(F, 53)
 
 @testset "R59 strict Float64 fold golden boundaries" begin
     population = Int32[10, 20, 30, 40]
@@ -189,9 +179,9 @@ end
         last = _last_weighted_rng(F)
         value, terminal = randsample_next(last, population, weights, 1)
         @test length(value) == 1
-        @test terminal.position.bit == WeightedIR._EXHAUSTED_BIT
-        @test_throws ArgumentError randsample(last, population, weights, 2)
-        @test_throws ArgumentError randsample_next(last, population, weights, 2)
+        @test terminal.position.bit == IR._EXHAUSTED_BIT
+        @test_throws StreamExhausted randsample(last, population, weights, 2)
+        @test_throws StreamExhausted randsample_next(last, population, weights, 2)
         again, _ = randsample_next(last, population, weights, 1)
         @test again == value
     end
@@ -217,7 +207,7 @@ end
     last = _last_weighted_rng(Philox4x32)
     preserved = fill(Int32(-1), 2)
     before = copy(preserved)
-    @test_throws ArgumentError randsample_next!(last, population, weights, preserved)
+    @test_throws StreamExhausted randsample_next!(last, population, weights, preserved)
     @test preserved == before
 end
 
@@ -267,20 +257,21 @@ end
     _, after_serial = randsample_next!(rng, population, weights, serial; threaded = false)
     _, after_threaded =
         randsample_next!(rng, population, weights, threaded; threaded = true)
-    sync_cpu()
     @test serial == threaded
     @test after_serial === after_threaded
-    # The cumulative vector is the only allocation the serial fill keeps.
+    # The serial fill allocates one cumulative vector, never per element.
+    longer = Vector{Int}(undef, 900_000)
+    randsample_next!(rng, population, weights, serial; threaded = false)
+    randsample_next!(rng, population, weights, longer; threaded = false)
     @test @allocated(
         randsample_next!(rng, population, weights, serial; threaded = false)
-    ) == 8 * length(weights) + 64
+    ) == @allocated(randsample_next!(rng, population, weights, longer; threaded = false))
 
     # A length of four whole chunks plus five leaves a final chunk under one lane width.
     ragged = Vector{Int}(undef, 4 * 2464 + 5)
     ragged_serial = similar(ragged)
     randsample_next!(rng, population, weights, ragged_serial; threaded = false)
     randsample_next!(rng, population, weights, ragged; threaded = true)
-    sync_cpu()
     @test ragged == ragged_serial
 end
 
@@ -315,13 +306,26 @@ end
     )
     # A top-level `@allocated` also counts the boxed return tuple, so measure in a
     # function where only the fill's own allocations remain.
-    serial_fill_bytes(rng, weights, destination) = @allocated(
+    serial_fill_bytes(rng, population, weights, destination) = @allocated(
         randsample_next!(rng, population, weights, destination; threaded = false)
     )
     rng = Philox4x32(0x9771)
     destination = Vector{Int32}(undef, 64)
-    serial_fill_bytes(rng, table, destination)
-    serial_fill_bytes(rng, weights, destination)
-    @test serial_fill_bytes(rng, table, destination) == 0
-    @test serial_fill_bytes(rng, weights, destination) == 8 * length(weights) + 64
+    wide_population = Int32[10, 20, 30, 40, 50, 60, 70, 80]
+    wide_weights = Float64[1, 2, 3, 4, 5, 6, 7, 8]
+    wide_table = WeightTable(wide_weights)
+    for _ = 1:2
+        serial_fill_bytes(rng, population, table, destination)
+        serial_fill_bytes(rng, wide_population, wide_table, destination)
+        serial_fill_bytes(rng, population, weights, destination)
+        serial_fill_bytes(rng, wide_population, wide_weights, destination)
+    end
+    # Bounds-check and coverage flags add a fixed cost to every fill, so compare two
+    # weight lengths instead of a byte count. The table carries its cumulative vector.
+    @test serial_fill_bytes(rng, wide_population, wide_table, destination) ==
+          serial_fill_bytes(rng, population, table, destination)
+    # The weight vector allocates one Float64 cumulative entry per weight.
+    @test serial_fill_bytes(rng, wide_population, wide_weights, destination) -
+          serial_fill_bytes(rng, population, weights, destination) ==
+          8 * (length(wide_weights) - length(weights))
 end

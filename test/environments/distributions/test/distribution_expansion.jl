@@ -50,7 +50,7 @@ end
         @test actual === expected_scalar
         @test actual_next === expected_scalar_next
 
-        @test [randat(rng, distribution, index) for index in eachindex(expected)] == expected
+        @test [rand_at(rng, distribution, index) for index in eachindex(expected)] == expected
 
         allocated = rand(rng, distribution, length(expected))
         @test allocated == expected
@@ -100,12 +100,15 @@ end
 
     last = IR._rebuild(
         rng,
-        IR._Position64(IR._max_block(rng), IR._block_bits(rng) - 54),
+        IR._Position64(
+            IR._max_block(rng),
+            IR._block_bits(rng) - EXT._distribution_span(distribution),
+        ),
         rng.device,
     )
     destination = fill(17.0, 2)
     original = copy(destination)
-    @test_throws ArgumentError rand!(last, distribution, destination)
+    @test_throws StreamExhausted rand!(last, distribution, destination)
     @test destination == original
 end
 
@@ -132,19 +135,21 @@ end
 standard_normal(::Type{T}, u) where {T} = T(quantile(Normal(), Float64(u)))
 standard_exponential(::Type{T}, u) where {T} = T(-log1p(-Float64(u)))
 
+const NATIVE_OPS = PureRNGs._NativeTransformOps()
+
 mapped_quantile(d::Union{Normal{T},LogNormal{T}}, u) where {T} =
-    EXT._map_distribution(d, standard_normal(T, u))
+    EXT._map_distribution(NATIVE_OPS, d, standard_normal(T, u))
 mapped_quantile(
     d::Union{Exponential{T},Weibull{T},Rayleigh{T},Gumbel{T},Frechet{T},Pareto{T}},
     u,
-) where {T} = EXT._map_distribution(d, standard_exponential(T, u))
+) where {T} = EXT._map_distribution(NATIVE_OPS, d, standard_exponential(T, u))
 mapped_quantile(d::Union{Uniform{T},Logistic{T},Cauchy{T},TriangularDist{T}}, u) where {T} =
-    EXT._map_distribution(d, u)
+    EXT._map_distribution(NATIVE_OPS, d, u)
 function mapped_quantile(d::Laplace{T}, u) where {T}
     # Laplace takes a half exponential and the sign bit that places it.
     upper = u >= T(0.5)
     tail = upper ? 2 * (one(T) - u) : 2 * u
-    return EXT._map_distribution(d, T(-log(Float64(tail))), upper)
+    return EXT._map_distribution(NATIVE_OPS, d, T(-log(Float64(tail))), upper)
 end
 
 # Gumbel and Frechet read their exponential as the upper tail of the uniform.

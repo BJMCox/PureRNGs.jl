@@ -1,12 +1,13 @@
 using AMDGPU
 using Distributions
 using Enzyme
+using KernelAbstractions
 using PureRNGs
 using MLDataDevices
 using Random
 using Test
 
-include(joinpath(@__DIR__, "..", "..", "fixtures.jl"))
+include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
 
 function _fixed_distributions(::Type{T}) where {T}
     return (
@@ -29,7 +30,7 @@ _result_type(::DiscreteUniform) = Int
         rng,
         IR._position_block(rng.position),
         rng.position.bit,
-        Val(24),
+        Val(23),
     )
 end
 
@@ -38,7 +39,7 @@ end
         rng,
         IR._position_block(rng.position),
         rng.position.bit,
-        Val(53),
+        Val(52),
     )
 end
 
@@ -65,21 +66,21 @@ function _signed_exponential_kernel!(signed32, signed64, exp32, exp64, raw, stat
             signed32[1] = rand(rng, Int32)
             signed32[2] = continued_signed32
             signed32[3] = rand(next_signed32, Int32)
-            signed32[4] = randat(rng, Int32, 1)
+            signed32[4] = rand_at(rng, Int32, 1)
             signed64[1] = rand(rng, Int64)
             signed64[2] = continued_signed64
             signed64[3] = rand(next_signed64, Int64)
-            signed64[4] = randat(rng, Int64, 1)
+            signed64[4] = rand_at(rng, Int64, 1)
             exp32[1] = randexp(rng, Float32)
             exp32[2] = continued_exp32
-            exp32[3] = randexpat(rng, Float32, 1)
+            exp32[3] = randexp_at(rng, Float32, 1)
             exp32[4] = randexp(next_exp32, Float32)
-            exp32[5] = randexpat(rng, Float32, 2)
+            exp32[5] = randexp_at(rng, Float32, 2)
             exp64[1] = randexp(rng, Float64)
             exp64[2] = continued_exp64
-            exp64[3] = randexpat(rng, Float64, 1)
+            exp64[3] = randexp_at(rng, Float64, 1)
             exp64[4] = randexp(next_exp64, Float64)
-            exp64[5] = randexpat(rng, Float64, 2)
+            exp64[5] = randexp_at(rng, Float64, 2)
             raw[1] = _exponential_raw(rng, Float32)
             raw[2] = _exponential_raw(rng, Float64)
         end
@@ -97,9 +98,9 @@ function _distribution_kernel!(values, state, rng, distribution)
         @inbounds begin
             values[1] = rand(rng, distribution)
             values[2] = continued
-            values[3] = randat(rng, distribution, 1)
+            values[3] = rand_at(rng, distribution, 1)
             values[4] = rand(next_rng, distribution)
-            values[5] = randat(rng, distribution, 2)
+            values[5] = rand_at(rng, distribution, 2)
         end
         _store_position!(state, 0, next_rng.position)
     end
@@ -123,7 +124,7 @@ function _device_id(array)
 end
 
 function _software_identity()
-    root = normpath(joinpath(@__DIR__, "..", "..", ".."))
+    root = normpath(joinpath(@__DIR__, "..", "..", "..", ".."))
     source_status = readchomp(`git -C $root status --short`)
     hip = getfield(AMDGPU, :HIP)
     return (
@@ -134,7 +135,7 @@ function _software_identity()
         machine = Sys.MACHINE,
         kernel = Sys.KERNEL,
         amdgpu = string(Base.pkgversion(AMDGPU)),
-        kernelabstractions = string(Base.pkgversion(IR.KernelAbstractions)),
+        kernelabstractions = string(Base.pkgversion(KernelAbstractions)),
         mldatadevices = string(Base.pkgversion(MLDataDevices)),
         distributions = string(Base.pkgversion(Distributions)),
         enzyme = string(Base.pkgversion(Enzyme)),
@@ -211,6 +212,18 @@ end
     @test isempty(Test.detect_ambiguities(IR, Random; recursive = true))
 end
 
+# An extension is not a submodule of its parent, so a recursive scan that starts
+# at PureRNGs never reaches it. Scan each loaded extension itself.
+@testset "R1 extension ambiguities" begin
+    for name in
+        (:PureRNGsAMDGPUExt, :PureRNGsDistributionsExt, :PureRNGsKernelAbstractionsExt)
+        extension = Base.get_extension(IR, name)
+        @testset "$name" begin
+            @test isempty(Test.detect_ambiguities(extension; recursive = true))
+        end
+    end
+end
+
 if AMDGPU.functional()
     AMDGPU.allowscalar(false)
     active_device = AMDGPU.device_id()
@@ -269,7 +282,7 @@ if AMDGPU.functional()
                     reinterpret(T, rand(cpu_rng, U)),
                     reinterpret(T, continued_unsigned),
                     reinterpret(T, rand(next_unsigned, U)),
-                    reinterpret(T, randat(cpu_rng, U, 1)),
+                    reinterpret(T, rand_at(cpu_rng, U, 1)),
                 ]
                 @test Array(values) == expected
                 allocated, next_rng = rand_next(rng, T, 17)

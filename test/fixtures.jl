@@ -1,10 +1,11 @@
 using PureRNGs
+using InteractiveUtils: code_llvm
+using Random: rand!, randn, randn!, randexp, randexp!
 
 # Test helpers used by more than one test file. Every other test file may be
 # included alone once this file is included.
 
 const IR = PureRNGs
-const KA = PureRNGs.KernelAbstractions
 const MLD = PureRNGs.MLDataDevices
 
 const GENERATOR_TYPES = (
@@ -40,7 +41,6 @@ function Base.setindex!(array::TaskWriteProbe, value, indices...)
     return setindex!(array.data, value, indices...)
 end
 MLD.get_device(array::TaskWriteProbe) = MLD.get_device(array.data)
-KA.get_backend(array::TaskWriteProbe) = KA.get_backend(array.data)
 
 struct WrongDeviceArray{T,N,A<:AbstractArray{T,N}} <: AbstractArray{T,N}
     data::A
@@ -71,7 +71,6 @@ function Base.setindex!(array::ZeroBasedVector, value, index::Int)
     return value
 end
 MLD.get_device(::ZeroBasedVector) = MLD.CPUDevice()
-KA.get_backend(::ZeroBasedVector) = KA.CPU()
 
 struct IdentityAxesMatrix{T} <: AbstractMatrix{T}
     data::Matrix{T}
@@ -91,7 +90,6 @@ function Base.setindex!(array::IdentityAxesMatrix, value, row::Int, column::Int)
     return value
 end
 MLD.get_device(::IdentityAxesMatrix) = MLD.CPUDevice()
-KA.get_backend(::IdentityAxesMatrix) = KA.CPU()
 
 struct SamplingCUDAProbe{T} <: AbstractVector{T}
     values::Vector{T}
@@ -112,7 +110,8 @@ Base.setindex!(destination::SamplingSerialProbe, value, index::Int) =
     setindex!(destination.values, value, index)
 MLD.get_device(::SamplingSerialProbe) = MLD.CPUDevice()
 MLD.get_device_type(::SamplingSerialProbe) = MLD.CPUDevice
-KA.get_backend(::SamplingSerialProbe) = error("serial sampling must not get a backend")
+IR._fill_backend(::IR._CPUBackend, ::SamplingSerialProbe) =
+    error("serial sampling must not get a backend")
 
 _reference_block(rng::IR._Position64Generators, block::UInt64) = IR._block(rng, block)
 _reference_block(rng::IR._Position128Generators, block::NTuple{2,UInt64}) =
@@ -176,6 +175,10 @@ _uniform_width(::Type{Float64}) = 53
 _uniform_width(::Type{UInt64}) = 64
 _uniform_width(::Type{Int64}) = 64
 
+# A normal or exponential draw reads the significand bits only.
+_transformed_width(::Type{Float32}) = 23
+_transformed_width(::Type{Float64}) = 52
+
 _reference_convert(::Type{Bool}, value::UInt64) = isone(value)
 _reference_convert(::Type{UInt32}, value::UInt64) = value % UInt32
 _reference_convert(::Type{Int32}, value::UInt64) = reinterpret(Int32, value % UInt32)
@@ -225,7 +228,36 @@ end
 _range_reference_width(span::UInt64) =
     span != UInt64(0) && span <= UInt64(1) << 32 ? 64 : 128
 
-function _range_position_from_absolute(rng, absolute::BigInt)
+_range_width(range) = _range_reference_width(length(range) % UInt64)
+
+function _range_reference_offset(rng, span::UInt64)
+    block = _reference_position_block(rng.position)
+    bit = rng.position.bit
+    if _range_reference_width(span) == 64
+        candidate = _reference_extract(rng, block, bit, 64)
+        return UInt64((BigInt(candidate) * BigInt(span)) >> 64)
+    end
+    lo, hi = _reference_extract128(rng, block, bit)
+    mathematical_span = iszero(span) ? big(1) << 64 : BigInt(span)
+    candidate = (BigInt(hi) << 64) + BigInt(lo)
+    return UInt64((candidate * mathematical_span) >> 128)
+end
+
+_range_reference_value(range::OrdinalRange{T}, offset::UInt64) where {T} =
+    T(BigInt(first(range)) + BigInt(step(range)) * BigInt(offset))
+
+_range_reference_value(range, offset::UInt64) = range[Int(offset)+1]
+
+_range_reference_draw(rng, range) =
+    _range_reference_value(range, _range_reference_offset(rng, length(range) % UInt64))
+
+function _reference_exponential_lattice(::Type{T}, raw::UInt64) where {T}
+    scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
+    u = T(2raw + 1) * scale
+    return u, one(T) - u
+end
+
+function _position_from_absolute(rng, absolute::BigInt)
     block, bit = divrem(absolute, BigInt(IR._block_bits(rng)))
     if rng.position isa IR._Position64
         return IR._Position64(UInt64(block), UInt16(bit))
@@ -237,10 +269,57 @@ function _range_position_from_absolute(rng, absolute::BigInt)
     )
 end
 
-function _range_capacity(rng)
+function _stream_capacity(rng)
     blocks =
         rng.position isa IR._Position64 ? BigInt(IR._max_block(rng)) + 1 : big(1) << 128
     return blocks * BigInt(IR._block_bits(rng))
+end
+
+_terminal_position(rng) =
+    rng.position isa IR._Position64 ? IR._terminal64(IR._max_block(rng)) : IR._terminal128()
+
+# A generator standing one `width`-bit draw before the end of its stream.
+function _terminal_rng(F, width::Integer)
+    rng = F(0x741)
+    position = _position_from_absolute(rng, _stream_capacity(rng) - width)
+    return IR._rebuild(rng, position, rng.device)
+end
+
+# `draw` reads one value without advancing; the chain then rebuilds the
+# generator `width` bits on. Every bulk fill has to reproduce this sequence.
+function _reference_chain(rng, draw, width::Integer, count::Integer)
+    cursor = rng
+    values = Vector{typeof(draw(rng))}(undef, count)
+    for index in eachindex(values)
+        values[index] = draw(cursor)
+        cursor = IR._rebuild(cursor, _reference_position(cursor, width), cursor.device)
+    end
+    return cursor, values
+end
+
+# Chains the package continuation instead of a computed position. A chain that
+# runs to the end of the stream needs this: only the continuation returns the
+# terminal position, which is a sentinel and not the arithmetic next one.
+function _chained_draws(draw_next, rng, count::Integer)
+    cursor = rng
+    values = Vector{typeof(first(draw_next(rng)))}(undef, count)
+    for index in eachindex(values)
+        values[index], cursor = draw_next(cursor)
+    end
+    return cursor, values
+end
+
+function _serial_fill_allocations(fill!, rng, destination)
+    fill!(rng, destination)
+    return @allocated fill!(rng, destination)
+end
+
+function _codegen_ir(function_, signature)
+    typed_ir = sprint(show, code_typed(function_, signature; optimize = true))
+    llvm_ir = sprint() do io
+        code_llvm(io, function_, signature; raw = false, dump_module = false, optimize = true)
+    end
+    return typed_ir, llvm_ir
 end
 
 const PACKED_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
@@ -276,4 +355,74 @@ function _packed_golden_rng(F, key)
     return IR._rebuild(base, position, base.device)
 end
 
-sync_cpu() = KA.synchronize(KA.CPU())
+# One record per draw family. `fill_laws.jl` reads nothing but these fields, so
+# a law the families share is stated once there instead of once per family.
+# `specs` holds what selects a draw: a result type, or a range.
+const DRAW_FAMILIES = (
+    (
+        name = "uniform",
+        specs = PURE_UNIFORM_TYPES,
+        element = identity,
+        width = _uniform_width,
+        draw = (rng, T) -> rand(rng, T),
+        draw_next = (rng, T) -> rand_next(rng, T),
+        draw_at = (rng, T, index) -> rand_at(rng, T, index),
+        fill! = (rng, destination, T; threaded) ->
+            rand!(rng, destination; threaded = threaded),
+        fill_next! = (rng, destination, T; threaded) ->
+            rand_next!(rng, destination; threaded = threaded),
+        allocate = (rng, T, dims...) -> rand_next(rng, T, dims...),
+        allocate_pure = (rng, T, dims...) -> rand(rng, T, dims...),
+    ),
+    (
+        name = "normal",
+        specs = NORMAL_TYPES,
+        element = identity,
+        width = _transformed_width,
+        draw = (rng, T) -> randn(rng, T),
+        draw_next = (rng, T) -> randn_next(rng, T),
+        draw_at = (rng, T, index) -> randn_at(rng, T, index),
+        fill! = (rng, destination, T; threaded) ->
+            randn!(rng, destination; threaded = threaded),
+        fill_next! = (rng, destination, T; threaded) ->
+            randn_next!(rng, destination; threaded = threaded),
+        allocate = (rng, T, dims...) -> randn_next(rng, T, dims...),
+        allocate_pure = (rng, T, dims...) -> randn(rng, T, dims...),
+    ),
+    (
+        name = "exponential",
+        specs = EXPONENTIAL_TYPES,
+        element = identity,
+        width = _transformed_width,
+        draw = (rng, T) -> randexp(rng, T),
+        draw_next = (rng, T) -> randexp_next(rng, T),
+        draw_at = (rng, T, index) -> randexp_at(rng, T, index),
+        fill! = (rng, destination, T; threaded) ->
+            randexp!(rng, destination; threaded = threaded),
+        fill_next! = (rng, destination, T; threaded) ->
+            randexp_next!(rng, destination; threaded = threaded),
+        allocate = (rng, T, dims...) -> randexp_next(rng, T, dims...),
+        allocate_pure = (rng, T, dims...) -> randexp(rng, T, dims...),
+    ),
+    (
+        name = "range",
+        # The first two spans take the 64-bit candidate, the last two the 128-bit one.
+        specs = (
+            Int16(-31):Int16(3):Int16(41),
+            UInt16(2):UInt16(17),
+            UInt64(0):(UInt64(1)<<32),
+            UInt64(0):typemax(UInt64),
+        ),
+        element = eltype,
+        width = _range_width,
+        draw = (rng, range) -> rand(rng, range),
+        draw_next = (rng, range) -> rand_next(rng, range),
+        draw_at = (rng, range, index) -> rand_at(rng, range, index),
+        fill! = (rng, destination, range; threaded) ->
+            rand!(rng, destination, range; threaded = threaded),
+        fill_next! = (rng, destination, range; threaded) ->
+            rand_next!(rng, destination, range; threaded = threaded),
+        allocate = (rng, range, dims...) -> rand_next(rng, range, dims...),
+        allocate_pure = (rng, range, dims...) -> rand(rng, range, dims...),
+    ),
+)

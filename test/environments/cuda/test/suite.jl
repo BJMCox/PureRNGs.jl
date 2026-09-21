@@ -1,12 +1,15 @@
 using CUDA
 using Distributions
 using Enzyme
+using KernelAbstractions
 using PureRNGs
 using MLDataDevices
 using Random
 using Test
 
-include(joinpath(@__DIR__, "..", "..", "fixtures.jl"))
+include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
+
+const CUDA_EXT = Base.get_extension(IR, :PureRNGsCUDAExt)
 
 const UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 const RANGE_TYPES = (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
@@ -17,6 +20,8 @@ const PACKED_INTEGER_CASES = (
     (Philox4x64, UInt64, 4096),
     (Threefry4x64, UInt32, 8192),
     (Threefry4x64, UInt64, 4096),
+    (ChaCha, UInt32, 4096),
+    (ChaCha, UInt64, 4096),
 )
 
 mutable struct DeviceAgnosticWeights{T} <: AbstractVector{T}
@@ -34,6 +39,22 @@ MLD.get_device(::DeviceAgnosticWeights) = nothing
 
 CUDA.functional() || error("CUDA is not functional")
 CUDA.allowscalar(false)
+
+# An extension is not a submodule of its parent, so a recursive scan that starts
+# at PureRNGs never reaches it. Scan each loaded extension itself.
+@testset "R1 extension ambiguities" begin
+    for name in (
+        :PureRNGsCUDAExt,
+        :PureRNGsEnzymeCoreExt,
+        :PureRNGsDistributionsExt,
+        :PureRNGsKernelAbstractionsExt,
+    )
+        extension = Base.get_extension(IR, name)
+        @testset "$name" begin
+            @test isempty(Test.detect_ambiguities(extension; recursive = true))
+        end
+    end
+end
 
 _range(::Type{T}) where {T<:Signed} = T(-31):T(3):T(41)
 _range(::Type{T}) where {T<:Unsigned} = T(2):T(3):T(74)
@@ -112,14 +133,14 @@ end
 function _address_kernel!(destination, rng, offset)
     index = (CUDA.blockIdx().x - 1) * CUDA.blockDim().x + CUDA.threadIdx().x
     index <= length(destination) &&
-        (@inbounds destination[index] = randat(rng, eltype(destination), offset + index))
+        (@inbounds destination[index] = rand_at(rng, eltype(destination), offset + index))
     return
 end
 
 function _normal_address_kernel!(destination, rng)
     index = (CUDA.blockIdx().x - 1) * CUDA.blockDim().x + CUDA.threadIdx().x
     index <= length(destination) &&
-        (@inbounds destination[index] = randnat(rng, eltype(destination), index))
+        (@inbounds destination[index] = randn_at(rng, eltype(destination), index))
     return
 end
 
@@ -128,7 +149,7 @@ end
         rng,
         IR._position_block(rng.position),
         rng.position.bit,
-        Val(24),
+        Val(23),
     )
 end
 
@@ -137,7 +158,7 @@ end
         rng,
         IR._position_block(rng.position),
         rng.position.bit,
-        Val(53),
+        Val(52),
     )
 end
 
@@ -150,9 +171,9 @@ function _exponential_api_kernel!(values, raw, lattice, rng)
         @inbounds begin
             values[1] = randexp(rng, T)
             values[2] = continued
-            values[3] = randexpat(rng, T, 1)
+            values[3] = randexp_at(rng, T, 1)
             values[4] = randexp(next_rng, T)
-            values[5] = randexpat(rng, T, 2)
+            values[5] = randexp_at(rng, T, 2)
             raw[1] = k
             lattice[1] = u
             lattice[2] = v
@@ -174,7 +195,7 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, sign
         children = splitrng(rng, Val(2))
         @inbounds begin
             uniform[1] = rand(rng, UInt32)
-            uniform[2] = randat(rng, UInt32, 1)
+            uniform[2] = rand_at(rng, UInt32, 1)
             uniform[3] = continued_uniform
             uniform[4] = rand(next_uniform, UInt32)
             uniform[5] = rand(child, UInt32)
@@ -186,15 +207,15 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, sign
             signed64[2] = continued_signed64
             signed64[3] = rand(next_signed64, Int64)
             normal32[1] = randn(rng, Float32)
-            normal32[2] = randnat(rng, Float32, 1)
+            normal32[2] = randn_at(rng, Float32, 1)
             normal32[3] = continued_normal32
             normal32[4] = randn(next_normal32, Float32)
-            normal32[5] = randnat(rng, Float32, 2)
+            normal32[5] = randn_at(rng, Float32, 2)
             normal64[1] = randn(rng, Float64)
-            normal64[2] = randnat(rng, Float64, 1)
+            normal64[2] = randn_at(rng, Float64, 1)
             normal64[3] = continued_normal64
             normal64[4] = randn(next_normal64, Float64)
-            normal64[5] = randnat(rng, Float64, 2)
+            normal64[5] = randn_at(rng, Float64, 2)
             ranges[1] = continued_range
             ranges[2] = rand(next_range, range)
         end
@@ -220,13 +241,28 @@ end
     return offset + length(coefficients)
 end
 
-@inline function _write_coefficients!(destination, coefficients)
-    offset = _write_group!(destination, 0, coefficients[1])
-    offset = _write_group!(destination, offset, coefficients[2])
-    offset = _write_group!(destination, offset, coefficients[3])
-    offset = _write_group!(destination, offset, coefficients[4])
-    offset = _write_group!(destination, offset, coefficients[5])
-    _write_group!(destination, offset, coefficients[6])
+# The Float32 table has four groups and the Float64 table six, so the walk
+# recurses over the tuple and unrolls instead of naming a fixed count.
+@inline _write_coefficients!(destination, offset, coefficients::Tuple{}) = nothing
+@inline _write_coefficients!(destination, offset, coefficients::Tuple) =
+    _write_coefficients!(
+        destination,
+        _write_group!(destination, offset, first(coefficients)),
+        Base.tail(coefficients),
+    )
+
+@inline _write_coefficients!(destination, coefficients) =
+    _write_coefficients!(destination, 0, coefficients)
+
+# [R28] the CUDA token's transform at a strided lattice point. The stride is a
+# type parameter so the index arithmetic folds.
+function _giles_lattice_kernel!(destination, ::Type{T}, ::Val{S}) where {T,S}
+    index = (CUDA.blockIdx().x - 1) * CUDA.blockDim().x + CUDA.threadIdx().x
+    if index <= length(destination)
+        k = UInt64(index - 1) * UInt64(S)
+        @inbounds destination[index] =
+            IR._normal_transform(IR._CUDA_BACKEND, IR._open_midpoint(T, k))
+    end
     return
 end
 
@@ -235,13 +271,13 @@ function _as241_kernel!(coefficients32, probes32, coefficients64, probes64)
         _write_coefficients!(coefficients32, IR._as241_coefficients(Float32))
         _write_coefficients!(coefficients64, IR._as241_coefficients(Float64))
         @inbounds begin
-            probes32[1] = IR._normal_midpoint(Float32, UInt64(0))
-            probes32[2] = IR._normal_midpoint(Float32, (UInt64(1) << 23) - UInt64(1))
+            probes32[1] = IR._open_midpoint(Float32, UInt64(0))
+            probes32[2] = IR._open_midpoint(Float32, (UInt64(1) << 23) - UInt64(1))
             probes32[3] = IR._as241(0.5f0)
             probes32[4] = IR._as241(0.95f0)
-            probes32[5] = IR._as241(1.0f-12)
-            probes64[1] = IR._normal_midpoint(Float64, UInt64(0))
-            probes64[2] = IR._normal_midpoint(Float64, (UInt64(1) << 52) - UInt64(1))
+            probes32[5] = IR._as241(Float32(0x1p-24))
+            probes64[1] = IR._open_midpoint(Float64, UInt64(0))
+            probes64[2] = IR._open_midpoint(Float64, (UInt64(1) << 52) - UInt64(1))
             probes64[3] = IR._as241(0.5)
             probes64[4] = IR._as241(0.95)
             probes64[5] = IR._as241(1.0e-20)
@@ -384,7 +420,7 @@ function _check_public_packed_addresses(rng, ::Type{T}, count) where {T}
 
     values = Array(destination)
     indices = (1, 2, count ÷ 2, count)
-    @test values[collect(indices)] == map(index -> randat(rng, T, index), collect(indices))
+    @test values[collect(indices)] == map(index -> rand_at(rng, T, index), collect(indices))
 
     bits_lo, bits_hi = IR._bit_span(UInt64(count), IR._draw_bits(T))
     @test next_rng.position == IR._reserve(rng, bits_lo, bits_hi).position
@@ -402,11 +438,11 @@ function _check_cooperative_kernel_code(
     codec = Val(:uniform),
     storage_type = eltype(packed),
 ) where {T}
-    kernel = IR._fill_cooperative_kernel!(backend)
-    outputs_per_store = IR._outputs_per_store(plan)
-    workgroup = IR._fill_group_size(plan[3])
+    kernel = CUDA_EXT._cooperative_fill_kernel!(backend)
+    outputs_per_store = CUDA_EXT._outputs_per_store(plan)
+    workgroup = IR._val_count(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
-    typed = IR.KernelAbstractions.@ka_code_typed kernel(
+    typed = KernelAbstractions.@ka_code_typed kernel(
         rng,
         packed,
         Val(T),
@@ -517,6 +553,24 @@ devices = collect(CUDA.devices())
 primary = first(devices)
 CUDA.device!(primary)
 device = MLD.CUDADevice(primary)
+
+# Device code takes the widening product from `mul.hi.u64` and the host keeps
+# the portable four-product form, so the two must agree bit for bit.
+@testset "CUDA high product matches the portable product" begin
+    operands = (
+        (UInt64(0), UInt64(0)),
+        (typemax(UInt64), typemax(UInt64)),
+        (0x243f6a8885a308d3, 0xd2b74407b1ce6e93),
+        (0x8000000000000000, UInt64(3)),
+        (UInt64(1) << 32, UInt64(1) << 32),
+    )
+    left = CUDA.CuArray(collect(first.(operands)))
+    right = CUDA.CuArray(collect(last.(operands)))
+    @test Array(map((a, b) -> first(IR._mulhilo64(a, b)), left, right)) ==
+          [first(IR._mulhilo64(a, b)) for (a, b) in operands]
+    @test Array(map((a, b) -> last(IR._mulhilo64(a, b)), left, right)) ==
+          [last(IR._mulhilo64(a, b)) for (a, b) in operands]
+end
 
 @testset "CUDA Bool packed paths preserve every generator stream" begin
     for F in GENERATOR_TYPES
@@ -655,7 +709,7 @@ end
             last_pack_rng =
                 _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
             unchanged = CUDA.fill(T(0.25), 2outputs_per_store)
-            @test_throws ArgumentError rand_next!(last_pack_rng, unchanged)
+            @test_throws StreamExhausted rand_next!(last_pack_rng, unchanged)
             @test Array(unchanged) == fill(T(0.25), 2outputs_per_store)
 
             terminal_rng = _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
@@ -783,12 +837,12 @@ end
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
         F === Philox4x32 && continue
         rng = device(F(0x782))
-        plan = IR._device_normal_fill_plan(backend, rng, T)
+        plan = IR._device_fill_plan(backend, rng, IR._NormalCodec(rng.device), T)
         @test plan[1] == Val(:cooperative)
         _check_public_packed_fill(
             rng,
             T,
-            IR._fill_group_size(plan[2]),
+            IR._val_count(plan[2]),
             randn_next,
             randn_next!;
             addressed_normal = true,
@@ -848,7 +902,7 @@ end
 
         last_pack_rng = _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
         unchanged = CUDA.fill(typemax(T), 2outputs_per_store)
-        @test_throws ArgumentError rand_next!(last_pack_rng, unchanged)
+        @test_throws StreamExhausted rand_next!(last_pack_rng, unchanged)
         @test Array(unchanged) == fill(typemax(T), 2outputs_per_store)
 
         terminal = _check_public_packed_fill(
@@ -866,8 +920,8 @@ end
     destination = CUDA.CuArray{UInt32}(undef, 4096)
     below_events = _device_events(() -> rand_next!(rng, below))
     events = _device_events(() -> rand_next!(rng, destination))
-    @test occursin("uniform_fill_grouped_kernel", only(below_events.kernel_names))
-    @test occursin("fill_cooperative_kernel", only(events.kernel_names))
+    @test occursin("grouped_fill_kernel", only(below_events.kernel_names))
+    @test occursin("cooperative_fill_kernel", only(events.kernel_names))
     @test length(events.kernels) == 1
     @test isempty(events.memsets)
     @test isempty(events.host_to_device)
@@ -878,7 +932,8 @@ end
     backend = CUDA.CUDABackend()
     rng = _positioned_at_bit(device(Threefry4x32(0x784)), UInt64(7), UInt16(0))
     for T in (UInt64, Int64)
-        @test IR._device_uniform_fill_plan(backend, rng, T) == (Val(:natural128_packed),)
+        @test IR._device_fill_plan(backend, rng, Val(:uniform), T) ==
+              (Val(:natural128_packed),)
     end
 end
 
@@ -1021,7 +1076,7 @@ end
     @test result32[1:2] == [Float32(0x1p-24), one(Float32) - Float32(0x1p-24)]
     @test result64[1:2] == [Float64(0x1p-53), one(Float64) - Float64(0x1p-53)]
     for (T, result, inputs) in (
-        (Float32, result32, (0.5f0, 0.95f0, 1.0f-12)),
+        (Float32, result32, (0.5f0, 0.95f0, Float32(0x1p-24))),
         (Float64, result64, (0.5, 0.95, 1.0e-20)),
     )
         @test result[3] === zero(T)
@@ -1031,15 +1086,50 @@ end
     end
 end
 
+@testset "R28 and R43 device normal ulp over a strided lattice" begin
+    # Float32: the reference is the same formula evaluated in Float64 at the
+    # same lattice point. Its own error is about 1e-16 relative, eight decades
+    # below a Float32 ulp, and the core suite gates the formula itself against a
+    # BigFloat quantile. A toolkit change that moves the device `log` or `sqrt`
+    # past the [R28] bound of 5.0 ulp fails here.
+    # Float64: the reference is the host evaluation of the same formula. [R43]
+    # lets the two differ through `log` and `sqrt` only, so a device build that
+    # substitutes an approximate one for either fails here. An approximate
+    # `Float64` square root alone costs about 6e9 ulp, nine decades past this
+    # bound; the measured worst is 3 ulp.
+    for (T, stride, points, bound) in
+        ((Float32, 8, 1 << 20, 5.0), (Float64, 1 << 32, 1 << 20, 6.0))
+        destination = CUDA.CuArray{T}(undef, points)
+        CUDA.@sync CUDA.@cuda threads = 256 blocks = cld(points, 256) _giles_lattice_kernel!(
+            destination,
+            T,
+            Val(stride),
+        )
+        values = Array(destination)
+        worst = 0.0
+        for index in eachindex(values)
+            u = IR._open_midpoint(T, UInt64(index - 1) * UInt64(stride))
+            reference =
+                T === Float32 ? IR._normal_transform(IR._CUDA_BACKEND, Float64(u)) :
+                Float64(IR._normal_transform(IR._CUDA_BACKEND, u))
+            worst = max(
+                worst,
+                abs(Float64(values[index]) - reference) / Float64(eps(T(reference))),
+            )
+        end
+        @test worst <= bound
+    end
+end
+
 @testset "device compilation, typed IR, and launch independence" begin
     extension_module = Base.get_extension(IR, :PureRNGsCUDAExt)
     backend = CUDA.CUDABackend()
-    kernel = extension_module._natural128_packed_kernel!(backend)
+    kernel = extension_module._natural128_fill_kernel!(backend)
     for (F, T) in NATURAL_128_TYPES
         packed_rng = device(F(0x785))
         destination = CUDA.CuArray{T}(undef, 1024)
         storage_type = extension_module._CUDANatural128Pack{T}
-        packed_typed = IR.KernelAbstractions.@ka_code_typed kernel(
+        packed_typed = KernelAbstractions.@ka_code_typed kernel(
             packed_rng,
             destination,
             Val(storage_type),
@@ -1071,10 +1161,10 @@ end
         @test occursin("STG.E.128", packed_sass)
     end
 
-    bool_kernel = IR._uniform_fill_bool_blocks_kernel!(backend)
+    bool_kernel = CUDA_EXT._bool_blocks_fill_kernel!(backend)
     for F in GENERATOR_TYPES
         bool_rng = device(F(0x787))
-        plan = IR._device_uniform_fill_plan(backend, bool_rng, Bool)
+        plan = IR._device_fill_plan(backend, bool_rng, Val(:uniform), Bool)
         expected = F === Philox4x32 ? Val(:cooperative) : Val(:bool_blocks)
         @test plan[1] === expected
         plan[1] === Val(:bool_blocks) || continue
@@ -1083,7 +1173,7 @@ end
             extension_module._CUDA_B8X16,
             CUDA.CuArray{Bool}(undef, Int(IR._block_bits(bool_rng))),
         )
-        bool_typed = IR.KernelAbstractions.@ka_code_typed bool_kernel(
+        bool_typed = KernelAbstractions.@ka_code_typed bool_kernel(
             bool_rng,
             packed,
             packs_per_block,
@@ -1116,8 +1206,8 @@ end
     end
 
     packed_rng = device(Philox4x32(0x785))
-    float_plan = IR._device_uniform_fill_plan(backend, packed_rng, Float32)
-    float_destination = CUDA.CuArray{Float32}(undef, IR._fill_group_size(float_plan[2]))
+    float_plan = IR._device_fill_plan(backend, packed_rng, Val(:uniform), Float32)
+    float_destination = CUDA.CuArray{Float32}(undef, IR._val_count(float_plan[2]))
     for stream_aligned in (Val(false), Val(true))
         _check_cooperative_kernel_code(
             backend,
@@ -1135,8 +1225,8 @@ end
         F === Philox4x32 && continue
         for T in (Float32, Float64)
             rng = device(F(0x788))
-            plan = IR._device_uniform_fill_plan(backend, rng, T)
-            destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
+            plan = IR._device_fill_plan(backend, rng, Val(:uniform), T)
+            destination = CUDA.CuArray{T}(undef, IR._val_count(plan[2]))
             _check_cooperative_kernel_code(
                 backend,
                 rng,
@@ -1152,8 +1242,8 @@ end
 
     for T in (UInt32, UInt64)
         rng = device(Threefry4x64(0x789))
-        plan = IR._device_uniform_fill_plan(backend, rng, T)
-        destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
+        plan = IR._device_fill_plan(backend, rng, Val(:uniform), T)
+        destination = CUDA.CuArray{T}(undef, IR._val_count(plan[2]))
         _check_cooperative_kernel_code(
             backend,
             rng,
@@ -1168,8 +1258,8 @@ end
 
     for T in (Float32, Float64)
         rng = device(Threefry4x32(0x788))
-        plan = IR._device_normal_fill_plan(backend, rng, T)
-        destination = CUDA.CuArray{T}(undef, IR._fill_group_size(plan[2]))
+        plan = IR._device_fill_plan(backend, rng, IR._NormalCodec(rng.device), T)
+        destination = CUDA.CuArray{T}(undef, IR._val_count(plan[2]))
         _check_cooperative_kernel_code(
             backend,
             rng,
@@ -1178,7 +1268,7 @@ end
             plan,
             Val(false),
             check_store = true,
-            codec = Val(:normal),
+            codec = IR._NormalCodec(rng.device),
             storage_type = extension_module._packed_type(T),
         )
     end
@@ -1207,7 +1297,7 @@ end
         continued_uniform, next_uniform = rand_next(rng, UInt32)
         @test Array(args[1]) == UInt32[
             rand(rng, UInt32),
-            randat(rng, UInt32, 1),
+            rand_at(rng, UInt32, 1),
             continued_uniform,
             rand(next_uniform, UInt32),
             rand(subrng(rng, UInt64(0x71)), UInt32),
@@ -1305,12 +1395,12 @@ end
         _, terminal_fill_next = randexp_next!(last_rng, terminal_destination)
         @test terminal_fill_next.position == terminal.position
         @test Array(terminal_destination) == Array(terminal_array)
-        @test_throws ArgumentError randexp(terminal, T)
+        @test_throws StreamExhausted randexp(terminal, T)
 
         for operation in (randexp!, randexp_next!), source in (last_rng, terminal)
             failed = CUDA.fill(T(-1), 2)
             before = Array(failed)
-            @test_throws ArgumentError operation(source, failed)
+            @test_throws StreamExhausted operation(source, failed)
             @test Array(failed) == before
         end
 
@@ -1394,7 +1484,7 @@ end
         last_rng = _last_draw_rng(gpu_rng, UInt16(32))
         final_value, exhausted = rand_next(last_rng, UInt32)
         @test exhausted.position.bit == IR._EXHAUSTED_BIT
-        @test_throws ArgumentError rand_next(exhausted, UInt32)
+        @test_throws StreamExhausted rand_next(exhausted, UInt32)
         final_array, array_exhausted = rand_next(last_rng, UInt32, 1)
         @test array_exhausted.position == exhausted.position
         @test Array(final_array) == [final_value]
@@ -1402,7 +1492,7 @@ end
         @test isempty(empty)
         @test empty_next.position == exhausted.position
         destination = CUDA.fill(UInt32(0xdeadbeef), 2)
-        @test_throws ArgumentError rand_next!(last_rng, destination)
+        @test_throws StreamExhausted rand_next!(last_rng, destination)
         @test Array(destination) == fill(UInt32(0xdeadbeef), 2)
 
         for (capacity_range, width) in (
@@ -1414,11 +1504,11 @@ end
             cpu_last = MLD.CPUDevice()(last_range)
             @test Array(range_value) == rand(cpu_last, capacity_range, 1)
             @test terminal.position == _terminal(gpu_rng)
-            @test_throws ArgumentError rand_next(terminal, capacity_range, 1)
+            @test_throws StreamExhausted rand_next(terminal, capacity_range, 1)
             insufficient_position =
                 IR._advance_position_unchecked(last_range, UInt64(1), UInt64(0))
             insufficient = IR._rebuild(last_range, insufficient_position, last_range.device)
-            @test_throws ArgumentError rand_next(insufficient, capacity_range, 1)
+            @test_throws StreamExhausted rand_next(insufficient, capacity_range, 1)
             @test insufficient.position == insufficient_position
         end
     end
@@ -1592,8 +1682,8 @@ end
         _check_scalar_allocation(() -> rand_next(rng, UInt32))
         _check_scalar_allocation(() -> randn_next(rng, Float32))
         _check_scalar_allocation(() -> rand_next(rng, range))
-        _check_scalar_allocation(() -> randat(rng, UInt64, 2))
-        _check_scalar_allocation(() -> randnat(rng, Float64, 2))
+        _check_scalar_allocation(() -> rand_at(rng, UInt64, 2))
+        _check_scalar_allocation(() -> randn_at(rng, Float64, 2))
         _check_scalar_allocation(() -> subrng(rng, UInt64(0x71)))
         _check_scalar_allocation(() -> splitrng(rng, Val(2)))
     end
@@ -1639,8 +1729,13 @@ end
         final_value, terminal = randsample_next(last_rng, gpu_population, gpu_weights, 1)
         @test length(final_value) == 1
         @test terminal.position == _terminal(gpu_rng)
-        @test_throws ArgumentError randsample(last_rng, gpu_population, gpu_weights, 2)
-        @test_throws ArgumentError randsample_next(last_rng, gpu_population, gpu_weights, 2)
+        @test_throws StreamExhausted randsample(last_rng, gpu_population, gpu_weights, 2)
+        @test_throws StreamExhausted randsample_next(
+            last_rng,
+            gpu_population,
+            gpu_weights,
+            2,
+        )
         @test last_rng.position.bit != IR._EXHAUSTED_BIT
     end
 
@@ -1703,12 +1798,10 @@ end
     @test reinterpret.(UInt64, Array(scan_cumulative)) ==
           reinterpret.(UInt64, scan_expected)
     IR._launch_weighted_scan!(
-        range_rng.device,
-        IR._fill_backend(scan_destination),
+        KernelAbstractions.get_backend(scan_destination),
         scan_population,
-        scan_weights,
-        CUDA.CuArray(Float64[0x1p53]),
         scan_cumulative,
+        CUDA.CuArray(Float64[0x1p53]),
         scan_destination,
     )
     @test Array(scan_destination) == Int32[1025]

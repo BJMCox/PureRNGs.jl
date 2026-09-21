@@ -1,4 +1,4 @@
-include(joinpath(@__DIR__, "..", "..", "distribution_transform_cases.jl"))
+include(joinpath(@__DIR__, "..", "..", "..", "distribution_transform_cases.jl"))
 
 const CUDA_FIXED_DISTRIBUTIONS = (
     Normal{Float32}(0.75f0, 1.25f0),
@@ -39,11 +39,11 @@ const CUDA_EXPANDED_CONTINUOUS_DISTRIBUTIONS = (
 @inline _primitive_next(rng, distribution::DiscreteUniform) =
     rand_next(rng, distribution.a:distribution.b)
 
-@inline _primitive_at(rng, ::Normal{T}, index) where {T} = randnat(rng, T, index)
-@inline _primitive_at(rng, ::Uniform{T}, index) where {T} = randat(rng, T, index)
+@inline _primitive_at(rng, ::Normal{T}, index) where {T} = randn_at(rng, T, index)
+@inline _primitive_at(rng, ::Uniform{T}, index) where {T} = rand_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Exponential{T}, index) where {T} =
-    randexpat(rng, T, index)
-@inline _primitive_at(rng, ::Bernoulli{T}, index) where {T} = randat(rng, T, index)
+    randexp_at(rng, T, index)
+@inline _primitive_at(rng, ::Bernoulli{T}, index) where {T} = rand_at(rng, T, index)
 @inline function _primitive_at(rng, distribution::DiscreteUniform, index)
     span = (distribution.b % UInt64 - distribution.a % UInt64) + UInt64(1)
     addressed = IR._addressed_rng(rng, IR._range_bits(span), index)
@@ -75,9 +75,9 @@ end
     @inbounds begin
         destination[offset+1] = rand(rng, distribution)
         destination[offset+2] = continued
-        destination[offset+3] = randat(rng, distribution, 1)
+        destination[offset+3] = rand_at(rng, distribution, 1)
         destination[offset+4] = rand(next_rng, distribution)
-        destination[offset+5] = randat(rng, distribution, 2)
+        destination[offset+5] = rand_at(rng, distribution, 2)
     end
     return nothing
 end
@@ -195,9 +195,9 @@ function _expanded_scalar_probe_kernel!(values, expected, rng, distribution)
         @inbounds begin
             values[1] = rand(rng, distribution)
             values[2] = continued
-            values[3] = randat(rng, distribution, 1)
+            values[3] = rand_at(rng, distribution, 1)
             values[4] = rand(next_rng, distribution)
-            values[5] = randat(rng, distribution, 2)
+            values[5] = rand_at(rng, distribution, 2)
             expected[1] = first_value
             expected[2] = first_value
             expected[3] = first_value
@@ -211,7 +211,7 @@ end
 function _expanded_addressed_kernel!(destination, rng, distribution)
     if CUDA.threadIdx().x == 1
         @inbounds for index in eachindex(destination)
-            destination[index] = randat(rng, distribution, index)
+            destination[index] = rand_at(rng, distribution, index)
         end
     end
     return nothing
@@ -431,9 +431,9 @@ end
 
         sentinel = T === Bool ? true : T(-1)
         failed = CUDA.fill(sentinel, 2)
-        @test_throws ArgumentError rand_next!(last_rng, distribution, failed)
+        @test_throws StreamExhausted rand_next!(last_rng, distribution, failed)
         @test Array(failed) == fill(sentinel, 2)
-        @test_throws ArgumentError rand(terminal, distribution)
+        @test_throws StreamExhausted rand(terminal, distribution)
 
         empty = CUDA.CuArray{T}(undef, 0)
         profile = CUDA.@profile raw = true rand_next!(terminal, distribution, empty)

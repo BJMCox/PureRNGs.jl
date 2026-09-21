@@ -1,13 +1,11 @@
 using Random
 
-const AuditIR = PureRNGs
-
-_audit_methods(f) = [method for method in methods(f) if method.module === AuditIR]
+_audit_methods(f) = [method for method in methods(f) if method.module === IR]
 function _pure_audit_methods(function_)
     return filter(_audit_methods(function_)) do method
         signature = Base.unwrap_unionall(method.sig)
         length(signature.parameters) >= 2 || return false
-        return signature.parameters[2] <: AuditIR.AbstractPureRNG
+        return signature.parameters[2] <: IR.AbstractPureRNG
     end
 end
 
@@ -44,9 +42,9 @@ end
         randn_next!,
         randexp_next,
         randexp_next!,
-        randat,
-        randnat,
-        randexpat,
+        rand_at,
+        randn_at,
+        randexp_at,
         splitrng,
         subrng,
         randsample,
@@ -54,13 +52,24 @@ end
         randsample!,
         randsample_next!,
     )
-    @test foreign_functions ==
-          Set((rand, rand!, randn, randn!, randexp, randexp!, Random.seed!, copy, parent))
+    # showerror is R70's StreamExhausted display, dispatched on the package type.
+    @test foreign_functions == Set((
+        rand,
+        rand!,
+        randn,
+        randn!,
+        randexp,
+        randexp!,
+        Random.seed!,
+        copy,
+        parent,
+        showerror,
+    ))
 
     required = Dict(function_ => Set{Method}() for function_ in owned_functions)
     require = function (function_, signature)
         method = which(function_, signature)
-        @test method.module === AuditIR
+        @test method.module === IR
         push!(required[function_], method)
         return nothing
     end
@@ -68,8 +77,14 @@ end
     rng = Philox4x32(0xa71)
     R = typeof(rng)
     require(rand, Tuple{R})
+    require(rand, Tuple{R,Int})
+    require(rand, Tuple{R,Tuple{Int}})
     require(randn, Tuple{R})
+    require(randn, Tuple{R,Int})
+    require(randn, Tuple{R,Tuple{Int}})
     require(randexp, Tuple{R})
+    require(randexp, Tuple{R,Int})
+    require(randexp, Tuple{R,Tuple{Int}})
     require(rand_next, Tuple{R})
     require(rand_next, Tuple{R,Int})
     require(rand_next, Tuple{R,Tuple{Int}})
@@ -88,8 +103,8 @@ end
         require(rand_next, Tuple{R,Type{T},Int})
         require(rand_next, Tuple{R,Type{T},Tuple{Int}})
         require(rand_next!, Tuple{R,Vector{T}})
-        require(randat, Tuple{R,Type{T},Int})
-        require(randat, Tuple{R,Type{T},UnitRange{Int}})
+        require(rand_at, Tuple{R,Type{T},Int})
+        require(rand_at, Tuple{R,Type{T},UnitRange{Int}})
     end
     for T in NORMAL_TYPES
         require(randn, Tuple{R,Type{T}})
@@ -100,8 +115,8 @@ end
         require(randn_next, Tuple{R,Type{T},Int})
         require(randn_next, Tuple{R,Type{T},Tuple{Int}})
         require(randn_next!, Tuple{R,Vector{T}})
-        require(randnat, Tuple{R,Type{T},Int})
-        require(randnat, Tuple{R,Type{T},UnitRange{Int}})
+        require(randn_at, Tuple{R,Type{T},Int})
+        require(randn_at, Tuple{R,Type{T},UnitRange{Int}})
     end
     for T in EXPONENTIAL_TYPES
         require(randexp, Tuple{R,Type{T}})
@@ -112,8 +127,8 @@ end
         require(randexp_next, Tuple{R,Type{T},Int})
         require(randexp_next, Tuple{R,Type{T},Tuple{Int}})
         require(randexp_next!, Tuple{R,Vector{T}})
-        require(randexpat, Tuple{R,Type{T},Int})
-        require(randexpat, Tuple{R,Type{T},UnitRange{Int}})
+        require(randexp_at, Tuple{R,Type{T},Int})
+        require(randexp_at, Tuple{R,Type{T},UnitRange{Int}})
     end
     for T in RANGE_INTS
         Range = typeof(T(1):T(2))
@@ -125,6 +140,7 @@ end
         require(rand_next, Tuple{R,Range,Int})
         require(rand_next, Tuple{R,Range,Tuple{Int}})
         require(rand_next!, Tuple{R,Vector{T},Range})
+        require(rand_at, Tuple{R,Range,Int})
     end
     require(splitrng, Tuple{R})
     require(splitrng, Tuple{R,Int})
@@ -156,7 +172,7 @@ end
         @test Set(methods_) == required[function_]
     end
     @test all(
-        Base.unwrap_unionall(method.sig).parameters[2] <: AuditIR.AbstractPureRNG for
+        Base.unwrap_unionall(method.sig).parameters[2] <: IR.AbstractPureRNG for
         function_ in (rand, rand!, randn, randn!, randexp, randexp!) for
         method in _pure_audit_methods(function_)
     )
@@ -176,10 +192,9 @@ end
             rand_next,
             randn_next,
             randexp_next,
-            randat,
-            randnat,
-            randexpat,
-            splitrng,
+            rand_at,
+            randn_at,
+            randexp_at,
             subrng,
             randsample,
             randsample_next,
@@ -192,27 +207,32 @@ end
         Base.kwarg_decl(method) == [:threaded] for
         function_ in (randsample!, randsample_next!) for method in _audit_methods(function_)
     )
+    # R21 gives the dynamic split the fill keyword. The other two forms take none.
+    dynamic_split = which(splitrng, Tuple{R,Int})
+    @test Base.kwarg_decl(dynamic_split) == [:threaded]
+    @test all(
+        isempty(Base.kwarg_decl(method)) for
+        method in _audit_methods(splitrng) if method !== dynamic_split
+    )
 
-    cpu = AuditIR.MLDataDevices.CPUDevice()
+    cpu = IR.MLDataDevices.CPUDevice()
     device_method = which(cpu, Tuple{R})
-    @test device_method.module === AuditIR
+    @test device_method.module === IR
     # Julia 1.10 also lists the shadowed AbstractDevice fallback.
     @test Set(
-        method for method in methods(cpu) if method.module === AuditIR &&
-            Base.unwrap_unionall(method.sig).parameters[1] <:
-            AuditIR.MLDataDevices.CPUDevice
+        method for method in methods(cpu) if method.module === IR &&
+            Base.unwrap_unionall(method.sig).parameters[1] <: IR.MLDataDevices.CPUDevice
     ) == Set((device_method,))
     @test isempty(Base.kwarg_decl(device_method))
 end
 
 @testset "R9 and R12b assigned constants" begin
-    @test AuditIR._NARROW_SPLIT_COUNT === UInt64(0xffffffff)
+    @test IR._NARROW_SPLIT_COUNT === UInt64(0xffffffff)
 end
 
 @testset "R47 implemented deterministic error closure" begin
     rng = Philox4x32(0xa72)
-    exhausted =
-        AuditIR._rebuild(rng, AuditIR._terminal64(AuditIR._max_block(rng)), rng.device)
+    exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     wrong_uniform_destination = WrongDeviceArray(Vector{UInt32}(undef, 1))
     wrong_normal_destination = WrongDeviceArray(Vector{Float32}(undef, 1))
     wrong_exponential_destination = WrongDeviceArray(Vector{Float32}(undef, 1))
@@ -222,12 +242,43 @@ end
         (:negative_split, () -> splitrng(rng, -1)),
         (:invalid_static_split, () -> splitrng(rng, Val(UInt32(1)))),
         (:narrow_split_namespace, () -> splitrng(Philox2x32(1), UInt64(0x1_0000_0000))),
-        (:randat_index, () -> randat(rng, UInt32, 0)),
-        (:randat_capacity, () -> randat(exhausted, UInt32, 1)),
-        (:randnat_index, () -> randnat(rng, Float32, 0)),
-        (:randnat_capacity, () -> randnat(exhausted, Float32, 1)),
-        (:randexpat_index, () -> randexpat(rng, Float32, 0)),
-        (:randexpat_capacity, () -> randexpat(exhausted, Float32, 1)),
+        (:rand_at_index, () -> rand_at(rng, UInt32, 0)),
+        (:randn_at_index, () -> randn_at(rng, Float32, 0)),
+        (:randexp_at_index, () -> randexp_at(rng, Float32, 0)),
+        (:empty_range, () -> rand(rng, UInt8(2):UInt8(1))),
+        (:empty_range_continuation, () -> rand_next(rng, UInt8(2):UInt8(1))),
+        (:negative_uniform_dimension, () -> rand(rng, UInt32, -1)),
+        (:negative_uniform_continuation_dimension, () -> rand_next(rng, UInt32, -1)),
+        (:negative_normal_dimension, () -> randn(rng, Float32, -1)),
+        (:negative_normal_continuation_dimension, () -> randn_next(rng, Float32, -1)),
+        (:negative_exponential_dimension, () -> randexp(rng, Float32, -1)),
+        (
+            :negative_exponential_continuation_dimension,
+            () -> randexp_next(rng, Float32, -1),
+        ),
+        (:untyped_uniform, () -> rand(rng)),
+        (:untyped_normal, () -> randn(rng)),
+        (:untyped_exponential, () -> randexp(rng)),
+        (:uniform_device_mismatch, () -> rand!(rng, wrong_uniform_destination)),
+        (
+            :uniform_continuation_device_mismatch,
+            () -> rand_next!(rng, wrong_uniform_destination),
+        ),
+        (:normal_device_mismatch, () -> randn!(rng, wrong_normal_destination)),
+        (
+            :normal_continuation_device_mismatch,
+            () -> randn_next!(rng, wrong_normal_destination),
+        ),
+        (:exponential_device_mismatch, () -> randexp!(rng, wrong_exponential_destination)),
+        (
+            :exponential_continuation_device_mismatch,
+            () -> randexp_next!(rng, wrong_exponential_destination),
+        ),
+    )
+    exhausted_errors = (
+        (:rand_at_capacity, () -> rand_at(exhausted, UInt32, 1)),
+        (:randn_at_capacity, () -> randn_at(exhausted, Float32, 1)),
+        (:randexp_at_capacity, () -> randexp_at(exhausted, Float32, 1)),
         (:pure_capacity, () -> rand(exhausted, UInt32)),
         (:continuation_capacity, () -> rand_next(exhausted, UInt32)),
         (:fill_capacity, () -> rand!(exhausted, Vector{UInt32}(undef, 1))),
@@ -265,56 +316,9 @@ end
             :range_continuation_allocating_capacity,
             () -> rand_next(exhausted, UInt8(1):UInt8(2), 1),
         ),
-        (:empty_range, () -> rand(rng, UInt8(2):UInt8(1))),
-        (:empty_range_continuation, () -> rand_next(rng, UInt8(2):UInt8(1))),
-        (:negative_uniform_dimension, () -> rand(rng, UInt32, -1)),
-        (:negative_uniform_continuation_dimension, () -> rand_next(rng, UInt32, -1)),
-        (:negative_normal_dimension, () -> randn(rng, Float32, -1)),
-        (:negative_normal_continuation_dimension, () -> randn_next(rng, Float32, -1)),
-        (:negative_exponential_dimension, () -> randexp(rng, Float32, -1)),
-        (
-            :negative_exponential_continuation_dimension,
-            () -> randexp_next(rng, Float32, -1),
-        ),
-        (:untyped_uniform, () -> rand(rng)),
-        (:untyped_normal, () -> randn(rng)),
-        (:untyped_exponential, () -> randexp(rng)),
-        (:uniform_device_mismatch, () -> rand!(rng, wrong_uniform_destination)),
-        (
-            :uniform_continuation_device_mismatch,
-            () -> rand_next!(rng, wrong_uniform_destination),
-        ),
-        (:normal_device_mismatch, () -> randn!(rng, wrong_normal_destination)),
-        (
-            :normal_continuation_device_mismatch,
-            () -> randn_next!(rng, wrong_normal_destination),
-        ),
-        (:exponential_device_mismatch, () -> randexp!(rng, wrong_exponential_destination)),
-        (
-            :exponential_continuation_device_mismatch,
-            () -> randexp_next!(rng, wrong_exponential_destination),
-        ),
     )
-    type_errors = (
-        (:uniform_threaded_type, () -> rand!(rng, Vector{UInt32}(undef, 1); threaded = 1)),
-        (
-            :uniform_continuation_threaded_type,
-            () -> rand_next!(rng, Vector{UInt32}(undef, 1); threaded = 1),
-        ),
-        (:normal_threaded_type, () -> randn!(rng, Vector{Float32}(undef, 1); threaded = 1)),
-        (
-            :normal_continuation_threaded_type,
-            () -> randn_next!(rng, Vector{Float32}(undef, 1); threaded = 1),
-        ),
-        (
-            :exponential_threaded_type,
-            () -> randexp!(rng, Vector{Float32}(undef, 1); threaded = 1),
-        ),
-        (
-            :exponential_continuation_threaded_type,
-            () -> randexp_next!(rng, Vector{Float32}(undef, 1); threaded = 1),
-        ),
-    )
+    # A non-Bool `threaded` keyword belongs here too, but `errors.jl` already
+    # pins its class and its message on every fill entry point.
     method_errors = (
         (:uniform_result_type, () -> rand(rng, Float16)),
         (:uniform_continuation_result_type, () -> rand_next(rng, Float16)),
@@ -329,14 +333,41 @@ end
 
     for (expected, cases) in (
         (ArgumentError, argument_errors),
-        (TypeError, type_errors),
+        (StreamExhausted, exhausted_errors),
         (MethodError, method_errors),
     )
         for (name, call) in cases
             @testset "$name" begin
-                @test typeof(_audit_error(call)) === expected
+                # StreamExhausted is parametric, so compare by subtyping.
+                @test typeof(_audit_error(call)) <: expected
             end
         end
     end
 
+end
+
+@testset "R70 StreamExhausted payload" begin
+    base = Philox4x32(0x970)
+    near_end = IR._rebuild(
+        base,
+        _position_from_absolute(base, _stream_capacity(base) - 10),
+        base.device,
+    )
+    population = Int32[2, 3, 5, 7]
+    for (name, span, call) in (
+        (:scalar, UInt128(32), () -> rand(near_end, UInt32)),
+        (:fill, UInt128(64), () -> rand!(near_end, Vector{UInt32}(undef, 2))),
+        (:addressed, UInt128(64), () -> rand_at(near_end, UInt32, 2)),
+        (:sampling, UInt128(128), () -> randsample(near_end, population, 2)),
+    )
+        @testset "$name" begin
+            exhausted = _audit_error(call)
+            @test exhausted isa StreamExhausted{typeof(near_end)}
+            @test exhausted.bits === span
+            @test fieldcount(typeof(exhausted)) == 1
+            @test occursin("Philox4x32", sprint(showerror, exhausted))
+        end
+    end
+
+    @test_throws ArgumentError Philox4x32(rngkey(near_end), rngposition(near_end) + 11)
 end

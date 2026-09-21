@@ -17,7 +17,7 @@ IR.MLDataDevices.get_device(::CategoricalDeviceProbe) = IR.MLDataDevices.CUDADev
 
     @test rand(rng, distribution) == only(first_expected)
     @test rand_next(rng, distribution) == (only(first_expected), first_next)
-    @test randat(rng, distribution, 2) == expected[2]
+    @test rand_at(rng, distribution, 2) == expected[2]
 
     values = rand(rng, distribution, 3, 11)
     @test size(values) == (3, 11)
@@ -79,7 +79,7 @@ end
     invalid = Categorical(zeros(3); check_args = false)
 
     @test_throws ArgumentError rand(rng, device_probabilities)
-    @test_throws ArgumentError randat(rng, device_probabilities, 1)
+    @test_throws ArgumentError rand_at(rng, device_probabilities, 1)
     @test_throws ArgumentError rand(rng, device_probabilities, 0)
     @test_throws ArgumentError rand!(rng, device_probabilities, Int[]; threaded = false)
     @test_throws MethodError rand!(rng, valid, Int32[]; threaded = false)
@@ -116,6 +116,6 @@ end
     )
     near_terminal = fill(-1, 2)
     before = copy(near_terminal)
-    @test_throws ArgumentError rand_next!(last, valid, near_terminal; threaded = false)
+    @test_throws StreamExhausted rand_next!(last, valid, near_terminal; threaded = false)
     @test near_terminal == before
 end

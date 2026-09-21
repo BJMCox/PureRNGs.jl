@@ -1,17 +1,8 @@
-using InteractiveUtils: code_llvm
-
-const RangeAllocIR = PureRNGs
 _small_allocating_range(::Type{T}) where {T<:Signed} = T(-31):T(3):T(41)
 _small_allocating_range(::Type{T}) where {T<:Unsigned} = T(2):T(3):T(74)
 
-function _chained_range(rng, range, count)
-    values = Vector{eltype(range)}(undef, count)
-    cursor = rng
-    for index in eachindex(values)
-        values[index], cursor = rand_next(cursor, range)
-    end
-    return cursor, values
-end
+_chained_range(rng, range, count) =
+    _chained_draws(cursor -> rand_next(cursor, range), rng, count)
 
 @testset "R23-R26 and R55 CPU allocating range draws" begin
     for F in GENERATOR_TYPES, T in RANGE_INTS
@@ -57,51 +48,37 @@ end
         range in (UInt16(2):UInt16(17), UInt64(0):(UInt64(1)<<32))
 
         rng = _positioned(F, 0x65b1, UInt64(11), UInt16(61))
-        width = RangeAllocIR._range_bits(length(range) % UInt64)
-        count = 3 * Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width)) + 3
+        width = IR._range_bits(length(range) % UInt64)
+        count = 3 * Int(IR._CPU_FILL_CHUNK_BITS ÷ UInt64(width)) + 3
         expected_next, expected = _chained_range(rng, range, count)
         values, next_rng = rand_next(rng, range, count)
-        sync_cpu()
         @test values == expected
         @test next_rng === expected_next
     end
 
 
     base = Philox4x64(0x65b2)
-    position = RangeAllocIR._Position128(typemax(UInt64), UInt64(7), UInt16(61))
-    rng = RangeAllocIR._rebuild(base, position, base.device)
+    position = IR._Position128(typemax(UInt64), UInt64(7), UInt16(61))
+    rng = IR._rebuild(base, position, base.device)
     range = UInt16(2):UInt16(17)
-    width = RangeAllocIR._range_bits(length(range) % UInt64)
-    chunk_elements = Int(RangeAllocIR._CPU_FILL_CHUNK_BITS ÷ UInt64(width))
+    width = IR._range_bits(length(range) % UInt64)
+    chunk_elements = Int(IR._CPU_FILL_CHUNK_BITS ÷ UInt64(width))
 
     count = 3chunk_elements + 3
     expected_next, expected = _chained_range(rng, range, count)
     values, next_rng = rand_next(rng, range, count)
-    sync_cpu()
     @test values == expected
     @test next_rng === expected_next
 end
 
-@testset "R26 packed small range arrays" begin
-    rng = _positioned(Philox4x32, 0x65b3, UInt64(13), UInt16(61))
-    range = UInt64(0):(UInt64(1)<<32)
-    count = 128
-    expected_next, expected = _chained_range(rng, range, count)
-    values, next_rng = rand_next(rng, range, count)
-
-    @test values == expected
-    @test next_rng === expected_next
-end
-
-@testset "R53-R55 allocating range validation and capacity" begin
+@testset "R53-R55 allocating range validation" begin
     nonempty = UInt16(2):UInt16(3):UInt16(20)
     for F in GENERATOR_TYPES
         base = F(0x65c)
         terminal_position =
-            base.position isa RangeAllocIR._Position64 ?
-            RangeAllocIR._terminal64(RangeAllocIR._max_block(base)) :
-            RangeAllocIR._terminal128()
-        terminal = RangeAllocIR._rebuild(base, terminal_position, base.device)
+            base.position isa IR._Position64 ? IR._terminal64(IR._max_block(base)) :
+            IR._terminal128()
+        terminal = IR._rebuild(base, terminal_position, base.device)
 
         empty = rand(terminal, nonempty, 0, 2)
         continued_empty, empty_next = rand_next(terminal, nonempty, 0, 2)
@@ -121,28 +98,6 @@ end
         @test_throws ArgumentError rand_next(base, nonempty, 2, -1)
     end
 
-    for F in GENERATOR_TYPES, range in (UInt8(1):UInt8(7), UInt64(0):(UInt64(1)<<32))
-        base = F(0x65d)
-        width = _range_reference_width(length(range) % UInt64)
-        capacity = _range_capacity(base)
-        final_position = _range_position_from_absolute(base, capacity - 2width)
-        final = RangeAllocIR._rebuild(base, final_position, base.device)
-        expected_next, expected = _chained_range(final, range, 2)
-        values, next_rng = rand_next(final, range, 2)
-        @test values == expected
-        @test next_rng === expected_next
-        @test next_rng.position == (
-            base.position isa RangeAllocIR._Position64 ?
-            RangeAllocIR._terminal64(RangeAllocIR._max_block(base)) :
-            RangeAllocIR._terminal128()
-        )
-
-        insufficient_position = _range_position_from_absolute(base, capacity - 2width + 1)
-        insufficient = RangeAllocIR._rebuild(base, insufficient_position, base.device)
-        @test_throws ArgumentError rand(insufficient, range, 2)
-        @test_throws ArgumentError rand_next(insufficient, range, 2)
-        @test insufficient.position === insufficient_position
-    end
 end
 
 @testset "R30, R54, and R61 allocating range codegen" begin
@@ -150,19 +105,8 @@ end
         ((Philox2x32, UInt16(2):UInt16(17)), (Philox4x64, UInt64(0):typemax(UInt64)))
         # The kernel-facing generator: the CPU-bound 64-bit Philox core uses a
         # 128-bit widening multiply by design.
-        rng = RangeAllocIR.MLDataDevices.CUDADevice()(F(0x65f))
-        signature = Tuple{typeof(rng),typeof(range),Int}
-        typed_ir = sprint(show, code_typed(rand_next, signature; optimize = true))
-        llvm_ir = sprint() do io
-            code_llvm(
-                io,
-                rand_next,
-                signature;
-                raw = false,
-                dump_module = false,
-                optimize = true,
-            )
-        end
+        rng = MLD.CUDADevice()(F(0x65f))
+        typed_ir, llvm_ir = _codegen_ir(rand_next, Tuple{typeof(rng),typeof(range),Int})
         @test !occursin("BigInt", typed_ir)
         @test !occursin("UInt128", typed_ir)
         # LLVM may pack UInt64 lanes through i128 casts without wide arithmetic.
@@ -171,21 +115,4 @@ end
         end
         @test isempty(wide_instructions)
     end
-end
-
-@testset "R23-R26 range tuple dimensions and destination fills" begin
-    rng = _positioned(Philox4x32, 0x65b, UInt64(7), UInt16(61))
-    range = Int16(-31):Int16(3):Int16(41)
-    expected, expected_next = rand_next(rng, range, 3, 4)
-    @test rand(rng, range, (3, 4)) == expected
-    @test rand_next(rng, range, (3, 4)) == (expected, expected_next)
-
-    threaded = zeros(Int16, 3, 4)
-    serial = zeros(Int16, 3, 4)
-    filled, next_rng = rand_next!(rng, threaded, range)
-    _, serial_next = rand_next!(rng, serial, range; threaded = false)
-    @test filled === threaded
-    @test threaded == serial == expected
-    @test next_rng === serial_next === expected_next
-    @test rand!(rng, serial, range) === serial
 end

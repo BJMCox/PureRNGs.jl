@@ -1,6 +1,3 @@
-const SamplingIR = PureRNGs
-const SamplingMLD = PureRNGs.MLDataDevices
-
 struct DeviceAgnosticIterable{T}
     values::Vector{T}
     starts::Base.RefValue{Int}
@@ -15,7 +12,7 @@ function Base.iterate(iter::DeviceAgnosticIterable)
     return iterate(iter.values)
 end
 Base.iterate(iter::DeviceAgnosticIterable, state) = iterate(iter.values, state)
-SamplingMLD.get_device(::DeviceAgnosticIterable) = nothing
+MLD.get_device(::DeviceAgnosticIterable) = nothing
 
 struct DeclaredHugeIterable end
 
@@ -24,7 +21,7 @@ Base.IteratorEltype(::Type{DeclaredHugeIterable}) = Base.HasEltype()
 Base.eltype(::Type{DeclaredHugeIterable}) = Int
 Base.length(::DeclaredHugeIterable) = big(typemax(Int)) + 1
 Base.iterate(::DeclaredHugeIterable, state...) = error("population must not materialize")
-SamplingMLD.get_device(::DeclaredHugeIterable) = nothing
+MLD.get_device(::DeclaredHugeIterable) = nothing
 
 struct UnknownDeviceIterable{T}
     values::Vector{T}
@@ -42,7 +39,7 @@ function Base.getindex(population::CountedPopulation, index::Int)
     population.reads[] += 1
     return population.values[index]
 end
-SamplingMLD.get_device(::CountedPopulation) = SamplingMLD.CPUDevice()
+MLD.get_device(::CountedPopulation) = MLD.CPUDevice()
 
 function _sample_at(population::AbstractArray, ordinal::Integer)
     indices = CartesianIndices(axes(population))
@@ -50,18 +47,15 @@ function _sample_at(population::AbstractArray, ordinal::Integer)
     return population[index]
 end
 _sample_at(population::AbstractRange, ordinal::Integer) = population[ordinal]
-_sample_at(population::AbstractRange{<:SamplingIR._RangeInteger}, ordinal::Integer) =
-    SamplingIR._range_value(population, UInt64(ordinal) - 1)
+_sample_at(population::AbstractRange{<:IR._RangeInteger}, ordinal::Integer) =
+    IR._range_value(population, UInt64(ordinal) - 1)
 
 function _chained_unweighted(rng, population, count::Integer)
-    values = Vector{eltype(population)}(undef, Int(count))
-    cursor = rng
     cardinality = length(population) % UInt64
-    for index in eachindex(values)
-        ordinal, cursor = rand_next(cursor, UInt64(1):cardinality)
-        values[index] = _sample_at(population, ordinal)
+    return _chained_draws(rng, count) do cursor
+        ordinal, next_rng = rand_next(cursor, UInt64(1):cardinality)
+        return _sample_at(population, ordinal), next_rng
     end
-    return cursor, values
 end
 
 @testset "R56-R58 unweighted sampling values and request forms" begin
@@ -110,12 +104,12 @@ end
     rng = Threefry4x64(0x903)
     small = UInt64(11):UInt64(29)
     small_values, small_next = randsample_next(rng, small, 5)
-    @test small_next.position == SamplingIR._Position128(1, 0, 64)
+    @test small_next.position == IR._Position128(1, 0, 64)
     @test small_values == last(_chained_unweighted(rng, small, 5))
 
     wide = UInt64(0):(UInt64(1)<<32)
     wide_values, wide_next = randsample_next(rng, wide, 5)
-    @test wide_next.position == SamplingIR._Position128(2, 0, 128)
+    @test wide_next.position == IR._Position128(2, 0, 128)
     @test wide_values == last(_chained_unweighted(rng, wide, 5))
 
     reads = Ref(0)
@@ -142,7 +136,6 @@ end
     for population in (Int32[2, 7, 19], UInt64(0):(UInt64(1)<<32))
         expected_next, expected = _chained_unweighted(rng, population, 8193)
         values, next_rng = randsample_next(rng, population, 8193)
-        sync_cpu()
         @test values == expected
         @test next_rng === expected_next
     end
@@ -155,7 +148,6 @@ end
     destination = similar(expected)
 
     returned, next_rng = randsample_next!(rng, population, destination)
-    sync_cpu()
     @test returned === destination
     @test destination == expected
     @test next_rng === after
@@ -176,7 +168,6 @@ end
     symbol_view = @view symbol_storage[2:end]
     symbol_view_returned, symbol_view_next =
         randsample_next!(rng, symbol_population, symbol_view; threaded = true)
-    sync_cpu()
     @test symbol_view_returned === symbol_view
     @test symbol_view == symbol_expected
     @test symbol_view_next === symbol_after
@@ -195,12 +186,11 @@ end
     any_view = @view any_storage[2:end]
     any_view_returned, any_view_next =
         randsample_next!(rng, any_population, weights, any_view; threaded = true)
-    sync_cpu()
     @test any_view_returned === any_view
     @test any_view == any_expected
     @test any_view_next === any_after
 
-    cuda_rng = SamplingMLD.CUDADevice(:discarded)(rng)
+    cuda_rng = MLD.CUDADevice(:discarded)(rng)
     @test_throws ArgumentError randsample!(
         cuda_rng,
         symbol_population,
@@ -236,15 +226,11 @@ end
     wrong = SamplingCUDAProbe([1, 2, 3])
     @test_throws ArgumentError randsample(rng, wrong, -1)
 
-    last_rng = SamplingIR._rebuild(
-        rng,
-        SamplingIR._Position64(typemax(UInt64), UInt16(64)),
-        rng.device,
-    )
+    last_rng = IR._rebuild(rng, IR._Position64(typemax(UInt64), UInt16(64)), rng.device)
     values, terminal = randsample_next(last_rng, 1:3, 1)
     @test values == last(_chained_unweighted(last_rng, 1:3, 1))
-    @test terminal.position == SamplingIR._terminal64(typemax(UInt64))
-    @test_throws ArgumentError randsample_next(last_rng, 1:3, 2)
+    @test terminal.position == IR._terminal64(typemax(UInt64))
+    @test_throws StreamExhausted randsample_next(last_rng, 1:3, 2)
     again, _ = randsample_next(last_rng, 1:3, 1)
     @test again == values
 end
@@ -289,12 +275,8 @@ end
     empty = Int32[]
     @test randsample_next!(rng, population, empty; threaded = false) == (empty, rng)
 
-    terminal = SamplingIR._rebuild(
-        rng,
-        SamplingIR._Position64(typemax(UInt64), UInt16(64)),
-        rng.device,
-    )
+    terminal = IR._rebuild(rng, IR._Position64(typemax(UInt64), UInt16(64)), rng.device)
     preserved = fill(Int32(-1), 2)
-    @test_throws ArgumentError randsample_next!(terminal, population, preserved)
+    @test_throws StreamExhausted randsample_next!(terminal, population, preserved)
     @test preserved == fill(Int32(-1), 2)
 end

@@ -3,11 +3,17 @@ using TOML
 @testset "R36-R38 extension metadata and exports" begin
     project = TOML.parsefile(joinpath(pkgdir(PureRNGs), "Project.toml"))
 
+    # [R36] a CPU-only user loads no KernelAbstractions, so the core suite runs
+    # with its extension absent.
+    @test Base.get_extension(PureRNGs, :PureRNGsKernelAbstractionsExt) === nothing
+    @test !haskey(project["deps"], "KernelAbstractions")
+
     @test project["extensions"] == Dict(
         "PureRNGsAMDGPUExt" => "AMDGPU",
-        "PureRNGsCUDAExt" => "CUDA",
+        "PureRNGsCUDAExt" => ["CUDA", "KernelAbstractions"],
         "PureRNGsDistributionsExt" => "Distributions",
         "PureRNGsEnzymeCoreExt" => "EnzymeCore",
+        "PureRNGsKernelAbstractionsExt" => ["KernelAbstractions", "Adapt"],
         "PureRNGsMetalExt" => "Metal",
         "PureRNGsReactantDistributionsExt" => ["Distributions", "Reactant"],
         "PureRNGsReactantExt" => "Reactant",
@@ -39,26 +45,30 @@ using TOML
         :ChaCha8,
         :Philox2x32,
         :Philox2x64,
+        :Philox2x64R6,
         :Philox4x32,
         :Philox4x32R7,
         :Philox4x64,
+        :Philox4x64R7,
         :PureRNGs,
         :StatefulRNG,
+        :StreamExhausted,
         :Threefry2x32,
         :Threefry2x64,
         :Threefry4x32,
+        :Threefry4x32R12,
         :Threefry4x64,
         :Threefry4x64R13,
         :WeightTable,
+        :rand_at,
         :rand_next,
         :rand_next!,
-        :randat,
+        :randexp_at,
         :randexp_next,
         :randexp_next!,
-        :randexpat,
+        :randn_at,
         :randn_next,
         :randn_next!,
-        :randnat,
         :randsample,
         :randsample!,
         :randsample_next,

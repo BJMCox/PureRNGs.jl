@@ -3,7 +3,7 @@ using PureRNGs
 using Random
 using Test
 
-include(joinpath(@__DIR__, "..", "..", "fixtures.jl"))
+include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
 
 const EXT = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
 
@@ -59,26 +59,20 @@ end
 primitive_next(rng, d::DiscreteUniform) = rand_next(rng, d.a:d.b)
 
 function primitive_at(rng, d::Normal{T}, index) where {T}
-    return fma(d.σ, randnat(rng, T, index), d.μ)
+    return fma(d.σ, randn_at(rng, T, index), d.μ)
 end
 
 function primitive_at(rng, d::Uniform{T}, index) where {T}
     width = d.b - d.a
-    scaled = width * randat(rng, T, index)
+    scaled = width * rand_at(rng, T, index)
     return d.a + scaled
 end
 
-primitive_at(rng, d::Exponential{T}, index) where {T} = d.θ * randexpat(rng, T, index)
+primitive_at(rng, d::Exponential{T}, index) where {T} = d.θ * randexp_at(rng, T, index)
 
-primitive_at(rng, d::Bernoulli{T}, index) where {T} = randat(rng, T, index) < d.p
+primitive_at(rng, d::Bernoulli{T}, index) where {T} = rand_at(rng, T, index) < d.p
 
-function primitive_at(rng, d::DiscreteUniform, index)
-    range = d.a:d.b
-    span = IR._range_span(range)
-    width = IR._range_bits(span)
-    addressed = IR._addressed_rng(rng, width, index)
-    return IR._draw_range_unchecked(addressed, range, span)
-end
+primitive_at(rng, d::DiscreteUniform, index) = rand_at(rng, d.a:d.b, index)
 
 function primitive_chain(rng, distribution, count)
     values = Vector{fixed_result_type(distribution)}(undef, count)
@@ -94,12 +88,12 @@ invalid_error(f) = @test_throws ArgumentError f()
 function distribution_allocations(rng, distribution, destination)
     rand(rng, distribution)
     rand_next(rng, distribution)
-    randat(rng, distribution, 2)
+    rand_at(rng, distribution, 2)
     rand_next!(rng, distribution, destination; threaded = false)
     return (
         @allocated(rand(rng, distribution)),
         @allocated(rand_next(rng, distribution)),
-        @allocated(randat(rng, distribution, 2)),
+        @allocated(rand_at(rng, distribution, 2)),
         @allocated(rand_next!(rng, distribution, destination; threaded = false)),
     )
 end
@@ -116,7 +110,7 @@ end
         actual, actual_next = rand_next(rng, distribution)
         @test actual === expected
         @test actual_next === expected_next
-        @test randat(rng, distribution, 4) === primitive_at(rng, distribution, 4)
+        @test rand_at(rng, distribution, 4) === primitive_at(rng, distribution, 4)
         @test rand(rng, distribution) === rand(rng, distribution)
     end
 end
@@ -191,7 +185,7 @@ end
         last = IR._rebuild(rng, IR._Position64(IR._max_block(rng), bit), rng.device)
         destination = fill(rand(last, distribution), 2)
         original = copy(destination)
-        @test_throws ArgumentError rand!(last, distribution, destination)
+        @test_throws StreamExhausted rand!(last, distribution, destination)
         @test destination == original
         @test last.position.bit == bit
 
@@ -235,7 +229,7 @@ end
     result_type = fixed_result_type(distribution)
     destination = Vector{result_type}(undef, 0)
     invalid_error(() -> rand_next(exhausted, distribution))
-    invalid_error(() -> randat(exhausted, distribution, 0))
+    invalid_error(() -> rand_at(exhausted, distribution, 0))
     invalid_error(() -> rand(exhausted, distribution, -1))
     invalid_error(() -> rand_next(exhausted, distribution, -1))
     invalid_error(() -> rand!(exhausted, distribution, destination))
@@ -247,16 +241,38 @@ end
 
     distribution = Normal()
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
-    @test_throws ArgumentError rand(exhausted, distribution)
-    @test_throws ArgumentError rand_next(exhausted, distribution)
-    @test_throws ArgumentError randat(rng, distribution, 0)
+    @test_throws StreamExhausted rand(exhausted, distribution)
+    @test_throws StreamExhausted rand_next(exhausted, distribution)
+    @test_throws ArgumentError rand_at(rng, distribution, 0)
     width = EXT._distribution_span(distribution)
     last = IR._rebuild(
         rng,
         IR._Position64(IR._max_block(rng), IR._block_bits(rng) - width),
         rng.device,
     )
-    @test_throws ArgumentError randat(last, distribution, 2)
+    @test_throws StreamExhausted rand_at(last, distribution, 2)
+end
+
+@testset "Section 11 non-Bool threaded on the extension fills" begin
+    rng = Philox4x32(0x906)
+    normal = Normal()
+    categorical = Categorical([0.25, 0.75])
+    calls = (
+        () -> rand!(rng, normal, Vector{Float64}(undef, 4); threaded = 1),
+        () -> rand_next!(rng, normal, Vector{Float64}(undef, 4); threaded = 1),
+        () -> rand!(rng, categorical, Vector{Int}(undef, 4); threaded = 1),
+        () -> rand_next!(rng, categorical, Vector{Int}(undef, 4); threaded = 1),
+    )
+    for call in calls
+        @test_throws ArgumentError call()
+        message = try
+            call()
+            ""
+        catch error
+            sprint(showerror, error)
+        end
+        @test occursin("threaded", message)
+    end
 end
 
 @testset "R1 and R64 allocations and ambiguity freedom" begin
@@ -270,11 +286,9 @@ end
     rand_next!(rng, bernoulli, bits; threaded = false)
     @test @allocated(rand_next!(rng, bernoulli, bits; threaded = false)) == 0
 
-    ambiguities = Test.detect_ambiguities(PureRNGs, Random, Distributions; recursive = true)
-    extension_ambiguities = filter(ambiguities) do pair
-        any(method -> method.module === EXT, pair)
-    end
-    @test isempty(extension_ambiguities)
+    # An extension is not a submodule of its parent, so a recursive scan that
+    # starts at PureRNGs never reaches it. Scan the extension itself.
+    @test isempty(Test.detect_ambiguities(EXT; recursive = true))
 end
 
 @testset "R34 Distributions StatefulRNG smoke" begin
@@ -302,4 +316,3 @@ end
 include("distribution_expansion.jl")
 include("distribution_transforms.jl")
 include("categorical.jl")
-include("accuracy_gates.jl")

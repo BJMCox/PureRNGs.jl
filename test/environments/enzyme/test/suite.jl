@@ -19,8 +19,17 @@ function Base.setindex!(array::CountingVector, value, index::Int)
     return setindex!(array.data, value, index)
 end
 PureRNGs.MLDataDevices.get_device(::CountingVector) = PureRNGs.MLDataDevices.CPUDevice()
-PureRNGs.KernelAbstractions.get_backend(::CountingVector) =
-    PureRNGs.KernelAbstractions.CPU()
+
+# An extension is not a submodule of its parent, so a recursive scan that starts
+# at PureRNGs never reaches it. Scan each loaded extension itself.
+@testset "R1 extension ambiguities" begin
+    for name in (:PureRNGsEnzymeCoreExt, :PureRNGsDistributionsExt)
+        extension = Base.get_extension(PureRNGs, name)
+        @testset "$name" begin
+            @test isempty(Test.detect_ambiguities(extension; recursive = true))
+        end
+    end
+end
 
 @testset "R65 Enzyme activity boundary" begin
     @test ER.inactive_type(AbstractPureRNG)
@@ -280,7 +289,7 @@ end
         PureRNGs._rebuild(rng, PureRNGs._terminal64(PureRNGs._max_block(rng)), rng.device)
     destination = zeros(8)
     shadow = fill(6.0, 8)
-    @test_throws ArgumentError autodiff(
+    @test_throws StreamExhausted autodiff(
         Forward,
         pure_fill_result!,
         Duplicated,

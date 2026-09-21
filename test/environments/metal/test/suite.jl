@@ -1,4 +1,5 @@
 using Distributions
+using KernelAbstractions
 using PureRNGs
 using Metal
 using MLDataDevices
@@ -23,16 +24,16 @@ const METAL_FIXED_DISTRIBUTIONS = (
 const METAL_EXPONENTIAL_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
 const METAL_EXPONENTIAL_GOLDEN_BIT = UInt16(61)
 const METAL_EXPONENTIAL_GOLDEN_CASES = (
-    (Philox2x32, (UInt32(0x01234567),), UInt32(0xf39608)),
-    (Philox4x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0x2029c8)),
-    (Threefry2x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0xd4b0fe)),
+    (Philox2x32, (UInt32(0x01234567),), UInt32(0x79cb04)),
+    (Philox4x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0x1014e4)),
+    (Threefry2x32, (UInt32(0x01234567), UInt32(0x89abcdef)), UInt32(0x6a587f)),
     (
         Threefry4x32,
         (UInt32(0x01234567), UInt32(0x89abcdef), UInt32(0xfedcba98), UInt32(0x76543210)),
-        UInt32(0x0d7f8e),
+        UInt32(0x06bfc7),
     ),
 )
-const METAL_EXPONENTIAL_LATTICE_LENGTH = 1 << 24
+const METAL_EXPONENTIAL_LATTICE_LENGTH = 1 << 23
 const METAL_OFFSET_GENERATORS = (Philox4x32, Threefry2x32)
 const METAL_OFFSET_BITS = (UInt16(0), UInt16(17), UInt16(31), UInt16(63))
 const METAL_OFFSET_TYPES = (Float32, UInt32)
@@ -48,6 +49,18 @@ Base.setindex!(array::MetalDeviceArrayProbe, value, index::Int) =
     setindex!(array.data, value, index)
 MLDataDevices.get_device_type(::MetalDeviceArrayProbe) = MetalDevice
 MLDataDevices.get_device(::MetalDeviceArrayProbe) = MetalDevice()
+
+# The Metal-token normal of the bits `rng` holds, evaluated on the host.
+function _metal_normal(rng, ::Type{T}) where {T}
+    width = T === Float32 ? Val(23) : Val(52)
+    raw = IR._extract_bits_unchecked(
+        rng,
+        IR._position_block(rng.position),
+        rng.position.bit,
+        width,
+    )
+    return IR._normal_from_bits(IR._METAL_BACKEND, T, raw)
+end
 
 function _check_metal_error(f)
     @test_throws ArgumentError f()
@@ -72,9 +85,8 @@ function _metal_exponential_golden_rng(F, key)
 end
 
 @inline function _metal_exponential_ulp_error(value::Float32, raw::UInt32, scale::BigFloat)
-    reference = -log(one(BigFloat) - BigFloat(raw) * scale)
-    denominator = iszero(value) ? BigFloat(floatmin(Float32)) : BigFloat(eps(value))
-    return abs(BigFloat(value) - reference) / denominator
+    reference = -log(one(BigFloat) - BigFloat(2raw + 1) * scale)
+    return abs(BigFloat(value) - reference) / BigFloat(eps(value))
 end
 
 function _metal_exponential_max_ulp(values::Vector{Float32})
@@ -90,10 +102,22 @@ function _metal_exponential_max_ulp(values::Vector{Float32})
     end
 end
 
-IR.KernelAbstractions.@kernel function _metal_exponential_lattice_kernel!(values)
-    index = IR.KernelAbstractions.@index(Global, Linear)
+KernelAbstractions.@kernel function _metal_exponential_lattice_kernel!(values)
+    index = KernelAbstractions.@index(Global, Linear)
     raw = UInt64(index - 1)
     @inbounds values[index] = IR._exponential_from_bits(IR._METAL_BACKEND, Float32, raw)
+end
+
+# An extension is not a submodule of its parent, so a recursive scan that starts
+# at PureRNGs never reaches it. Scan each loaded extension itself.
+@testset "R1 extension ambiguities" begin
+    for name in
+        (:PureRNGsMetalExt, :PureRNGsDistributionsExt, :PureRNGsKernelAbstractionsExt)
+        extension = Base.get_extension(IR, name)
+        @testset "$name" begin
+            @test isempty(Test.detect_ambiguities(extension; recursive = true))
+        end
+    end
 end
 
 @testset "R38 Metal public host surface" begin
@@ -106,7 +130,9 @@ end
             @test IR.rand_next(rng, T)[1] === IR.rand_next(cpu_rng, T)[1]
         end
         for T in (Float32, Float64)
-            @test randn(rng, T) === randn(cpu_rng, T)
+            # [R28] the Metal token selects Giles' erfinv, so a host draw on a
+            # Metal generator no longer equals the CPU normal on the same bits.
+            @test randn(rng, T) === _metal_normal(cpu_rng, T)
             @test isapprox(randexp(rng, T), randexp(cpu_rng, T); rtol = 16eps(T))
         end
         @test rand(rng, UInt16(1):UInt16(3)) === rand(cpu_rng, UInt16(1):UInt16(3))
@@ -166,7 +192,7 @@ end
     @test_throws ArgumentError IR.randn_next!(rng, Float32[])
     @test_throws ArgumentError randexp!(rng, Float32[])
     @test_throws ArgumentError IR.randexp_next!(rng, Float32[])
-    @test_throws TypeError rand!(rng, UInt32[]; threaded = 1)
+    @test_throws ArgumentError rand!(rng, UInt32[]; threaded = 1)
 
     population = MetalDeviceArrayProbe(Int32[1, 2, 3])
     weights = MetalDeviceArrayProbe(Float64[1, 2, 3])
@@ -228,7 +254,7 @@ end
         next_value, next_rng = IR.rand_next(rng, distribution)
         @test isequal(value, rand(rng, distribution))
         @test isequal(next_value, value)
-        @test isequal(IR.randat(rng, distribution, 1), value)
+        @test isequal(IR.rand_at(rng, distribution, 1), value)
         @test next_rng.device === IR._METAL_BACKEND
 
         for count in (0, 1)
@@ -295,7 +321,7 @@ if Metal.functional()
         for (F, key, raw) in METAL_EXPONENTIAL_GOLDEN_CASES
             rng = _metal_exponential_golden_rng(F, key)
             block = IR._position_block(rng.position)
-            extracted = IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(24))
+            extracted = IR._extract_bits_unchecked(rng, block, rng.position.bit, Val(23))
             @test extracted == UInt64(raw)
 
             device_values, next_rng = IR.randexp_next(rng, Float32, 1)
@@ -305,30 +331,28 @@ if Metal.functional()
             end
             @test device_values isa Metal.MtlArray{Float32,1}
             @test next_rng.position ==
-                  IR._advance_position_unchecked(rng, UInt64(24), UInt64(0))
+                  IR._advance_position_unchecked(rng, UInt64(23), UInt64(0))
             @test setprecision(BigFloat, 160) do
                 _metal_exponential_ulp_error(value, raw, scale) <= BigFloat(3)
             end
         end
 
         device_lattice = Metal.MtlArray{Float32}(undef, METAL_EXPONENTIAL_LATTICE_LENGTH)
-        backend = IR._fill_backend(device_lattice)
+        backend = KernelAbstractions.get_backend(device_lattice)
         _metal_exponential_lattice_kernel!(backend)(
             device_lattice;
             ndrange = METAL_EXPONENTIAL_LATTICE_LENGTH,
         )
-        IR.KernelAbstractions.synchronize(backend)
+        KernelAbstractions.synchronize(backend)
         lattice = Array(device_lattice)
 
-        @test isequal(first(lattice), -zero(Float32))
         @test isfinite(last(lattice))
-        @test last(lattice) > zero(Float32)
         @test all(isfinite, lattice)
-        @test all(value -> value >= zero(Float32), lattice)
+        @test all(value -> value > zero(Float32), lattice)
         @test issorted(lattice)
         @test setprecision(BigFloat, 160) do
             scale = ldexp(one(BigFloat), -24)
-            _metal_exponential_ulp_error(last(lattice), UInt32(0xffffff), scale) <=
+            _metal_exponential_ulp_error(last(lattice), UInt32(0x7fffff), scale) <=
             BigFloat(3)
         end
         maximum_ulp = _metal_exponential_max_ulp(lattice)
@@ -346,11 +370,17 @@ if Metal.functional()
                 @test next_rng.position == expected_next.position
             end
 
-            # Metal evaluates the AS241 tail branch with its own Float32 log, so the
-            # normals carry the same 3 ulp budget as the Metal exponential.
+            # Metal evaluates the Giles tail branch with its own Float32 log, so
+            # the normals carry the same 3 ulp budget as the Metal exponential.
             cpu_rng = _positioned(F(0x5151), UInt64(9), UInt16(17))
             rng = MetalDevice()(cpu_rng)
-            expected, expected_next = IR.randn_next(cpu_rng, Float32, METAL_OFFSET_LENGTH)
+            expected = Vector{Float32}(undef, METAL_OFFSET_LENGTH)
+            cursor = cpu_rng
+            for index in eachindex(expected)
+                expected[index] = _metal_normal(cursor, Float32)
+                _, cursor = IR.randn_next(cursor, Float32)
+            end
+            expected_next = cursor
             values, next_rng = IR.randn_next(rng, Float32, METAL_OFFSET_LENGTH)
             host = Array(values)
             @test all(

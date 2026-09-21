@@ -1,5 +1,4 @@
 const DeviceIR = PureRNGs
-const DeviceKA = PureRNGs.KernelAbstractions
 const DeviceMLD = PureRNGs.MLDataDevices
 const DEVICE_VALIDATION_EVENTS = Symbol[]
 
@@ -18,9 +17,9 @@ function DeviceMLD.get_device_type(::DeviceValidationProbe)
     return DeviceMLD.CPUDevice
 end
 
-function DeviceKA.get_backend(array::DeviceValidationProbe)
+function DeviceIR._fill_backend(device::DeviceIR._CPUBackend, array::DeviceValidationProbe)
     push!(DEVICE_VALIDATION_EVENTS, :backend)
-    return DeviceKA.get_backend(array.data)
+    return device
 end
 
 function DeviceIR._check_serviceability(::Philox2x32{DeviceIR._CPUBackend}, ::Type{UInt32})
@@ -34,7 +33,7 @@ end
     empty = DeviceValidationProbe(UInt32[])
 
     empty!(DEVICE_VALIDATION_EVENTS)
-    @test_throws TypeError rand_next!(cpu_rng, empty; threaded = 1)
+    @test_throws ArgumentError rand_next!(cpu_rng, empty; threaded = 1)
     @test isempty(DEVICE_VALIDATION_EVENTS)
 
     empty!(DEVICE_VALIDATION_EVENTS)

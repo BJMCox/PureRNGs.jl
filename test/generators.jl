@@ -112,6 +112,9 @@ end
 @testset "round-reduced generators" begin
     cases = (
         (Philox4x32R7, Philox4x32, 7),
+        (Philox2x64R6, Philox2x64, 6),
+        (Philox4x64R7, Philox4x64, 7),
+        (Threefry4x32R12, Threefry4x32, 12),
         (Threefry4x64R13, Threefry4x64, 13),
         (ChaCha8, ChaCha, 8),
         (ChaCha20, ChaCha, 20),
@@ -124,6 +127,20 @@ end
         @test PureRNGs._rounds(typeof(full)) == PureRNGs._default_rounds(base)
         @test rngkey(reduced) == rngkey(full)
         @test rand(reduced, UInt64) != rand(full, UInt64)
+
+        # The reference extracts from the core at the alias's round count, so
+        # this pins the rounds the alias selects, not only its type parameter.
+        cursor = reduced
+        expected = Vector{UInt32}(undef, 4)
+        for index in eachindex(expected)
+            expected[index] = _reference_uniform(cursor, UInt32)
+            cursor = PureRNGs._rebuild(
+                cursor,
+                _reference_position(cursor, _uniform_width(UInt32)),
+                cursor.device,
+            )
+        end
+        @test rand(reduced, UInt32, 4) == expected
         @test reduced.block_words ==
               PureRNGs._block_words(reduced, PureRNGs._position_block(reduced.position))
         _, moved = rand_next(reduced, Float64, 5)

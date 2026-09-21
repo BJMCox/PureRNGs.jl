@@ -119,5 +119,10 @@ end
             end
         end
         @test isempty(package_ambiguities)
+
+        # An extension is not a submodule of its parent, so the scan above never
+        # reaches it. Scan the loaded extension itself.
+        extension = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
+        @test isempty(Test.detect_ambiguities(extension; recursive = true))
     end
 end
