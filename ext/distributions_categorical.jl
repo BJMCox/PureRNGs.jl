@@ -57,7 +57,7 @@ end
     return _draw_categorical_next(rng, d)
 end
 
-@inline function IR.randat(
+@inline function IR.rand_at(
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     index::Integer,
@@ -88,7 +88,7 @@ end
     isempty(destination) && return destination, next_rng
     labels = Base.OneTo(length(probabilities))
     if !threaded && rng.device isa IR._CPUBackend
-        IR._fill_weighted_samples_cpu_unchecked!(
+        IR._fill_weighted_cpu!(
             rng,
             rng.position,
             labels,
@@ -100,7 +100,7 @@ end
         return destination, next_rng
     end
     IR._fill_weighted_samples!(
-        IR._fill_backend(destination),
+        IR._fill_backend(rng.device, destination),
         rng,
         labels,
         prepared,
@@ -113,7 +113,7 @@ end
 
 @inline function _rand_categorical_next_fill!(rng, d, destination, threaded)
     IR._check_fill_device(rng, destination)
-    _check_serviceability(rng, Int)
+    IR._check_serviceability(rng, d)
     probabilities, prepared, total, cumulative = _prepare_categorical(rng, d)
     return _fill_categorical_prepared!(
         rng,
@@ -127,7 +127,7 @@ end
 end
 
 @inline function _rand_categorical_next_array(rng, d, dims)
-    _check_serviceability(rng, Int)
+    IR._check_serviceability(rng, d)
     probabilities, prepared, total, cumulative = _prepare_categorical(rng, d)
     destination = IR._allocate_draw_array(rng.device, Int, dims)
     return _fill_categorical_prepared!(
@@ -164,9 +164,10 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     destination::AbstractArray{Int};
-    threaded::Bool = true,
+    threaded = true,
 )
-    result, _ = _rand_categorical_next_fill!(rng, d, destination, threaded)
+    result, _ =
+        _rand_categorical_next_fill!(rng, d, destination, IR._check_threaded(threaded))
     return result
 end
 
@@ -174,7 +175,7 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     destination::AbstractArray{Int};
-    threaded::Bool = true,
+    threaded = true,
 )
-    return _rand_categorical_next_fill!(rng, d, destination, threaded)
+    return _rand_categorical_next_fill!(rng, d, destination, IR._check_threaded(threaded))
 end

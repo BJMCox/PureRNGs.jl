@@ -10,10 +10,12 @@ const _ReactantRNG = IR._ReactantRNG
 
 include("distributions_common.jl")
 
-struct _ReactantDistributionOps end
+# The Reactant extension declares the same ops for the core generators. Julia
+# extensions cannot share a name, so the singleton is declared again here.
+struct _ReactantTransformOps end
 
-@inline _distribution_muladd(::_ReactantDistributionOps, a, b, c) = muladd(a, b, c)
-@inline _distribution_product(::_ReactantDistributionOps, a, b, half) =
+@inline IR._transform_muladd(::_ReactantTransformOps, a, b, c) = muladd(a, b, c)
+@inline IR._transform_product(::_ReactantTransformOps, a, b, half) =
     IR._rounded_product(a, b, b - half)
 
 @inline _primitive(rng, ::Distributions.Normal{T}) where {T<:_FloatType} =
@@ -86,13 +88,13 @@ end
 @inline _primitive_next(rng, d::Distributions.DiscreteUniform) = IR.rand_next(rng, d.a:d.b)
 
 @inline _primitive_at(rng, ::Distributions.Normal{T}, index) where {T<:_FloatType} =
-    IR.randnat(rng, T, index)
+    IR.randn_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Uniform{T}, index) where {T<:_FloatType} =
-    IR.randat(rng, T, index)
+    IR.rand_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Exponential{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.LogNormal{T}, index) where {T<:_FloatType} =
-    IR.randnat(rng, T, index)
+    IR.randn_at(rng, T, index)
 @inline function _primitive_at(
     rng,
     d::Union{
@@ -106,13 +108,13 @@ end
     return _primitive(IR._addressed_rng(rng, _distribution_span(d), index), d)
 end
 @inline _primitive_at(rng, ::Distributions.Weibull{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Rayleigh{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.Pareto{T}, index) where {T<:_FloatType} =
-    IR.randexpat(rng, T, index)
+    IR.randexp_at(rng, T, index)
 @inline _primitive_at(rng, ::Distributions.TriangularDist{T}, index) where {T<:_FloatType} =
-    IR.randat(rng, T, index)
+    IR.rand_at(rng, T, index)
 @inline function _primitive_at(
     rng,
     d::Distributions.Laplace{T},
@@ -121,7 +123,7 @@ end
     return _primitive(IR._addressed_rng(rng, _distribution_span(d), index), d)
 end
 @inline _primitive_at(rng, ::Distributions.Bernoulli{T}, index) where {T<:_FloatType} =
-    IR.randat(rng, T, index)
+    IR.rand_at(rng, T, index)
 @inline function _primitive_at(rng, d::Distributions.DiscreteUniform, index)
     range = d.a:d.b
     addressed = IR._addressed_rng(rng, _distribution_span(d), index)
@@ -129,28 +131,33 @@ end
 end
 
 @inline _map_primitive(d::Distributions.Normal, value) =
-    _map_distribution(_ReactantDistributionOps(), d, value)
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(d::Distributions.Uniform, value) =
-    _map_distribution(_ReactantDistributionOps(), d, value)
-@inline _map_primitive(d::Distributions.Exponential, value) = _map_distribution(d, value)
+    _map_distribution(_ReactantTransformOps(), d, value)
+@inline _map_primitive(d::Distributions.Exponential, value) =
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(d::Distributions.LogNormal, value) =
-    _map_distribution(_ReactantDistributionOps(), d, value)
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(d::Distributions.Logistic, value) =
-    _map_distribution(_ReactantDistributionOps(), d, value)
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(d::Distributions.Gumbel{T}, value) where {T} =
-    _map_distribution(_ReactantDistributionOps(), d, -Base.log(one(T) - value))
-@inline _map_primitive(d::Distributions.Pareto, value) = _map_distribution(d, value)
+    _map_distribution(_ReactantTransformOps(), d, -Base.log(one(T) - value))
+@inline _map_primitive(d::Distributions.Pareto, value) =
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(d::Distributions.Frechet{T}, value) where {T} =
-    _map_distribution(d, -Base.log(one(T) - value))
+    _map_distribution(_ReactantTransformOps(), d, -Base.log(one(T) - value))
 @inline _map_primitive(d::Distributions.Cauchy, value) =
-    _map_distribution(_ReactantDistributionOps(), d, value)
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(d::Distributions.TriangularDist, value) =
-    _map_distribution(_ReactantDistributionOps(), d, value)
-@inline _map_primitive(d::Distributions.Weibull, value) = _map_distribution(d, value)
-@inline _map_primitive(d::Distributions.Rayleigh, value) = _map_distribution(d, value)
+    _map_distribution(_ReactantTransformOps(), d, value)
+@inline _map_primitive(d::Distributions.Weibull, value) =
+    _map_distribution(_ReactantTransformOps(), d, value)
+@inline _map_primitive(d::Distributions.Rayleigh, value) =
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(d::Distributions.Laplace, payload) =
-    _map_distribution(_ReactantDistributionOps(), d, payload...)
-@inline _map_primitive(d::Distributions.Bernoulli, value) = _map_distribution(d, value)
+    _map_distribution(_ReactantTransformOps(), d, payload...)
+@inline _map_primitive(d::Distributions.Bernoulli, value) =
+    _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(::Distributions.DiscreteUniform, value) = value
 
 @inline function Random.rand(rng::_ReactantRNG, d::_FixedDistribution)
@@ -164,7 +171,7 @@ end
     return _map_primitive(d, value), next_rng
 end
 
-@inline function IR.randat(rng::_ReactantRNG, d::_FixedDistribution, index::Integer)
+@inline function IR.rand_at(rng::_ReactantRNG, d::_FixedDistribution, index::Integer)
     _validate_distribution(d)
     return _map_primitive(d, _primitive_at(rng, d, index))
 end

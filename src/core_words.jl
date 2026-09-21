@@ -51,7 +51,7 @@ end
 @inline _core_checkpoint(words) = words
 @inline _core_checkpoint(word::_CoreWord{W,O}) where {W,O} =
     only(_word_checkpoint(O(), (word,)))
-@inline _core_checkpoint(words::Tuple{Vararg{_CoreWord{W,O}}}) where {W,O} =
+@inline _core_checkpoint(words::Tuple{_CoreWord{W,O},Vararg{_CoreWord{W,O}}}) where {W,O} =
     _word_checkpoint(O(), words)
 @inline _word_checkpoint(ops, words) = words
 

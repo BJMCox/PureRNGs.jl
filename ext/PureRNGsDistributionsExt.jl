@@ -3,16 +3,22 @@ module PureRNGsDistributionsExt
 import Distributions
 import PureRNGs
 import Random
+using PrecompileTools: @compile_workload, @setup_workload
 
 const IR = PureRNGs
 include("distributions_common.jl")
 
-struct _DistributionCodec{D<:_MappedDistribution,B<:IR._BackendToken} <: IR._MappedFillCodec
+struct _DistributionCodec{D<:_MappedDistribution{<:_FloatType},B<:IR._BackendToken} <:
+       IR._MappedFillCodec
     distribution::D
     device::B
 end
 
-@inline function _draw_distribution_unchecked(rng, position, d::_MappedDistribution)
+@inline function _draw_distribution_unchecked(
+    rng,
+    position,
+    d::_MappedDistribution{<:_FloatType},
+)
     codec = _DistributionCodec(d, rng.device)
     return IR._transformed_draw_unchecked(codec, rng, position, _result_type(d))
 end
@@ -48,7 +54,7 @@ end
     return _draw_distribution_next(rng, d)
 end
 
-@inline function IR.randat(
+@inline function IR.rand_at(
     rng::IR._ScalarUniformGenerators,
     d::_FixedDistribution,
     index::Integer,
@@ -66,7 +72,11 @@ end
     ::Type,
     raw,
 ) where {T<:_FloatType}
-    return _map_distribution(codec.distribution, IR._normal_from_bits(T, raw))
+    return _map_distribution(
+        IR._NativeTransformOps(),
+        codec.distribution,
+        IR._normal_from_bits(codec.device, T, raw),
+    )
 end
 
 @inline function IR._cooperative_value(
@@ -74,7 +84,11 @@ end
     ::Type,
     raw,
 ) where {T<:_FloatType}
-    return _map_distribution(codec.distribution, IR._normal_midpoint(T, raw))
+    return _map_distribution(
+        IR._NativeTransformOps(),
+        codec.distribution,
+        IR._open_midpoint(T, raw),
+    )
 end
 
 @inline function IR._cooperative_value(
@@ -82,9 +96,9 @@ end
     ::Type,
     raw,
 ) where {T<:_FloatType}
-    u = IR._normal_midpoint(T, raw)
+    u = IR._open_midpoint(T, raw)
     e = IR._exponential_transform(codec.device, T, one(T) - u)
-    return _map_distribution(codec.distribution, e)
+    return _map_distribution(IR._NativeTransformOps(), codec.distribution, e)
 end
 
 @inline function IR._cooperative_value(
@@ -92,7 +106,11 @@ end
     ::Type,
     raw,
 ) where {T<:_FloatType}
-    return _map_distribution(codec.distribution, IR._from_bits(T, raw))
+    return _map_distribution(
+        IR._NativeTransformOps(),
+        codec.distribution,
+        IR._from_bits(T, raw),
+    )
 end
 
 @inline function IR._cooperative_value(
@@ -108,6 +126,7 @@ end
     raw,
 ) where {T<:_FloatType}
     return _map_distribution(
+        IR._NativeTransformOps(),
         codec.distribution,
         IR._exponential_from_bits(codec.device, T, raw),
     )
@@ -118,7 +137,11 @@ end
     ::Type,
     raw,
 ) where {T<:_FloatType}
-    return _map_distribution(codec.distribution, IR._from_bits(T, raw))
+    return _map_distribution(
+        IR._NativeTransformOps(),
+        codec.distribution,
+        IR._from_bits(T, raw),
+    )
 end
 
 @inline function IR._cooperative_value(
@@ -127,6 +150,7 @@ end
     raw,
 ) where {T<:_FloatType}
     return _map_distribution(
+        IR._NativeTransformOps(),
         codec.distribution,
         IR._exponential_from_bits(codec.device, T, raw >> 1),
         isodd(raw),
@@ -138,7 +162,11 @@ end
     ::Type{Bool},
     raw,
 ) where {T<:_FloatType}
-    return _map_distribution(codec.distribution, IR._from_bits(T, raw))
+    return _map_distribution(
+        IR._NativeTransformOps(),
+        codec.distribution,
+        IR._from_bits(T, raw),
+    )
 end
 
 @inline _scalar_store_plan(plan) = plan
@@ -148,7 +176,9 @@ end
     return plan[1], plan[2], plan[3]
 end
 
-@inline function IR._transformed_fill_plan(
+@inline function IR._device_fill_plan(
+    backend,
+    rng,
     ::_DistributionCodec{
         <:Union{
             Distributions.Normal{T},
@@ -159,23 +189,25 @@ end
             Distributions.Cauchy{T},
         },
     },
-    backend,
-    rng,
     ::Type,
 ) where {T<:_FloatType}
-    return _scalar_store_plan(IR._device_normal_fill_plan(backend, rng, T))
+    return _scalar_store_plan(
+        IR._device_fill_plan(backend, rng, IR._NormalCodec(rng.device), T),
+    )
 end
 
-@inline function IR._transformed_fill_plan(
+@inline function IR._device_fill_plan(
+    backend,
+    rng,
     ::_DistributionCodec{Distributions.Uniform{T}},
-    backend,
-    rng,
     ::Type,
 ) where {T<:_FloatType}
-    return IR._device_uniform_fill_plan(backend, rng, T)
+    return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 
-@inline IR._transformed_fill_plan(
+@inline IR._device_fill_plan(
+    backend,
+    rng,
     codec::_DistributionCodec{
         <:Union{
             Distributions.Exponential,
@@ -184,50 +216,57 @@ end
             Distributions.Pareto,
         },
     },
-    backend,
-    rng,
     ::Type{T},
 ) where {T<:_FloatType} =
-    IR._transformed_fill_plan(IR._ExponentialCodec(codec.device), backend, rng, T)
+    IR._device_fill_plan(backend, rng, IR._ExponentialCodec(codec.device), T)
 
-@inline IR._transformed_fill_plan(
-    ::_DistributionCodec{<:Distributions.Laplace},
+@inline IR._device_fill_plan(
     backend,
     rng,
+    ::_DistributionCodec{<:Distributions.Laplace},
     ::Type,
 ) = nothing
 
-@inline function IR._transformed_fill_plan(
-    ::_DistributionCodec{Distributions.Bernoulli{T}},
+@inline function IR._device_fill_plan(
     backend,
     rng,
+    ::_DistributionCodec{Distributions.Bernoulli{T}},
     ::Type{Bool},
 ) where {T<:_FloatType}
-    return _scalar_store_plan(IR._device_uniform_fill_plan(backend, rng, T))
+    return _scalar_store_plan(IR._device_fill_plan(backend, rng, Val(:uniform), T))
 end
 
-@inline function IR._transformed_fill_plan(
-    ::_DistributionCodec{Distributions.TriangularDist{T}},
+@inline function IR._device_fill_plan(
     backend,
     rng,
+    ::_DistributionCodec{Distributions.TriangularDist{T}},
     ::Type,
 ) where {T<:_FloatType}
-    return IR._device_uniform_fill_plan(backend, rng, T)
+    return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 
 @noinline function _metal_distribution_error()
     throw(ArgumentError("fixed-distribution draws are not supported on Metal"))
 end
 
-@inline function _check_serviceability(rng, result_type)
-    IR._check_serviceability(rng, result_type)
-    rng.device isa IR._MetalBackend && _metal_distribution_error()
-    return nothing
+@inline IR._check_serviceability(
+    rng,
+    d::Union{_FixedDistribution,Distributions.Categorical},
+) = IR._check_serviceability(rng, _result_type(d))
+
+# [R41] Metal serves no distribution draw. The result type is checked first so a
+# type Metal does not serve keeps reporting the device error.
+@inline function IR._check_serviceability(
+    rng::IR._BackendGenerators{IR._MetalBackend},
+    d::Union{_FixedDistribution,Distributions.Categorical},
+)
+    IR._check_serviceability(rng, _result_type(d))
+    return _metal_distribution_error()
 end
 
 @inline function _fill_distribution_prevalidated!(rng, d, destination, threaded)
     codec = _DistributionCodec(d, rng.device)
-    return IR._fill_transformed_prevalidated!(rng, destination, threaded, codec)
+    return IR._fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 @inline function _fill_distribution_prevalidated!(
@@ -236,38 +275,20 @@ end
     destination,
     threaded,
 )
-    range = d.a:d.b
-    span = _discrete_span(d)
-    width = IR._range_bits(span)
-    bits_lo, bits_hi = IR._bit_span(UInt64(length(destination)), width)
-    next_rng = IR._reserve(rng, bits_lo, bits_hi)
-    isempty(destination) && return destination, next_rng
-    if !threaded && rng.device isa IR._CPUBackend
-        IR._fill_range_cpu_unchecked!(
-            rng,
-            rng.position,
-            destination,
-            range,
-            span,
-            eachindex(destination),
-        )
-        return destination, next_rng
-    end
-    backend = IR._fill_backend(destination)
-    IR._launch_range!(backend, rng, destination, range, span)
-    return destination, next_rng
+    codec = IR._RangeCodec(d.a:d.b, _discrete_span(d))
+    return IR._fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 @inline function _rand_distribution_next_fill!(rng, d, destination, threaded)
     IR._check_fill_device(rng, destination)
-    _check_serviceability(rng, eltype(destination))
+    IR._check_serviceability(rng, d)
     _validate_distribution(d)
     return _fill_distribution_prevalidated!(rng, d, destination, threaded)
 end
 
 @inline function _rand_distribution_next_array(rng, d, dims)
     result_type = _result_type(d)
-    _check_serviceability(rng, result_type)
+    IR._check_serviceability(rng, d)
     _validate_distribution(d)
     destination = IR._allocate_draw_array(rng.device, result_type, dims)
     return _fill_distribution_prevalidated!(rng, d, destination, true)
@@ -292,59 +313,87 @@ end
     return _rand_distribution_next_array(rng, d, (dim1, dims...))
 end
 
-for (distribution_type, result_type) in (
-    (Distributions.Normal{Float32}, Float32),
-    (Distributions.Normal{Float64}, Float64),
-    (Distributions.Uniform{Float32}, Float32),
-    (Distributions.Uniform{Float64}, Float64),
-    (Distributions.Exponential{Float32}, Float32),
-    (Distributions.Exponential{Float64}, Float64),
-    (Distributions.LogNormal{Float32}, Float32),
-    (Distributions.LogNormal{Float64}, Float64),
-    (Distributions.Weibull{Float32}, Float32),
-    (Distributions.Weibull{Float64}, Float64),
-    (Distributions.Rayleigh{Float32}, Float32),
-    (Distributions.Rayleigh{Float64}, Float64),
-    (Distributions.Laplace{Float32}, Float32),
-    (Distributions.Laplace{Float64}, Float64),
-    (Distributions.Logistic{Float32}, Float32),
-    (Distributions.Logistic{Float64}, Float64),
-    (Distributions.Gumbel{Float32}, Float32),
-    (Distributions.Gumbel{Float64}, Float64),
-    (Distributions.Pareto{Float32}, Float32),
-    (Distributions.Pareto{Float64}, Float64),
-    (Distributions.Frechet{Float32}, Float32),
-    (Distributions.Frechet{Float64}, Float64),
-    (Distributions.Cauchy{Float32}, Float32),
-    (Distributions.Cauchy{Float64}, Float64),
-    (Distributions.TriangularDist{Float32}, Float32),
-    (Distributions.TriangularDist{Float64}, Float64),
-    (Distributions.Bernoulli{Float32}, Bool),
-    (Distributions.Bernoulli{Float64}, Bool),
-    (Distributions.DiscreteUniform, Int),
-)
-    @eval begin
-        @inline function Random.rand!(
-            rng::IR._ScalarUniformGenerators,
-            d::$distribution_type,
-            destination::AbstractArray{$result_type};
-            threaded::Bool = true,
-        )
-            result, _ = _rand_distribution_next_fill!(rng, d, destination, threaded)
-            return result
-        end
+@inline function Random.rand!(
+    rng::IR._ScalarUniformGenerators,
+    d::_FloatMapped{T},
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_FloatType}
+    result, _ =
+        _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    return result
+end
 
-        @inline function IR.rand_next!(
-            rng::IR._ScalarUniformGenerators,
-            d::$distribution_type,
-            destination::AbstractArray{$result_type};
-            threaded::Bool = true,
-        )
-            return _rand_distribution_next_fill!(rng, d, destination, threaded)
-        end
-    end
+@inline function Random.rand!(
+    rng::IR._ScalarUniformGenerators,
+    d::Distributions.Bernoulli{<:_FloatType},
+    destination::AbstractArray{Bool};
+    threaded = true,
+)
+    result, _ =
+        _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    return result
+end
+
+@inline function Random.rand!(
+    rng::IR._ScalarUniformGenerators,
+    d::Distributions.DiscreteUniform,
+    destination::AbstractArray{Int};
+    threaded = true,
+)
+    result, _ =
+        _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    return result
+end
+
+@inline function IR.rand_next!(
+    rng::IR._ScalarUniformGenerators,
+    d::_FloatMapped{T},
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_FloatType}
+    return _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+end
+
+@inline function IR.rand_next!(
+    rng::IR._ScalarUniformGenerators,
+    d::Distributions.Bernoulli{<:_FloatType},
+    destination::AbstractArray{Bool};
+    threaded = true,
+)
+    return _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+end
+
+@inline function IR.rand_next!(
+    rng::IR._ScalarUniformGenerators,
+    d::Distributions.DiscreteUniform,
+    destination::AbstractArray{Int};
+    threaded = true,
+)
+    return _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
 end
 
 include("distributions_categorical.jl")
+
+@setup_workload begin
+    draws = 128
+    distributions = (
+        Distributions.Normal(),
+        Distributions.Uniform(),
+        Distributions.Exponential(),
+        Distributions.Bernoulli(),
+        Distributions.DiscreteUniform(1, 6),
+    )
+
+    @compile_workload begin
+        rng = IR.Philox4x32(20250918)
+        for d in distributions
+            Random.rand(rng, d)
+            value, _ = IR.rand_next(rng, d)
+            destination = Vector{_result_type(d)}(undef, draws)
+            IR.rand_next!(rng, d, destination)
+        end
+    end
+end
 
 end

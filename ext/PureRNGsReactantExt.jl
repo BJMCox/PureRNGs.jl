@@ -91,12 +91,16 @@ end
 for f in (:sqrt, :log, :abs)
     @eval @inline Base.$f(a::_Lane) = _Lane(Ops.$f(a.data))
 end
+# The mixed forms take `Real`, not `Number`: Reactant owns the same comparisons
+# for `(Any, TracedRNumber)` and `(TracedRNumber, Any)`, and `TracedRNumber` is
+# a `Number` but not a `Real`. A `Number` bound would make all eight pairs
+# ambiguous. Only a real scalar ever lifts into a lane.
 for (op, direction) in ((:<, "LT"), (:<=, "LE"), (:>, "GT"), (:(==), "EQ"))
     @eval begin
         @inline Base.$op(a::_Lane, b::_Lane) =
             _Lane(Ops.compare(a.data, b.data; comparison_direction = $direction))
-        @inline Base.$op(a::_Lane, b::Number) = $op(a, _lift(a, b))
-        @inline Base.$op(a::Number, b::_Lane) = $op(_lift(b, a), b)
+        @inline Base.$op(a::_Lane, b::Real) = $op(a, _lift(a, b))
+        @inline Base.$op(a::Real, b::_Lane) = $op(_lift(b, a), b)
     end
 end
 @inline Base.:-(a::_Lane) = _Lane(Ops.negate(a.data))
@@ -202,6 +206,16 @@ end
     return key
 end
 
+"""
+    Reactant.to_rarray(rng::AbstractPureRNG)
+
+Move `rng` into a compiled carrier holding its key and bit position.
+
+The carrier omits the counter-capacity check that eager generators apply, so a
+compiled draw past the per-key capacity wraps instead of throwing. Keep every
+compiled draw within capacity. The "Differentiation and compilation" page of
+the documentation states the full compiled contract.
+"""
 function Reactant.to_rarray(rng::R) where {R<:IR.AbstractPureRNG}
     state = Reactant.to_rarray(_encode_state(rng))
     return _ReactantRNG{R,typeof(state)}(state)
@@ -414,7 +428,7 @@ for T in (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64)
         @inline function IR.rand_next(rng::_ReactantRNG, ::Type{$T})
             return _draw(rng, $T), _advance(rng, UInt64(IR._draw_bits($T)))
         end
-        @inline function IR.randat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
+        @inline function IR.rand_at(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _draw(IR._addressed_rng(rng, IR._draw_bits($T), index), $T)
         end
     end
@@ -446,7 +460,7 @@ end
 # A Float32 midpoint caps the tail radius at r = 4.08, so the far-tail branch of
 # the generic method never fires. Omitting it drops two traced polynomials.
 @inline function _normal_transform(u, ::Type{Float32})
-    A, B, C, D, _, _ = IR._as241_coefficients(Float32)
+    A, B, C, D = IR._as241_coefficients(Float32)
     q = u - 0.5f0
     central_r = 0.180625f0 - IR._rounded_product(q, q, q)
     central = q * (_horner(central_r, A) / _horner(central_r, B))
@@ -456,16 +470,16 @@ end
     return ifelse(abs(q) <= 0.425f0, central, tail)
 end
 
-@inline function _midpoint_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}}
+@inline function _open_midpoint(raw, ::Type{T}) where {T<:Union{Float32,Float64}}
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     return _convert(T, (raw * UInt64(2)) | UInt64(1)) * scale
 end
 
 @inline _normal_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}} =
-    _normal_transform(_midpoint_from_raw(raw, T), T)
+    _normal_transform(_open_midpoint(raw, T), T)
 
 @inline IR._midpoint_value(rng::_ReactantRNG, ::Type{T}) where {T<:Union{Float32,Float64}} =
-    _midpoint_from_raw(_raw(rng, Val(IR._normal_bits(T))), T)
+    _open_midpoint(_raw(rng, Val(IR._normal_bits(T))), T)
 
 @inline _normal_value(rng, ::Type{T}) where {T} =
     _normal_from_raw(_raw(rng, Val(IR._normal_bits(T))), T)
@@ -502,11 +516,8 @@ end
     return IR._exponential_reduced(_ReactantTransformOps(), T, mantissa, n)
 end
 
-@inline function _exponential_from_raw(raw, ::Type{T}) where {T}
-    scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
-    u = _convert(T, raw) * scale
-    return _exponential_transform(one(T) - u, T)
-end
+@inline _exponential_from_raw(raw, ::Type{T}) where {T} =
+    _exponential_transform(one(T) - _open_midpoint(raw, T), T)
 
 @inline _exponential_value(rng, ::Type{T}) where {T} =
     _exponential_from_raw(_raw(rng, Val(IR._exponential_bits(T))), T)
@@ -517,7 +528,7 @@ for T in (Float32, Float64)
         @inline function IR.randn_next(rng::_ReactantRNG, ::Type{$T})
             return _normal_value(rng, $T), _advance(rng, UInt64(IR._normal_bits($T)))
         end
-        @inline function IR.randnat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
+        @inline function IR.randn_at(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _normal_value(IR._addressed_rng(rng, IR._normal_bits($T), index), $T)
         end
         @inline Random.randexp(rng::_ReactantRNG, ::Type{$T}) = _exponential_value(rng, $T)
@@ -525,7 +536,7 @@ for T in (Float32, Float64)
             return _exponential_value(rng, $T),
             _advance(rng, UInt64(IR._exponential_bits($T)))
         end
-        @inline function IR.randexpat(rng::_ReactantRNG, ::Type{$T}, index::Integer)
+        @inline function IR.randexp_at(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _exponential_value(
                 IR._addressed_rng(rng, IR._exponential_bits($T), index),
                 $T,
@@ -781,13 +792,13 @@ end
 
 for (at, fill_next, bits, types) in (
     (
-        :(IR.randat),
+        :(IR.rand_at),
         :(IR.rand_next),
         :(IR._draw_bits),
         (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64),
     ),
-    (:(IR.randnat), :(IR.randn_next), :(IR._normal_bits), (Float32, Float64)),
-    (:(IR.randexpat), :(IR.randexp_next), :(IR._exponential_bits), (Float32, Float64)),
+    (:(IR.randn_at), :(IR.randn_next), :(IR._normal_bits), (Float32, Float64)),
+    (:(IR.randexp_at), :(IR.randexp_next), :(IR._exponential_bits), (Float32, Float64)),
 )
     for T in types
         @eval @inline function $at(
@@ -826,17 +837,18 @@ for (fill, fill_next, draw_next, T) in (
         @inline function $fill_next(
             rng::_ReactantRNG,
             destination::_TracedArray{T};
-            threaded::Bool = true,
+            threaded = true,
         ) where {T<:$T}
+            IR._check_threaded(threaded)
             values, next_rng = $draw_next(rng, T, size(destination)...)
             return _store!(destination, values), next_rng
         end
         @inline function $fill(
             rng::_ReactantRNG,
             destination::_TracedArray{T};
-            threaded::Bool = true,
+            threaded = true,
         ) where {T<:$T}
-            return first($fill_next(rng, destination))
+            return first($fill_next(rng, destination; threaded))
         end
     end
 end

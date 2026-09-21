@@ -1,22 +1,25 @@
 
-@inline _exponential_bits(::Type{Float32}) = UInt16(24)
-@inline _exponential_bits(::Type{Float64}) = UInt16(53)
+@inline _exponential_bits(::Type{Float32}) = UInt16(23)
+@inline _exponential_bits(::Type{Float64}) = UInt16(52)
 
-@inline function _exponential_lattice(::Type{Float32}, value::UInt64)
-    u = Float32(value) * Float32(0x1p-24)
-    return u, one(Float32) - u
-end
-
-@inline function _exponential_lattice(::Type{Float64}, value::UInt64)
-    u = Float64(value) * Float64(0x1p-53)
-    return u, one(Float64) - u
+# [R63] draws on the open midpoint lattice [R28] already defines: `u` and
+# `v = 1 - u` are both exact in `T`, neither endpoint occurs, so the transform
+# output is strictly positive with reach `(width + 1) * ln 2`.
+@inline function _exponential_lattice(::Type{T}, value::UInt64) where {T<:_UniformFloat}
+    u = _open_midpoint(T, value)
+    return u, one(T) - u
 end
 
 struct _NativeTransformOps end
 
 function _transform_muladd end
+function _transform_product end
 
 @inline _transform_muladd(::_NativeTransformOps, a, b, c) = fma(a, b, c)
+# `half` is the midpoint of `b`'s range. A backend whose compiler contracts the
+# product's rounding into the next operation uses it to build the dynamic sign
+# `_rounded_product` needs; the native product ignores it.
+@inline _transform_product(::_NativeTransformOps, a, b, half) = a * b
 
 @inline function _exponential_reduced(ops, ::Type{Float32}, m, n)
     one_ = reinterpret(Float32, UInt32(0x3f800000))
@@ -118,46 +121,37 @@ end
 ) where {T}
     block = _position_block(position)
     value = if T === Float32
-        _extract_bits_unchecked(rng, block, position.bit, Val(24))
+        _extract_bits_unchecked(rng, block, position.bit, Val(23))
     else
-        _extract_bits_unchecked(rng, block, position.bit, Val(53))
+        _extract_bits_unchecked(rng, block, position.bit, Val(52))
     end
     return _exponential_from_bits(rng.device, T, value)
 end
 
-@inline _draw_exponential_unchecked(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
-    _draw_exponential_unchecked(rng, rng.position, T)
-
-function Random.randexp(::AbstractPureRNG)
-    throw(ArgumentError("untyped immutable draws are forbidden; use randexp(rng, T)"))
-end
-
-@inline function _randexp_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
-    next_rng = _reserve_scalar(rng, _exponential_bits(T))
-    raw = _chain_bits(rng, next_rng, Val(Int(_exponential_bits(T))))
-    return _exponential_from_bits(rng.device, T, raw), next_rng
-end
-
-@inline _randexp_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
-    first(_randexp_next_scalar(rng, T))
+Random.randexp(::AbstractPureRNG) =
+    _untyped_draw_error("randexp(rng, T)", "randexp_next(rng, T)")
+Random.randexp(::AbstractPureRNG, ::Integer, ::Integer...) =
+    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
+Random.randexp(::AbstractPureRNG, ::Dims) =
+    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
 
 @inline randexp_next(rng::_ScalarUniformGenerators) = randexp_next(rng, Float64)
 
-for T in (Float32, Float64)
-    @eval begin
-        @inline Random.randexp(rng::_ScalarUniformGenerators, ::Type{$T}) =
-            _randexp_scalar(rng, $T)
-        @inline randexp_next(rng::_ScalarUniformGenerators, ::Type{$T}) =
-            _randexp_next_scalar(rng, $T)
-        @inline randexpat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
-            _draw_exponential_unchecked(_addressed_rng(rng, _exponential_bits($T), i), $T)
-        @inline randexpat(
-            rng::_ScalarUniformGenerators,
-            ::Type{$T},
-            indices::AbstractUnitRange{<:Integer},
-        ) = _addressed_array(rng, $T, indices, _exponential_bits($T), randexp_next)
-    end
-end
+@inline Random.randexp(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
+    first(_draw_next(rng, _ExponentialCodec(rng.device), T))
+@inline randexp_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
+    _draw_next(rng, _ExponentialCodec(rng.device), T)
+@inline randexp_at(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    i::Integer,
+) where {T<:_UniformFloat} = _draw_at(rng, _ExponentialCodec(rng.device), T, i)
+@inline randexp_at(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    indices::AbstractUnitRange{<:Integer},
+) where {T<:_UniformFloat} =
+    _addressed_array(rng, T, indices, _exponential_bits(T), randexp_next)
 
 @doc """
     randexp_next(rng[, T]) -> (value, next_rng)
@@ -172,8 +166,8 @@ generator never changes.
 """ randexp_next
 
 @doc """
-    randexpat(rng, T, i)
-    randexpat(rng, T, i:j)
+    randexp_at(rng, T, i)
+    randexp_at(rng, T, i:j)
 
 Return the `i`th standard exponential draw at or after the current position of
 `rng`, where `i` is one-based, or the vector of draws `i` through `j`. `T` is
@@ -181,46 +175,37 @@ Return the `i`th standard exponential draw at or after the current position of
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
-""" randexpat
-
-@inline _transformed_fill_plan(::_ExponentialCodec, backend, rng, T) = nothing
+""" randexp_at
 
 @inline _cooperative_value(codec::_ExponentialCodec, ::Type{T}, raw) where {T} =
     _exponential_from_bits(codec.backend, T, raw)
 @inline _fill_width(::_ExponentialCodec, ::Type{T}) where {T} = _exponential_bits(T)
 
-@inline function _randexp_next_fill!(
+@inline function Random.randexp!(
     rng::_ScalarUniformGenerators,
-    destination::AbstractArray{T},
-    threaded::Bool,
-) where {T}
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformFloat}
+    result, _ = _rand_transformed_next_fill!(
+        rng,
+        destination,
+        threaded,
+        _ExponentialCodec(rng.device),
+    )
+    return result
+end
+
+@inline function randexp_next!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformFloat}
     return _rand_transformed_next_fill!(
         rng,
         destination,
         threaded,
         _ExponentialCodec(rng.device),
     )
-end
-
-for T in (Float32, Float64)
-    @eval begin
-        @inline function Random.randexp!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded::Bool = true,
-        )
-            result, _ = _randexp_next_fill!(rng, destination, threaded)
-            return result
-        end
-
-        @inline function randexp_next!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded::Bool = true,
-        )
-            return _randexp_next_fill!(rng, destination, threaded)
-        end
-    end
 end
 
 @doc """
@@ -233,3 +218,55 @@ destination's device must match the generator.
 Set `threaded=false` to request the serial CPU fill path. The keyword does not
 change the generated stream. The input generator never changes.
 """ randexp_next!
+
+@inline function randexp_next(
+    rng::_ScalarUniformGenerators,
+    dim1::Integer,
+    dims::Integer...,
+)
+    return _rand_transformed_next_array(
+        rng,
+        Float64,
+        (dim1, dims...),
+        _ExponentialCodec(rng.device),
+    )
+end
+@inline randexp_next(rng::_ScalarUniformGenerators, dims::Dims) =
+    _rand_transformed_next_array(rng, Float64, dims, _ExponentialCodec(rng.device))
+
+@inline function Random.randexp(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_UniformFloat}
+    destination, _ =
+        _rand_transformed_next_array(rng, T, (dim1, dims...), _ExponentialCodec(rng.device))
+    return destination
+end
+@inline Random.randexp(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dims::Dims,
+) where {T<:_UniformFloat} =
+    first(_rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device)))
+@inline randexp_next(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dims::Dims,
+) where {T<:_UniformFloat} =
+    _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device))
+
+@inline function randexp_next(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_UniformFloat}
+    return _rand_transformed_next_array(
+        rng,
+        T,
+        (dim1, dims...),
+        _ExponentialCodec(rng.device),
+    )
+end

@@ -23,8 +23,10 @@ end
 @inline _reduce_range_candidate(lo::UInt64, hi::UInt64, span::UInt64) =
     iszero(span) ? hi : _mulhi128_by64(lo, hi, span)
 
+@noinline _empty_range_error() = throw(ArgumentError("range must be non-empty"))
+
 @inline function _range_span(range::AbstractRange{T}) where {T<:_RangeInteger}
-    isempty(range) && throw(ArgumentError("range must be non-empty"))
+    isempty(range) && _empty_range_error()
     return length(range) % UInt64
 end
 
@@ -66,9 +68,6 @@ end
     return _reduce_range_candidate(lo, hi, span)
 end
 
-@inline _range_offset(rng::_ScalarUniformGenerators, span::UInt64) =
-    _range_offset(rng, rng.position, span)
-
 @inline function _draw_range_unchecked(
     rng::_ScalarUniformGenerators,
     position,
@@ -103,11 +102,21 @@ end
 @inline _rand_range(rng::_ScalarUniformGenerators, range::AbstractRange{T}) where {T} =
     first(_rand_next_range(rng, range))
 
-for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
-    @eval begin
-        @inline Random.rand(rng::_ScalarUniformGenerators, range::AbstractRange{$T}) =
-            _rand_range(rng, range)
-        @inline rand_next(rng::_ScalarUniformGenerators, range::AbstractRange{$T}) =
-            _rand_next_range(rng, range)
-    end
+@inline Random.rand(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+) where {T<:_RangeInteger} = _rand_range(rng, range)
+@inline rand_next(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+) where {T<:_RangeInteger} = _rand_next_range(rng, range)
+
+@inline function rand_at(
+    rng::_ScalarUniformGenerators,
+    range::AbstractRange{T},
+    i::Integer,
+) where {T<:_RangeInteger}
+    span = _range_span(range)
+    addressed = _addressed_rng(rng, _range_bits(span), i)
+    return _draw_range_unchecked(addressed, range, span)
 end

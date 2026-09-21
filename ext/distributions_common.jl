@@ -1,35 +1,24 @@
 const _FloatType = Union{Float32,Float64}
-const _MappedDistribution = Union{
-    Distributions.Normal{Float32},
-    Distributions.Normal{Float64},
-    Distributions.Uniform{Float32},
-    Distributions.Uniform{Float64},
-    Distributions.Exponential{Float32},
-    Distributions.Exponential{Float64},
-    Distributions.LogNormal{Float32},
-    Distributions.LogNormal{Float64},
-    Distributions.Weibull{Float32},
-    Distributions.Weibull{Float64},
-    Distributions.Rayleigh{Float32},
-    Distributions.Rayleigh{Float64},
-    Distributions.Laplace{Float32},
-    Distributions.Laplace{Float64},
-    Distributions.Logistic{Float32},
-    Distributions.Logistic{Float64},
-    Distributions.Gumbel{Float32},
-    Distributions.Gumbel{Float64},
-    Distributions.Pareto{Float32},
-    Distributions.Pareto{Float64},
-    Distributions.Frechet{Float32},
-    Distributions.Frechet{Float64},
-    Distributions.Cauchy{Float32},
-    Distributions.Cauchy{Float64},
-    Distributions.TriangularDist{Float32},
-    Distributions.TriangularDist{Float64},
-    Distributions.Bernoulli{Float32},
-    Distributions.Bernoulli{Float64},
+# The parameter ties a distribution to its destination element type, so a
+# mismatched destination finds no method rather than a validation error.
+const _FloatMapped{T} = Union{
+    Distributions.Normal{T},
+    Distributions.Uniform{T},
+    Distributions.Exponential{T},
+    Distributions.LogNormal{T},
+    Distributions.Weibull{T},
+    Distributions.Rayleigh{T},
+    Distributions.Laplace{T},
+    Distributions.Logistic{T},
+    Distributions.Gumbel{T},
+    Distributions.Pareto{T},
+    Distributions.Frechet{T},
+    Distributions.Cauchy{T},
+    Distributions.TriangularDist{T},
 }
-const _FixedDistribution = Union{_MappedDistribution,Distributions.DiscreteUniform}
+const _MappedDistribution{T} = Union{_FloatMapped{T},Distributions.Bernoulli{T}}
+const _FixedDistribution =
+    Union{_MappedDistribution{<:_FloatType},Distributions.DiscreteUniform}
 
 @inline _result_type(::Distributions.Normal{T}) where {T<:_FloatType} = T
 @inline _result_type(::Distributions.Uniform{T}) where {T<:_FloatType} = T
@@ -46,6 +35,7 @@ const _FixedDistribution = Union{_MappedDistribution,Distributions.DiscreteUnifo
 @inline _result_type(::Distributions.TriangularDist{T}) where {T<:_FloatType} = T
 @inline _result_type(::Distributions.Bernoulli{T}) where {T<:_FloatType} = Bool
 @inline _result_type(::Distributions.DiscreteUniform) = Int
+@inline _result_type(::Distributions.Categorical) = Int
 
 @noinline _invalid_parameters(::Distributions.Normal) =
     throw(ArgumentError("invalid Normal parameters"))
@@ -215,55 +205,36 @@ end
 @inline _distribution_span(d::Distributions.DiscreteUniform) =
     IR._range_bits(_discrete_span(d))
 
-struct _NativeDistributionOps end
-
-function _distribution_muladd end
-function _distribution_product end
-
-@inline _distribution_muladd(::_NativeDistributionOps, a, b, c) = fma(a, b, c)
-@inline _distribution_product(::_NativeDistributionOps, a, b, half) = a * b
+# Every mapping takes the core transform ops first, so a backend that must
+# avoid `fma` supplies its own ops object instead of a second protocol.
 @inline _map_distribution(ops, d::Distributions.Normal, z) =
-    _distribution_muladd(ops, d.σ, z, d.μ)
-@inline _map_distribution(d::Distributions.Normal, z) =
-    _map_distribution(_NativeDistributionOps(), d, z)
+    IR._transform_muladd(ops, d.σ, z, d.μ)
 @inline function _map_distribution(ops, d::Distributions.Uniform{T}, u) where {T}
     width = d.b - d.a
-    scaled = _distribution_product(ops, width, u, T(0.5))
+    scaled = IR._transform_product(ops, width, u, T(0.5))
     return d.a + scaled
 end
-@inline _map_distribution(d::Distributions.Uniform, u) =
-    _map_distribution(_NativeDistributionOps(), d, u)
-@inline _map_distribution(d::Distributions.Exponential, x) = d.θ * x
-@inline function _map_distribution(ops, d::Distributions.LogNormal, z)
-    return exp(_distribution_muladd(ops, d.σ, z, d.μ))
-end
-@inline _map_distribution(d::Distributions.LogNormal, z) =
-    _map_distribution(_NativeDistributionOps(), d, z)
-@inline _map_distribution(d::Distributions.Weibull, x) = d.θ * x^inv(d.α)
-@inline _map_distribution(d::Distributions.Rayleigh{T}, x) where {T} = d.σ * sqrt(T(2) * x)
-@inline function _map_distribution(ops, d::Distributions.Laplace, x, positive)
-    return _distribution_muladd(ops, ifelse(positive, d.θ, -d.θ), x, d.μ)
-end
-@inline _map_distribution(d::Distributions.Laplace, x, positive) =
-    _map_distribution(_NativeDistributionOps(), d, x, positive)
-@inline function _map_distribution(ops, d::Distributions.Logistic, u)
-    return _distribution_muladd(ops, d.θ, log(u) - log1p(-u), d.μ)
-end
-@inline _map_distribution(d::Distributions.Logistic, u) =
-    _map_distribution(_NativeDistributionOps(), d, u)
-@inline function _map_distribution(ops, d::Distributions.Gumbel, e)
-    return _distribution_muladd(ops, -d.θ, log(e), d.μ)
-end
-@inline _map_distribution(d::Distributions.Gumbel, e) =
-    _map_distribution(_NativeDistributionOps(), d, e)
-@inline _map_distribution(d::Distributions.Pareto, x) = d.θ * exp(x / d.α)
-@inline _map_distribution(d::Distributions.Frechet, e) = d.θ * e^(-inv(d.α))
-@inline function _map_distribution(ops, d::Distributions.Cauchy{T}, u) where {T}
-    return _distribution_muladd(ops, d.σ, tanpi(u - T(0.5)), d.μ)
-end
-@inline _map_distribution(d::Distributions.Cauchy, u) =
-    _map_distribution(_NativeDistributionOps(), d, u)
-@inline function _map_distribution(d::Distributions.TriangularDist{T}, v) where {T}
+@inline _map_distribution(ops, d::Distributions.Exponential, x) = d.θ * x
+@inline _map_distribution(ops, d::Distributions.LogNormal, z) =
+    exp(IR._transform_muladd(ops, d.σ, z, d.μ))
+@inline _map_distribution(ops, d::Distributions.Weibull, x) = d.θ * x^inv(d.α)
+@inline _map_distribution(ops, d::Distributions.Rayleigh{T}, x) where {T} =
+    d.σ * sqrt(T(2) * x)
+@inline _map_distribution(ops, d::Distributions.Laplace, x, positive) =
+    IR._transform_muladd(ops, ifelse(positive, d.θ, -d.θ), x, d.μ)
+@inline _map_distribution(ops, d::Distributions.Logistic, u) =
+    IR._transform_muladd(ops, d.θ, log(u) - log1p(-u), d.μ)
+@inline _map_distribution(ops, d::Distributions.Gumbel, e) =
+    IR._transform_muladd(ops, -d.θ, log(e), d.μ)
+@inline _map_distribution(ops, d::Distributions.Pareto, x) = d.θ * exp(x / d.α)
+@inline _map_distribution(ops, d::Distributions.Frechet, e) = d.θ * e^(-inv(d.α))
+@inline _map_distribution(ops, d::Distributions.Cauchy{T}, u) where {T} =
+    IR._transform_muladd(ops, d.σ, tanpi(u - T(0.5)), d.μ)
+@inline function _map_distribution(
+    ::IR._NativeTransformOps,
+    d::Distributions.TriangularDist{T},
+    v,
+) where {T}
     d.a == d.b && return d.a
     p = (d.c - d.a) / (d.b - d.a)
     iszero(v) && return d.a
@@ -272,11 +243,13 @@ end
     end
     return fma(d.c - d.b, sqrt((one(T) - v) / (one(T) - p)), d.b)
 end
+# A traced value cannot steer a branch, so the general form evaluates both arms
+# and selects. The arm it discards can be non-finite.
 @inline function _map_distribution(ops, d::Distributions.TriangularDist{T}, v) where {T}
     d.a == d.b && return d.a
     p = (d.c - d.a) / (d.b - d.a)
-    lower = _distribution_muladd(ops, d.c - d.a, sqrt(v / p), d.a)
-    upper = _distribution_muladd(ops, d.c - d.b, sqrt((one(T) - v) / (one(T) - p)), d.b)
+    lower = IR._transform_muladd(ops, d.c - d.a, sqrt(v / p), d.a)
+    upper = IR._transform_muladd(ops, d.c - d.b, sqrt((one(T) - v) / (one(T) - p)), d.b)
     return ifelse(iszero(v), d.a, ifelse(v <= p, lower, upper))
 end
-@inline _map_distribution(d::Distributions.Bernoulli, u) = u < d.p
+@inline _map_distribution(ops, d::Distributions.Bernoulli, u) = u < d.p

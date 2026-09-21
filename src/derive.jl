@@ -9,6 +9,30 @@ const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 @inline _derived_rng(rng::AbstractPureRNG, key) =
     typeof(rng)(_CONSTRUCTION_TOKEN, key, _zero_position(typeof(rng)), rng.device)
 
+# Derivation runs the same cores as a draw, so CPU-bound 64-bit Philox needs the
+# same host word operations: the portable multiply costs about four times as
+# much per round. The values are identical either way. The word type selects
+# the path, not the backend alone: a CPU-token carrier traced by Reactant
+# derives with traced words.
+@inline _derive_core(::Type{F}, counter, key) where {F<:Philox2x64} =
+    _philox2x64(counter, key, Val(_rounds(F)))
+@inline _derive_core(
+    ::Type{F},
+    counter::NTuple{2,UInt64},
+    key::NTuple{2,UInt64},
+) where {F<:Philox2x64{_CPUBackend}} = _unwrap_words(
+    _philox2x64(_host_words(counter, Val(2)), _host_words(key, Val(2)), Val(_rounds(F))),
+)
+@inline _derive_core(::Type{F}, counter, key) where {F<:Philox4x64} =
+    _philox4x64(counter, key, Val(_rounds(F)))
+@inline _derive_core(
+    ::Type{F},
+    counter::NTuple{4,UInt64},
+    key::NTuple{4,UInt64},
+) where {F<:Philox4x64{_CPUBackend}} = _unwrap_words(
+    _philox4x64(_host_words(counter, Val(4)), _host_words(key, Val(4)), Val(_rounds(F))),
+)
+
 @inline function _narrow_index(index::UInt64)
     index < _NARROW_SPLIT_COUNT ||
         throw(ArgumentError("two-word generator child index enters the fold namespace"))
@@ -53,7 +77,7 @@ end
 @inline function _derive_key(::Type{F}, key, index::UInt64) where {F<:Philox2x64}
     block_index, group = divrem(index, UInt64(2))
     counter = (_core_constant(key[1], block_index), _core_constant(key[1], _SPLIT_TAG64))
-    block = _philox2x64(counter, key, Val(_rounds(F)))
+    block = _derive_core(F, counter, key)
     return (block[Int(group)+1],)
 end
 
@@ -70,7 +94,7 @@ end
         _core_constant(key[1], 0),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    block = _philox4x64(counter, key, Val(_rounds(F)))
+    block = _derive_core(F, counter, key)
     offset = Int(group << 1)
     return block[offset+1], block[offset+2]
 end
@@ -101,6 +125,30 @@ end
 @inline _derive_child(rng::AbstractPureRNG, index::UInt64) =
     _derived_rng(rng, _derive_key(typeof(rng), rng.key, index))
 
+# Four children at a time. A one-child loop stores each generator before the
+# next core runs, and LLVM then keeps the independent cores of neighbouring
+# children out of one register set. Threefry derivation costs half as much per
+# child this way, and four-word Philox about a third less.
+@inline function _derive_children!(children, rng, from::Int, to::Int)
+    index = from
+    @inbounds while index + 3 <= to
+        a = _derive_child(rng, UInt64(index - 1))
+        b = _derive_child(rng, UInt64(index))
+        c = _derive_child(rng, UInt64(index + 1))
+        d = _derive_child(rng, UInt64(index + 2))
+        children[index] = a
+        children[index+1] = b
+        children[index+2] = c
+        children[index+3] = d
+        index += 4
+    end
+    @inbounds while index <= to
+        children[index] = _derive_child(rng, UInt64(index - 1))
+        index += 1
+    end
+    return nothing
+end
+
 @inline _check_split_count(::_NarrowGenerators, count::Integer) =
     count <= _NARROW_SPLIT_COUNT ||
     throw(ArgumentError("two-word generator child index enters the fold namespace"))
@@ -108,20 +156,41 @@ end
 
 """
     splitrng(rng)
-    splitrng(rng, n)
+    splitrng(rng, n; threaded=true)
     splitrng(rng, Val(N))
 
 Derive child keys from distinct counter addresses. The ordinary `n` form
 returns a vector. The `Val` form returns an allocation-free tuple for static or
 GPU code. The default derives two children.
 
+The `n` form takes `threaded`, which selects a parallel derivation on the CPU
+and defaults to `true`. The children are identical for either value.
+
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts each child at position zero. It never changes the parent.
+Calling `splitrng` again on an advanced parent therefore returns the same
+children, so derive from stable identifiers rather than from a stream position.
 
 Child keys are core output and can collide. Across `n` program-wide derivations
 with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
 collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> left, right = splitrng(rng);
+
+julia> rand(left, UInt32), rand(right, UInt32)
+(0xea1624f3, 0x34564a30)
+
+julia> advanced = last(rand_next(rng, UInt32));
+
+julia> rand(first(splitrng(advanced)), UInt32)
+0xea1624f3
+```
 """
 splitrng(rng::AbstractPureRNG) = splitrng(rng, Val(2))
 
@@ -131,13 +200,19 @@ splitrng(rng::AbstractPureRNG) = splitrng(rng, Val(2))
     return ntuple(i -> _derive_child(rng, UInt64(i - 1)), Val(N))
 end
 
-function splitrng(rng::R, count::Integer) where {R<:AbstractPureRNG}
+function splitrng(rng::R, count::Integer; threaded = true) where {R<:AbstractPureRNG}
+    threaded = _check_threaded(threaded)
     0 <= count <= typemax(Int) ||
         throw(ArgumentError("n must satisfy 0 <= n <= typemax(Int)"))
     _check_split_count(rng, count)
     children = Vector{R}(undef, count)
-    for i in eachindex(children)
-        @inbounds children[i] = _derive_child(rng, UInt64(i - 1))
+    if threaded
+        # Each child reads only the parent key, so chunks need no shared state.
+        _run_chunks(Int(count), _SPLIT_CHUNK_CHILDREN) do from, to
+            _derive_children!(children, rng, from, to)
+        end
+    else
+        _derive_children!(children, rng, 1, Int(count))
     end
     return children
 end
@@ -189,7 +264,7 @@ end
 
 @inline function _subrng_key(::Type{F}, key, purpose) where {F<:Philox2x64}
     counter = (_core_from_value(key[1], purpose), _core_constant(key[1], _FOLD_TAG64))
-    block = _philox2x64(counter, key, Val(_rounds(F)))
+    block = _derive_core(F, counter, key)
     return (block[1],)
 end
 
@@ -205,7 +280,7 @@ end
         _core_constant(key[1], 0),
         _core_constant(key[1], _DERIVE_TAG),
     )
-    block = _philox4x64(counter, key, Val(_rounds(F)))
+    block = _derive_core(F, counter, key)
     return block[1], block[2]
 end
 
@@ -241,13 +316,35 @@ independent roles, such as `subrng(root, 1)` for proposals and
 `subrng(root, 2)` for resampling. Use `subrng(root, chunk_id)` to assign
 explicit large-job chunks.
 
+`purpose` is reduced modulo `2^64`, so a negative value or a value at or above
+`2^64` aliases the child of an existing purpose id. Purpose ids are a separate
+namespace from stream positions, which [`rngposition`](@ref) returns as a
+`UInt128`.
+
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts the child at position zero. It never changes the parent.
-The same key and purpose always produce the same child.
+The same key and purpose always produce the same child. Calling `subrng` again
+on an advanced parent therefore returns the same child, so derive from stable
+identifiers rather than from a stream position.
 
 Child keys are core output and can collide. Across `n` program-wide derivations
 with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
 collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> rand(subrng(rng, 1), UInt32)
+0x04970499
+
+julia> rand(subrng(rng, 2), UInt32)
+0x65feaf98
+
+julia> rand(subrng(rng, -1), UInt32) == rand(subrng(rng, big(2)^64 - 1), UInt32)
+true
+```
 """
 @inline subrng(rng::AbstractPureRNG, purpose::Integer) = _subrng(rng, purpose % UInt64)

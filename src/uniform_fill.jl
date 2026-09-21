@@ -1,4 +1,13 @@
-@inline function _fill_uniform_unchecked!(
+# `_run_chunks` counts draws from one. A linearly indexed destination may number
+# its elements differently, so shift the chunk onto its own index range. A
+# Cartesian destination takes the same ordinals through linear indexing.
+@inline _chunk_indices(indices, from::Int, to::Int) = from:to
+@inline function _chunk_indices(indices::AbstractUnitRange, from::Int, to::Int)
+    offset = first(indices) - 1
+    return (from+offset):(to+offset)
+end
+
+@inline function _fill_uniform_position_cpu!(
     rng::_ScalarUniformGenerators,
     position,
     destination,
@@ -65,82 +74,49 @@ end
     return value, _DenseBitCursor(block, block_words, lane, remaining)
 end
 
-@inline _dense_fill_group(::Type{Bool}) = 64
-@inline _dense_fill_group(::Type{UInt32}) = 2
-@inline _dense_fill_group(::Type{Int32}) = 2
-@inline _dense_fill_group(::Type{Float32}) = 8
-@inline _dense_fill_group(::Type{UInt64}) = 1
-@inline _dense_fill_group(::Type{Int64}) = 1
-@inline _dense_fill_group(::Type{Float64}) = 1
+@inline _fill_store_elements(::Type{Bool}) = 64
+@inline _fill_store_elements(::Type{UInt32}) = 2
+@inline _fill_store_elements(::Type{Int32}) = 2
+@inline _fill_store_elements(::Type{Float32}) = 8
+@inline _fill_store_elements(::Type{UInt64}) = 1
+@inline _fill_store_elements(::Type{Int64}) = 1
+@inline _fill_store_elements(::Type{Float64}) = 1
 
-@inline _fill_group_size(::Val{N}) where {N} = N
+@inline _val_count(::Val{N}) where {N} = N
 
-@inline _device_uniform_fill_group(rng, ::Type{Bool}) = Val(4)
-@inline _device_uniform_fill_group(rng::_NarrowGenerators, ::Type{UInt32}) = Val(2)
-@inline _device_uniform_fill_group(rng::_Position64Generators, ::Type{UInt32}) = Val(4)
-@inline _device_uniform_fill_group(rng::_Position128Generators, ::Type{UInt32}) = Val(8)
-@inline _device_uniform_fill_group(rng::ChaCha, ::Type{UInt32}) = Val(16)
-@inline _device_uniform_fill_group(rng, ::Type{Int32}) =
-    _device_uniform_fill_group(rng, UInt32)
-@inline _device_uniform_fill_group(rng::_NarrowGenerators, ::Type{UInt64}) = Val(1)
-@inline _device_uniform_fill_group(rng::_Position64Generators, ::Type{UInt64}) = Val(2)
-@inline _device_uniform_fill_group(rng::_Position128Generators, ::Type{UInt64}) = Val(4)
-@inline _device_uniform_fill_group(rng::ChaCha, ::Type{UInt64}) = Val(8)
-@inline _device_uniform_fill_group(rng, ::Type{Int64}) =
-    _device_uniform_fill_group(rng, UInt64)
-@inline _device_uniform_fill_group(rng, ::Type{Float32}) = Val(4)
-@inline _device_uniform_fill_group(rng, ::Type{Float64}) = Val(4)
-
-@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))
-@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
-@inline _cooperative_uniform_fill(::Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
-@inline _cooperative_uniform_fill(rng, T) = nothing
-@inline _device_uniform_fill_plan(backend, rng, T) = nothing
-
-@inline function _fill_grouped_cursor!(
+# The fallback every uniform block store below drops into when its alignment
+# does not hold. It writes by linear index, as those stores do.
+@inline function _fill_group_cursor!(
     rng,
     position,
     destination,
     ::Type{T},
     first::Int,
     ::Val{N},
-    width,
-    codec,
 ) where {T,N}
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     last = length(destination)
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
-        raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
-        destination[index] = _cooperative_value(codec, T, raw)
+        raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(Int(_draw_bits(T))))
+        destination[index] = _from_bits(T, raw)
     end
     return nothing
 end
 
-@inline _uniform_cursor!(rng, position, destination, T, first, group) =
-    _fill_grouped_cursor!(
-        rng,
-        position,
-        destination,
-        T,
-        first,
-        group,
-        Val(_draw_bits(T)),
-        Val(:uniform),
-    )
-
-@inline function _fill_uniform_grouped_unchecked!(
+@inline function _fill_group!(
     rng::_ScalarUniform32Generators,
     position,
     destination,
     ::Type{Bool},
     first::Int,
     group::Val{N},
+    ::Val{:uniform},
 ) where {N}
     word_bit = position.bit & UInt16(31)
     word_bit + UInt16(N) <= UInt16(32) ||
-        return _uniform_cursor!(rng, position, destination, Bool, first, group)
+        return _fill_group_cursor!(rng, position, destination, Bool, first, group)
     words = _block(rng, _position_block(position))
     word = _select_tuple_value(words, position.bit >> UInt16(5))
     last = length(destination)
@@ -153,20 +129,28 @@ end
     return nothing
 end
 
-@inline _fill_uniform_grouped_unchecked!(rng, position, destination, T, first, group) =
-    _uniform_cursor!(rng, position, destination, T, first, group)
+@inline _fill_group!(
+    rng,
+    position,
+    destination,
+    ::Type{T},
+    first::Int,
+    group::Val{N},
+    ::Val{:uniform},
+) where {T,N} = _fill_group_cursor!(rng, position, destination, T, first, group)
 
-@inline function _fill_uniform_grouped_unchecked!(
+@inline function _fill_group!(
     rng,
     position,
     destination,
     ::Type{Bool},
     first::Int,
     group::Val{N},
+    ::Val{:uniform},
 ) where {N}
     word_bit = position.bit & UInt16(63)
     word_bit + UInt16(N) <= UInt16(64) ||
-        return _uniform_cursor!(rng, position, destination, Bool, first, group)
+        return _fill_group_cursor!(rng, position, destination, Bool, first, group)
     block_words = _block_words(rng, _position_block(position))
     word = _select_tuple_value(block_words, position.bit >> UInt16(6))
     last = length(destination)
@@ -178,16 +162,17 @@ end
     return nothing
 end
 
-@inline function _fill_uniform_grouped_unchecked!(
+@inline function _fill_group!(
     rng::_ScalarUniform32Generators,
     position,
     destination,
     ::Type{T},
     first::Int,
     group::Val{N},
+    ::Val{:uniform},
 ) where {T<:_UniformInteger32,N}
     iszero(position.bit) && UInt16(32N) == _block_bits(rng) ||
-        return _uniform_cursor!(rng, position, destination, T, first, group)
+        return _fill_group_cursor!(rng, position, destination, T, first, group)
     words = _block(rng, _position_block(position))
     last = length(destination)
     @inbounds for offset = 0:(N-1)
@@ -199,16 +184,17 @@ end
     return nothing
 end
 
-@inline function _fill_uniform_grouped_unchecked!(
+@inline function _fill_group!(
     rng,
     position,
     destination,
     ::Type{T},
     first::Int,
     group::Val{N},
+    ::Val{:uniform},
 ) where {T<:_UniformInteger32,N}
     iszero(position.bit) && UInt16(32N) == _block_bits(rng) ||
-        return _uniform_cursor!(rng, position, destination, T, first, group)
+        return _fill_group_cursor!(rng, position, destination, T, first, group)
     block_words = _block_words(rng, _position_block(position))
     last = length(destination)
     @inbounds for offset = 0:(N-1)
@@ -221,16 +207,17 @@ end
     return nothing
 end
 
-@inline function _fill_uniform_grouped_unchecked!(
+@inline function _fill_group!(
     rng,
     position,
     destination,
     ::Type{T},
     first::Int,
     group::Val{N},
+    ::Val{:uniform},
 ) where {T<:_UniformInteger64,N}
     iszero(position.bit) && UInt16(64N) == _block_bits(rng) ||
-        return _uniform_cursor!(rng, position, destination, T, first, group)
+        return _fill_group_cursor!(rng, position, destination, T, first, group)
     block_words = _block_words(rng, _position_block(position))
     last = length(destination)
     @inbounds for offset = 0:(N-1)
@@ -241,13 +228,14 @@ end
     return nothing
 end
 
-@inline function _fill_dense_cursor!(
+@inline function _fill_cursor!(
     rng,
-    destination::Array{Bool},
+    cursor,
+    destination::AbstractArray{Bool},
     ::Type{Bool},
     index::Int,
     count::Int,
-    cursor,
+    ::Val{:uniform},
 )
     last_index = index + count - 1
     while index + 63 <= last_index
@@ -265,13 +253,14 @@ end
     return cursor
 end
 
-@inline function _fill_dense_cursor!(
+@inline function _fill_cursor!(
     rng,
-    destination::Array{T},
+    cursor,
+    destination::AbstractArray{T},
     ::Type{T},
     index::Int,
     count::Int,
-    cursor,
+    ::Val{:uniform},
 ) where {T<:_UniformInteger32}
     last_index = index + count - 1
     @inbounds while index + 1 <= last_index
@@ -288,13 +277,14 @@ end
     return cursor
 end
 
-@inline function _fill_dense_cursor!(
+@inline function _fill_cursor!(
     rng,
-    destination::Array{Float32},
+    cursor,
+    destination::AbstractArray{Float32},
     ::Type{Float32},
     index::Int,
     count::Int,
-    cursor,
+    ::Val{:uniform},
 )
     last_index = index + count - 1
     @inbounds while index + 7 <= last_index
@@ -321,13 +311,14 @@ end
     return cursor
 end
 
-@inline function _fill_dense_cursor!(
+@inline function _fill_cursor!(
     rng,
-    destination::Array{T},
+    cursor,
+    destination::AbstractArray{T},
     ::Type{T},
     index::Int,
     count::Int,
-    cursor,
+    ::Val{:uniform},
 ) where {T<:_UniformInteger64}
     last_index = index + count - 1
     @inbounds while index <= last_index
@@ -373,13 +364,39 @@ end
     return _DenseBitCursor(block, block_words, next_lane, next_bit)
 end
 
-@inline _fill_dense_cursor!(
+# The buffer earns its bookkeeping only where the lane search it removes is
+# real. A block of one or two words refills on nearly every 53-bit draw, so the
+# plain cursor loop wins there: 1.84 to 1.64 ns per element on a serial
+# Philox2x64 fill of 2^20, 2.50 to 2.24 on Threefry2x64, 4.13 to 3.89 on
+# Threefry4x32.
+@inline function _fill_cursor!(
     rng,
-    destination::Array{Float64},
+    cursor,
+    destination::AbstractArray{Float64},
     ::Type{Float64},
     index::Int,
     count::Int,
+    ::Val{:uniform},
+)
+    width = Val(Int(_draw_bits(Float64)))
+    last_index = index + count - 1
+    @inbounds while index <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
+        destination[index] = _from_bits(Float64, raw)
+        index += 1
+    end
+    return cursor
+end
+
+# Four words and up: the lane search is worth removing and the buffer wins.
+@inline _fill_cursor!(
+    rng::Union{_Position128Generators,ChaCha},
     cursor,
+    destination::AbstractArray{Float64},
+    ::Type{Float64},
+    index::Int,
+    count::Int,
+    ::Val{:uniform},
 ) = _fill_f64_bitbuffer!(rng, destination, index, count, cursor)
 
 # 53 Philox4x32 blocks hold exactly 128 Float64 draws (53 * 128 = 128 * 53 bits),
@@ -420,13 +437,14 @@ end
     return Expr(:block, body...)
 end
 
-@inline function _fill_dense_cursor!(
+@inline function _fill_cursor!(
     rng::Philox4x32,
-    destination::Array{Float64},
+    cursor,
+    destination::AbstractArray{Float64},
     ::Type{Float64},
     index::Int,
     count::Int,
-    cursor,
+    ::Val{:uniform},
 )
     last_index = index + count - 1
     cursor = _ensure_dense_cursor(rng, cursor)
@@ -450,18 +468,47 @@ end
     return _fill_f64_bitbuffer!(rng, destination, index, last_index - index + 1, cursor)
 end
 
-@inline function _fill_uniform_dense_cpu!(
+# The dense cursors walk `destination` by linear index, so the fast paths hold
+# for every `IndexLinear` array, not only `Array`.
+@inline _fill_uniform_cpu!(
     rng,
     position,
-    destination::Array{T},
+    destination::AbstractArray{T},
+    ::Type{T},
+    indices,
+) where {T} =
+    _fill_uniform_cpu!(IndexStyle(destination), rng, position, destination, T, indices)
+
+@inline function _fill_uniform_cpu!(
+    ::IndexLinear,
+    rng,
+    position,
+    destination::AbstractArray{T},
     ::Type{T},
     indices,
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
     isempty(indices) && return nothing
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
-    _fill_dense_cursor!(rng, destination, T, first(indices), length(indices), cursor)
+    _fill_cursor!(
+        rng,
+        cursor,
+        destination,
+        T,
+        first(indices),
+        length(indices),
+        Val(:uniform),
+    )
     return nothing
 end
+
+@inline _fill_uniform_cpu!(
+    ::IndexStyle,
+    rng,
+    position,
+    destination,
+    ::Type{T},
+    indices,
+) where {T} = _fill_uniform_position_cpu!(rng, position, destination, T, indices)
 
 @inline function _store_bool_blocks4!(destination, index, blocks)
     @inbounds for block_lane = 1:4, word_lane = 1:4, bit_lane = 0:31
@@ -472,7 +519,11 @@ end
     return nothing
 end
 
-@inline function _store_bits32_blocks4!(destination::Array{T}, index, blocks) where {T}
+@inline function _store_bits32_blocks4!(
+    destination::AbstractArray{T},
+    index,
+    blocks,
+) where {T}
     @inbounds for block_lane = 1:4, word_lane = 1:4
         destination[index+4(block_lane-1)+word_lane-1] =
             _from_bits(T, UInt64(blocks[block_lane][word_lane]))
@@ -480,7 +531,11 @@ end
     return nothing
 end
 
-@inline function _store_bits64_blocks4!(destination::Array{T}, index, blocks) where {T}
+@inline function _store_bits64_blocks4!(
+    destination::AbstractArray{T},
+    index,
+    blocks,
+) where {T}
     @inbounds for block_lane = 1:4, word_lane = 1:2
         words = blocks[block_lane]
         raw = (UInt64(words[2word_lane-1]) << 32) | UInt64(words[2word_lane])
@@ -515,7 +570,13 @@ end
     return nothing
 end
 
-@inline function _fill_aligned_blocks4!(rng, destination::Array{Bool}, index, last, block)
+@inline function _fill_aligned_blocks4!(
+    rng,
+    destination::AbstractArray{Bool},
+    index,
+    last,
+    block,
+)
     while index + 511 <= last && block <= _max_block(rng) - UInt64(3)
         blocks = _blocks4(rng, block)
         _store_bool_blocks4!(destination, index, blocks)
@@ -526,7 +587,7 @@ end
 end
 @inline function _fill_aligned_blocks4!(
     rng,
-    destination::Array{T},
+    destination::AbstractArray{T},
     index,
     last,
     block,
@@ -541,7 +602,7 @@ end
 end
 @inline function _fill_aligned_blocks4!(
     rng,
-    destination::Array{T},
+    destination::AbstractArray{T},
     index,
     last,
     block,
@@ -556,7 +617,7 @@ end
 end
 @inline function _fill_aligned_blocks4!(
     rng,
-    destination::Array{Float32},
+    destination::AbstractArray{Float32},
     index,
     last,
     block,
@@ -590,7 +651,7 @@ end
 @inline function _fill_uniform_blocks4_cpu!(
     rng::Philox4x32,
     position::_Position64,
-    destination::Array{T},
+    destination::AbstractArray{T},
     ::Type{T},
     indices,
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
@@ -604,21 +665,22 @@ end
     end
     index > last_index && return nothing
     cursor = _dense_cursor(rng, block, bit)
-    _fill_dense_cursor!(rng, destination, T, index, last_index - index + 1, cursor)
+    _fill_cursor!(rng, cursor, destination, T, index, last_index - index + 1, Val(:uniform))
     return nothing
 end
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
-    @eval @inline _fill_uniform_dense_cpu!(
-        rng::Philox4x32,
-        position::_Position64,
-        destination::Array{$T},
-        ::Type{$T},
-        indices,
-    ) = _fill_uniform_blocks4_cpu!(rng, position, destination, $T, indices)
-end
+# Float64 is excluded so the @generated group path above keeps the dispatch.
+@inline _fill_uniform_cpu!(
+    ::IndexLinear,
+    rng::Philox4x32,
+    position::_Position64,
+    destination::AbstractArray{T},
+    ::Type{T},
+    indices,
+) where {T<:Union{Bool,_UniformInteger,Float32}} =
+    _fill_uniform_blocks4_cpu!(rng, position, destination, T, indices)
 
-@inline function _fill_uniform_dense_cpu!(
+@inline function _fill_uniform_cpu!(
     rng,
     position,
     destination::BitArray,
@@ -628,7 +690,7 @@ end
     isempty(indices) && return nothing
     first_index = first(indices)
     iszero((first_index - 1) & 63) ||
-        return _fill_uniform_unchecked!(rng, position, destination, Bool, indices)
+        return _fill_uniform_position_cpu!(rng, position, destination, Bool, indices)
 
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     index = first_index
@@ -654,6 +716,3 @@ end
     end
     return nothing
 end
-
-@inline _fill_uniform_dense_cpu!(rng, position, destination, ::Type{T}, indices) where {T} =
-    _fill_uniform_unchecked!(rng, position, destination, T, indices)

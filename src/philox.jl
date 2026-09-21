@@ -15,6 +15,10 @@ const _PHILOX_W64_1 = UInt64(0xbb67ae8584caa73b)
     return UInt32(product >> 32), UInt32(product & 0xffffffff)
 end
 
+# The portable product for plain words. [R30] forbids a 128-bit integer in
+# device typed IR, so the halves come from 32-bit pieces. A backend whose
+# device compiler has a high-product instruction overrides this for its own
+# device code; the host keeps this form.
 @inline function _mulhilo64(a::UInt64, b::UInt64)
     mask = UInt64(0xffffffff)
     alo, ahi = a & mask, a >> 32
@@ -63,6 +67,7 @@ end
 # that still pass BigCrush for the round-reduced generators. Every round except
 # the last bumps the key by the Weyl constants.
 const _PHILOX_DEFAULT_ROUNDS = 10
+const _PHILOX_MAX_ROUNDS = 16 # Random123's bound for the Philox round parameter
 
 @inline _philox2x32_bump(key) = (_core_add(key[1], _core_constant(key[1], _PHILOX_W32_0)),)
 @inline _philox4x32_bump(key) = (
@@ -82,14 +87,23 @@ for (core, round, bump) in (
     (:_philox4x64, :_philox4x64_round, :_philox4x64_bump),
 )
     @eval begin
-        @inline function $core(ctr::NTuple{N,T}, key::NTuple{K,T}, ::Val{R}) where {N,K,T,R}
-            for r = 1:R
+        # The rounds are unrolled by hand like Threefry's, not left as a loop:
+        # ptxas 13.4 keeps a rolled ten-round loop and the CUDA fill kernels
+        # lose about a third of their throughput.
+        @inline function $core(
+            ctr::Tuple{T,Vararg{T}},
+            key::Tuple{T,Vararg{T}},
+            ::Val{R},
+        ) where {T,R}
+            R <= _PHILOX_MAX_ROUNDS ||
+                throw(ArgumentError("Philox supports at most $_PHILOX_MAX_ROUNDS rounds"))
+            Base.Cartesian.@nexprs 16 r -> if r <= R
                 ctr = _core_checkpoint($round(ctr, key))
-                r == R || (key = $bump(key))
+                r < R && (key = $bump(key))
             end
             return ctr
         end
-        @inline $core(ctr::NTuple{N,T}, key::NTuple{K,T}) where {N,K,T} =
+        @inline $core(ctr::Tuple{T,Vararg{T}}, key::Tuple{T,Vararg{T}}) where {T} =
             $core(ctr, key, Val(_PHILOX_DEFAULT_ROUNDS))
     end
 end
@@ -102,7 +116,9 @@ end
     key::NTuple{2,UInt32},
     ::Val{R},
 ) where {R}
-    Base.Cartesian.@nexprs 10 i -> if i <= R
+    R <= _PHILOX_MAX_ROUNDS ||
+        throw(ArgumentError("Philox supports at most $_PHILOX_MAX_ROUNDS rounds"))
+    Base.Cartesian.@nexprs 16 i -> if i <= R
         a = _philox4x32_round(a, key)
         b = _philox4x32_round(b, key)
         c = _philox4x32_round(c, key)

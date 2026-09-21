@@ -21,45 +21,19 @@ function _collect_weights(weights)
     return converted
 end
 
-@inline function _convert_and_fold_weights!(
-    source,
-    converted,
-    total_result,
-    invalid_result,
-    cumulative,
-    ::Val{validate_elements},
-) where {validate_elements}
-    total = zero(Float64)
-    invalid = false
-    @inbounds for ordinal = 1:length(source)
-        weight = Float64(_population_value(source, UInt64(ordinal)))
-        converted === nothing || (converted[ordinal] = weight)
-        invalid |= validate_elements && (!isfinite(weight) || weight < zero(Float64))
-        total += weight
-        cumulative === nothing || (cumulative[ordinal] = total)
-    end
-    invalid |= !isfinite(total) || total <= zero(Float64)
-    @inbounds begin
-        total_result[1] = total
-        invalid_result[1] = invalid
-    end
-    return converted
-end
-
 @inline function _fold_weights_cpu(weights)
     cumulative = Vector{Float64}(undef, length(weights))
-    total_result = Vector{Float64}(undef, 1)
-    invalid_result = Vector{Bool}(undef, 1)
-    _convert_and_fold_weights!(
-        weights,
-        nothing,
-        total_result,
-        invalid_result,
-        cumulative,
-        Val(true),
-    )
-    invalid_result[1] && _invalid_weights()
-    return total_result[1], cumulative
+    total = zero(Float64)
+    invalid = false
+    @inbounds for ordinal = 1:length(weights)
+        weight = Float64(_population_value(weights, UInt64(ordinal)))
+        invalid |= !isfinite(weight) || weight < zero(Float64)
+        total += weight
+        cumulative[ordinal] = total
+    end
+    invalid |= !isfinite(total) || total <= zero(Float64)
+    invalid && _invalid_weights()
+    return total, cumulative
 end
 
 """
@@ -69,6 +43,30 @@ Prepared weights for repeated weighted sampling. Holds the cumulative table the
 weighted forms build on every call, so a caller with fixed weights pays that cost
 once. Accepted wherever a weight vector is. Draws with a table equal draws with the
 weights it was built from. A table is CPU data; a device generator rejects it.
+
+# Examples
+
+```jldoctest
+julia> rng = Philox4x32(20250918);
+
+julia> pop = [10, 20, 30, 40];
+
+julia> weights = [1.0, 1.0, 1.0, 7.0];
+
+julia> table = WeightTable(weights);
+
+julia> randsample(rng, pop, table, 6)
+6-element Vector{Int64}:
+ 20
+ 20
+ 40
+ 40
+ 40
+ 10
+
+julia> randsample(rng, pop, table, 6) == randsample(rng, pop, weights, 6)
+true
+```
 """
 struct WeightTable
     total::Float64
@@ -100,79 +98,10 @@ end
 @inline _prepare_weight_scan(rng::_CPUGenerators, table::WeightTable, _agnostic::Bool) =
     (nothing, table.total, table.cumulative)
 
-KernelAbstractions.@kernel function _prepare_weights_kernel!(
-    source,
-    converted,
-    total_result,
-    invalid_result,
-    cumulative,
-    validate_elements,
-)
-    if @index(Global, Linear) == 1
-        _convert_and_fold_weights!(
-            source,
-            converted,
-            total_result,
-            invalid_result,
-            cumulative,
-            validate_elements,
-        )
-    end
-end
-
-KernelAbstractions.@kernel function _total_weights_kernel!(
-    weights,
-    total_result,
-    invalid_result,
-)
-    if @index(Global, Linear) == 1
-        total = zero(Float64)
-        @inbounds for ordinal = 1:length(weights)
-            total += weights[ordinal]
-        end
-        total_result[1] = total
-        invalid_result[1] = !isfinite(total) || total <= zero(Float64)
-    end
-end
-
 function _transfer_weights(device, weights::Vector{Float64})
     transferred = _allocate_array(device, Float64, (length(weights),))
     copyto!(transferred, weights)
     return transferred
-end
-
-function _prepare_weights(rng, weights, agnostic::Bool)
-    source = agnostic ? _transfer_weights(rng.device, _collect_weights(weights)) : weights
-    converted = agnostic ? source : _allocate_array(rng.device, Float64, (length(source),))
-    total_result = _allocate_array(rng.device, Float64, (1,))
-    invalid_result = _allocate_array(rng.device, Bool, (1,))
-    backend = _fill_backend(converted)
-    if agnostic
-        _total_weights_kernel!(backend)(
-            converted,
-            total_result,
-            invalid_result;
-            ndrange = 1,
-        )
-    else
-        _prepare_weights_kernel!(backend)(
-            source,
-            converted,
-            total_result,
-            invalid_result,
-            nothing,
-            Val(true);
-            ndrange = 1,
-        )
-    end
-    invalid = only(Array(invalid_result))
-    invalid && _invalid_weights()
-    return converted, total_result
-end
-
-@inline function _prepare_weight_scan(rng, weights, agnostic::Bool)
-    converted, total = _prepare_weights(rng, weights, agnostic)
-    return converted, total, nothing
 end
 
 # `threshold < cumulative[end]`; odd spans overlap one index between both halves.
@@ -188,7 +117,7 @@ end
     return lower
 end
 
-@inline function _fill_weighted_samples_cpu_unchecked!(
+@inline function _fill_weighted_cpu!(
     rng::_CPUGenerators,
     position,
     population,
@@ -243,7 +172,7 @@ end
 end
 
 @inline function _fill_weighted_samples!(
-    ::KernelAbstractions.CPU,
+    ::_CPUBackend,
     rng::_CPUGenerators,
     population,
     _weights,
@@ -257,7 +186,7 @@ end
     _run_chunks(length(destination), chunk_elements) do first, last
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), _WEIGHT_BITS)
         position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-        _fill_weighted_samples_cpu_unchecked!(
+        _fill_weighted_cpu!(
             rng,
             position,
             population,
@@ -270,30 +199,26 @@ end
     return destination
 end
 
+# The device scan runs a KernelAbstractions kernel, so the extension owns every
+# method of this launcher.
+function _launch_weighted_scan! end
+
 @inline function _fill_weighted_samples!(
     backend,
     rng,
     population,
-    weights,
+    _weights,
     total,
     cumulative,
     destination,
 )
     thresholds = _allocate_array(rng.device, Float64, (length(destination),))
     _fill_weighted_thresholds!(backend, rng, total, thresholds)
-    return _launch_weighted_scan!(
-        rng.device,
-        backend,
-        population,
-        weights,
-        thresholds,
-        cumulative,
-        destination,
-    )
+    return _launch_weighted_scan!(backend, population, cumulative, thresholds, destination)
 end
 
 @inline function _weighted_threshold_from_bits(raw::UInt64, total::Float64)
-    uniform = Float64(raw) * 0x1p-53
+    uniform = _from_bits(Float64, raw)
     return min(uniform * total, prevfloat(total))
 end
 
@@ -302,24 +227,7 @@ end
     return _weighted_threshold_from_bits(raw, total)
 end
 
-KernelAbstractions.@kernel function _weighted_threshold_kernel!(
-    rng,
-    total_result,
-    thresholds,
-)
-    index = @index(Global, Linear)
-    bits_lo, bits_hi = _bit_span(UInt64(index - 1), _WEIGHT_BITS)
-    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-    total = @inbounds total_result[1]
-    @inbounds thresholds[index] = _weighted_threshold(rng, position, total)
-end
-
-@inline function _fill_weighted_thresholds!(
-    ::KernelAbstractions.CPU,
-    rng,
-    total::Float64,
-    thresholds,
-)
+@inline function _fill_weighted_thresholds!(::_CPUBackend, rng, total::Float64, thresholds)
     isempty(thresholds) && return thresholds
     cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
     @inbounds for index in eachindex(thresholds)
@@ -327,96 +235,6 @@ end
         thresholds[index] = _weighted_threshold_from_bits(raw, total)
     end
     return thresholds
-end
-
-@inline function _fill_weighted_thresholds!(backend, rng, total_result, thresholds)
-    _weighted_threshold_kernel!(backend)(
-        rng,
-        total_result,
-        thresholds;
-        ndrange = length(thresholds),
-    )
-    return thresholds
-end
-
-@inline function _scan_weighted!(population, weights, thresholds, order, destination)
-    cumulative = zero(Float64)
-    ordered_draw = 1
-    indices = eachindex(destination)
-    @inbounds for population_index in eachindex(weights)
-        cumulative += weights[population_index]
-        while ordered_draw <= length(order) && thresholds[order[ordered_draw]] < cumulative
-            original_index = order[ordered_draw]
-            index = _sampling_destination_index(indices, original_index)
-            destination[index] = _population_value(population, UInt64(population_index))
-            ordered_draw += 1
-        end
-    end
-    return destination
-end
-
-KernelAbstractions.@kernel function _weighted_scan_kernel!(
-    population,
-    weights,
-    thresholds,
-    order,
-    destination,
-)
-    if @index(Global, Linear) == 1
-        _scan_weighted!(population, weights, thresholds, order, destination)
-    end
-end
-
-@inline function _launch_weighted_scan!(
-    ::KernelAbstractions.CPU,
-    population,
-    weights,
-    thresholds,
-    order,
-    destination,
-)
-    return _scan_weighted!(population, weights, thresholds, order, destination)
-end
-
-@inline function _launch_weighted_scan!(
-    _device,
-    backend,
-    population,
-    weights,
-    thresholds,
-    cumulative,
-    destination,
-)
-    # The single-workitem scan walks the thresholds in ascending order. `sortperm`
-    # is stable, so equal thresholds retain their original-index order.
-    order = sortperm(thresholds)
-    return _launch_weighted_scan!(
-        backend,
-        population,
-        weights,
-        thresholds,
-        order,
-        destination,
-    )
-end
-
-@inline function _launch_weighted_scan!(
-    backend,
-    population,
-    weights,
-    thresholds,
-    order,
-    destination,
-)
-    _weighted_scan_kernel!(backend)(
-        population,
-        weights,
-        thresholds,
-        order,
-        destination;
-        ndrange = 1,
-    )
-    return destination
 end
 
 function _randsample_next_weighted(rng, population, weights, requested_count)
@@ -438,7 +256,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     destination = _allocate_sampling_result(rng, indexed, count)
     isempty(destination) && return destination, next_rng
 
-    backend = _fill_backend(destination)
+    backend = _fill_backend(rng.device, destination)
     _fill_weighted_samples!(
         backend,
         rng,
@@ -451,7 +269,8 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     return destination, next_rng
 end
 
-function _randsample_next_weighted!(rng, population, weights, destination, threaded::Bool)
+function _randsample_next_weighted!(rng, population, weights, destination, threaded)
+    checked = _check_threaded(threaded)
     _check_sampling_fill_device(rng, destination)
     _check_sampling_serviceability(rng)
     population_agnostic = _check_population_device(rng, population)
@@ -468,8 +287,8 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, length(destination), _WEIGHT_BITS)
     isempty(destination) && return destination, next_rng
-    if !threaded && rng.device isa _CPUBackend
-        _fill_weighted_samples_cpu_unchecked!(
+    if !checked && rng.device isa _CPUBackend
+        _fill_weighted_cpu!(
             rng,
             rng.position,
             indexed,
@@ -481,7 +300,7 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
         return destination, next_rng
     end
     _fill_weighted_samples!(
-        _fill_backend(destination),
+        _fill_backend(rng.device, destination),
         rng,
         indexed,
         converted,
@@ -534,7 +353,7 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
     return first(
         _randsample_next_weighted!(rng, population, weights, destination, threaded),
@@ -546,7 +365,7 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
-    threaded::Bool = true,
+    threaded = true,
 )
     return _randsample_next_weighted!(rng, population, weights, destination, threaded)
 end

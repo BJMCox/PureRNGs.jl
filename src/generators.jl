@@ -7,6 +7,48 @@ methods assume the key, position, and device layout of its own generators.
 """
 abstract type AbstractPureRNG end
 
+"""
+    StreamExhausted{R}(bits)
+
+Thrown when a draw needs more logical bits than the generator has left in its
+stream. The type parameter `R` is the concrete type of that generator, and the
+single field `bits::UInt128` is the span the draw required. The exception holds
+no generator value: keeping one alive across the capacity check costs every
+draw. The caller still holds the generator it passed in. Construction with an
+out-of-range position and argument validation keep throwing `ArgumentError`.
+
+An addressed draw on `Philox4x64` or `Threefry4x64` can name a span wider than
+`typemax(UInt128)`. The field then holds `typemax(UInt128)`.
+"""
+struct StreamExhausted{R<:AbstractPureRNG} <: Exception
+    bits::UInt128
+end
+
+function Base.showerror(io::IO, exhausted::StreamExhausted{R}) where {R}
+    print(
+        io,
+        "StreamExhausted: ",
+        nameof(R),
+        " has fewer bits left than the ",
+        exhausted.bits,
+        " the draw requires",
+    )
+end
+
+# The hot path passes the span as two words so it stays in registers, and the
+# generator type rather than the generator so no value reaches the cold branch.
+@noinline _stream_exhausted(
+    ::Type{R},
+    bits_lo::UInt64,
+    bits_hi::UInt64,
+) where {R<:AbstractPureRNG} =
+    throw(StreamExhausted{R}((UInt128(bits_hi) << 64) | UInt128(bits_lo)))
+
+# [R70] fixes the field at UInt128, so a wider addressed span reports the
+# widest value the field holds.
+@noinline _stream_exhausted(::Type{R}, bits::Integer) where {R<:AbstractPureRNG} =
+    throw(StreamExhausted{R}(bits > typemax(UInt128) ? typemax(UInt128) : UInt128(bits)))
+
 struct _CPUBackend end
 struct _CUDABackend end
 struct _AMDGPUBackend end
@@ -325,19 +367,51 @@ end
     Philox4x32R7(seed)
     Philox4x32R7(key::NTuple{2,UInt32})
 
-`Philox4x32` with seven rounds, the smallest round count that passes BigCrush
-in Random123. It shares every method with `Philox4x32` and produces a different
-stream.
+`Philox4x32` with seven rounds, the smallest round count that Salmon, Moraes,
+Dror, and Shaw (2011, Table 2) report as passing BigCrush for this shape. It
+shares every method with `Philox4x32` and produces a different stream.
 """
 const Philox4x32R7 = Philox4x32{D,7} where {D<:_BackendToken}
+
+"""
+    Philox2x64R6(seed)
+    Philox2x64R6(key::NTuple{1,UInt64})
+
+`Philox2x64` with six rounds, the smallest round count that Salmon, Moraes,
+Dror, and Shaw (2011, Table 2) report as passing BigCrush for this shape. It
+shares every method with `Philox2x64` and produces a different stream.
+"""
+const Philox2x64R6 = Philox2x64{D,6} where {D<:_BackendToken}
+
+"""
+    Philox4x64R7(seed)
+    Philox4x64R7(key::NTuple{2,UInt64})
+
+`Philox4x64` with seven rounds, the smallest round count that Salmon, Moraes,
+Dror, and Shaw (2011, Table 2) report as passing BigCrush for this shape. It
+shares every method with `Philox4x64` and produces a different stream.
+"""
+const Philox4x64R7 = Philox4x64{D,7} where {D<:_BackendToken}
+
+"""
+    Threefry4x32R12(seed)
+    Threefry4x32R12(key::NTuple{4,UInt32})
+
+`Threefry4x32` with twelve rounds, the smallest round count that Salmon,
+Moraes, Dror, and Shaw (2011, Table 2) report as passing BigCrush for this
+shape. It shares every method with `Threefry4x32` and produces a different
+stream.
+"""
+const Threefry4x32R12 = Threefry4x32{D,12} where {D<:_BackendToken}
 
 """
     Threefry4x64R13(seed)
     Threefry4x64R13(key::NTuple{4,UInt64})
 
-`Threefry4x64` with thirteen rounds, the smallest round count that passes
-BigCrush in Random123. It shares every method with `Threefry4x64` and produces a
-different stream.
+`Threefry4x64` with thirteen rounds, the smallest round count that Salmon,
+Moraes, Dror, and Shaw (2011, Table 2) report as passing BigCrush for this
+shape. It shares every method with `Threefry4x64` and produces a different
+stream.
 """
 const Threefry4x64R13 = Threefry4x64{D,13} where {D<:_BackendToken}
 
@@ -372,6 +446,9 @@ const ChaCha20 = ChaCha{D,20} where {D<:_BackendToken}
 
 const _ROUND_ALIASES = (
     (:Philox4x32R7, :Philox4x32, 7),
+    (:Philox2x64R6, :Philox2x64, 6),
+    (:Philox4x64R7, :Philox4x64, 7),
+    (:Threefry4x32R12, :Threefry4x32, 12),
     (:Threefry4x64R13, :Threefry4x64, 13),
     (:ChaCha8, :ChaCha, 8),
     (:ChaCha12, :ChaCha, 12),
@@ -397,23 +474,36 @@ for (alias, F, R) in _ROUND_ALIASES
     end
 end
 
-function _seed_key(::Type{T}, ::Val{N}, seed::Integer) where {T<:Unsigned,N}
+@noinline function _seed_width_error(family::Symbol, key_bits::Int)
+    throw(ArgumentError("seed exceeds the $family key width of $key_bits bits"))
+end
+
+function _seed_key(::Type{T}, ::Val{N}, seed::Integer, family::Symbol) where {T<:Unsigned,N}
     seed < 0 && throw(ArgumentError("seed must be non-negative"))
     bits = 8 * sizeof(T)
     value = seed isa Base.BitInteger ? unsigned(seed) : BigInt(seed)
-    iszero(value >> (bits * N)) || throw(ArgumentError("seed exceeds the key width"))
+    iszero(value >> (bits * N)) || _seed_width_error(family, bits * N)
     return ntuple(i -> (value >> (bits * (i - 1))) % T, Val(N))
 end
 
-@inline _family_key(::Type{<:Philox2x32}, seed::Integer) = _seed_key(UInt32, Val(1), seed)
-@inline _family_key(::Type{<:Philox4x32}, seed::Integer) = _seed_key(UInt32, Val(2), seed)
-@inline _family_key(::Type{<:Philox2x64}, seed::Integer) = _seed_key(UInt64, Val(1), seed)
-@inline _family_key(::Type{<:Philox4x64}, seed::Integer) = _seed_key(UInt64, Val(2), seed)
-@inline _family_key(::Type{<:Threefry2x32}, seed::Integer) = _seed_key(UInt32, Val(2), seed)
-@inline _family_key(::Type{<:Threefry4x32}, seed::Integer) = _seed_key(UInt32, Val(4), seed)
-@inline _family_key(::Type{<:Threefry2x64}, seed::Integer) = _seed_key(UInt64, Val(2), seed)
-@inline _family_key(::Type{<:Threefry4x64}, seed::Integer) = _seed_key(UInt64, Val(4), seed)
-@inline _family_key(::Type{<:ChaCha}, seed::Integer) = _seed_key(UInt32, Val(8), seed)
+@inline _family_key(::Type{<:Philox2x32}, seed::Integer) =
+    _seed_key(UInt32, Val(1), seed, :Philox2x32)
+@inline _family_key(::Type{<:Philox4x32}, seed::Integer) =
+    _seed_key(UInt32, Val(2), seed, :Philox4x32)
+@inline _family_key(::Type{<:Philox2x64}, seed::Integer) =
+    _seed_key(UInt64, Val(1), seed, :Philox2x64)
+@inline _family_key(::Type{<:Philox4x64}, seed::Integer) =
+    _seed_key(UInt64, Val(2), seed, :Philox4x64)
+@inline _family_key(::Type{<:Threefry2x32}, seed::Integer) =
+    _seed_key(UInt32, Val(2), seed, :Threefry2x32)
+@inline _family_key(::Type{<:Threefry4x32}, seed::Integer) =
+    _seed_key(UInt32, Val(4), seed, :Threefry4x32)
+@inline _family_key(::Type{<:Threefry2x64}, seed::Integer) =
+    _seed_key(UInt64, Val(2), seed, :Threefry2x64)
+@inline _family_key(::Type{<:Threefry4x64}, seed::Integer) =
+    _seed_key(UInt64, Val(4), seed, :Threefry4x64)
+@inline _family_key(::Type{<:ChaCha}, seed::Integer) =
+    _seed_key(UInt32, Val(8), seed, :ChaCha)
 
 for F in _GENERATOR_SYMBOLS
     @eval $F(seed::Integer) = $F(_family_key($F, seed))
@@ -604,7 +694,7 @@ end
 
 @inline function _reserve(rng::AbstractPureRNG, bits_lo::UInt64, bits_hi::UInt64)
     position, ok = _try_advance(rng, bits_lo, bits_hi)
-    ok || throw(ArgumentError("draw exceeds the generator counter capacity"))
+    ok || _stream_exhausted(typeof(rng), bits_lo, bits_hi)
     position == rng.position && return rng
     return _rebuild(rng, position, rng.device)
 end
@@ -617,7 +707,7 @@ end
 # that it copies on every draw of a chained loop once the generator has more
 # than a handful of words. Rebuilding the tuple from its elements keeps every
 # word in a register. A ChaCha chain of Bool draws ran five times faster.
-@inline _by_element(words::NTuple{N,T}) where {N,T} = ntuple(i -> words[i], Val(N))
+@inline _by_element(words::Tuple{Vararg{Any,N}}) where {N} = ntuple(i -> words[i], Val(N))
 
 # A scalar draw that ends inside the current block cannot exhaust the stream
 # and keeps the carried block, so only the bit offset moves. The terminal
@@ -674,23 +764,33 @@ function rngposition(rng::_Position128Generators)
     return (block << _block_shift(F)) | BigInt(rng.position.bit)
 end
 
-function _checked_position_bits(::Type{F}, bits::Integer) where {F}
+function _checked_position_bits(bits::Integer, capacity)
     bits < 0 && throw(ArgumentError("position must be non-negative"))
-    bits <= _stream_capacity(F) ||
-        throw(ArgumentError("position exceeds the stream capacity"))
+    bits <= capacity || throw(ArgumentError("position exceeds the stream capacity"))
     return bits
 end
 
-function _position_from_bits(::Type{F}, bits::Integer) where {F<:_Position64Generators}
-    value = UInt128(_checked_position_bits(F, bits))
-    value == _stream_capacity(F) && return _terminal64(_max_block(F))
+# The three-argument form takes a capacity the caller already holds. A
+# four-word family's capacity is a `BigInt`, so building it again for the
+# terminal comparison costs more than the conversion it guards.
+function _position_from_bits(
+    ::Type{F},
+    bits::Integer,
+    capacity,
+) where {F<:_Position64Generators}
+    value = UInt128(bits)
+    value == capacity && return _terminal64(_max_block(F))
     shift = _block_shift(F)
     return _Position64(UInt64(value >> shift), UInt16(value & ((UInt128(1) << shift) - 1)))
 end
 
-function _position_from_bits(::Type{F}, bits::Integer) where {F<:_Position128Generators}
-    value = BigInt(_checked_position_bits(F, bits))
-    value == _stream_capacity(F) && return _terminal128()
+function _position_from_bits(
+    ::Type{F},
+    bits::Integer,
+    capacity,
+) where {F<:_Position128Generators}
+    value = BigInt(bits)
+    value == capacity && return _terminal128()
     shift = _block_shift(F)
     block = value >> shift
     return _Position128(
@@ -698,6 +798,11 @@ function _position_from_bits(::Type{F}, bits::Integer) where {F<:_Position128Gen
         UInt64(block >> 64),
         UInt16(value & ((BigInt(1) << shift) - 1)),
     )
+end
+
+function _position_from_bits(::Type{F}, bits::Integer) where {F}
+    capacity = _stream_capacity(F)
+    return _position_from_bits(F, _checked_position_bits(bits, capacity), capacity)
 end
 
 for F in _GENERATOR_SYMBOLS

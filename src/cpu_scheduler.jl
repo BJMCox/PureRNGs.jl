@@ -1,3 +1,13 @@
+const _CPU_FILL_CHUNK_BITS = UInt64(4096 * 32)
+# Two work items lose at small sizes, four leaves 4947 to 7418 Float64 elements serial.
+const _CPU_FILL_MIN_WORKITEMS = 3
+
+@inline function _dense_fill_bounds(workitem::Int, count::Int, chunk_elements::Int)
+    first = (workitem - 1) * chunk_elements + 1
+    chunk_count = min(chunk_elements, count - first + 1)
+    return first, first + chunk_count - 1
+end
+
 # Chunks are handed out dynamically so an unequal core mix does not idle the
 # fast cores. Chunk boundaries fall on draw boundaries, so the stream is the
 # same as the serial fill.
@@ -22,3 +32,5 @@
     foreach(wait, tasks)
     return nothing
 end
+
+const _SPLIT_CHUNK_CHILDREN = 4096

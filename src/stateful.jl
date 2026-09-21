@@ -13,6 +13,23 @@ the held generator after that prefix. A foreign `Random` fill has no
 chained-scalar consumption-order guarantee and may also leave its destination
 partially written. The held generator remains valid at the position after the
 last successful draw.
+
+# Examples
+
+```jldoctest
+julia> using Random
+
+julia> bridge = StatefulRNG(Philox4x32(20250918));
+
+julia> rand(bridge, UInt32)
+0x23b42aea
+
+julia> rand(bridge, UInt32)
+0x467098dd
+
+julia> rand(parent(bridge), UInt32)
+0xc25ecc0b
+```
 """
 mutable struct StatefulRNG{R<:AbstractPureRNG} <: Random.AbstractRNG
     rng::R
@@ -49,23 +66,30 @@ end
     return first(result)
 end
 
-for T in (Bool, UInt32, Int32, UInt64, Int64)
-    @eval @inline Random.rand(mutable_rng::StatefulRNG, ::Random.SamplerType{$T}) =
-        _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), $T))
-end
+@inline Random.rand(
+    mutable_rng::StatefulRNG,
+    ::Random.SamplerType{T},
+) where {T<:Union{Bool,_UniformInteger}} =
+    _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), T))
 
-for T in (Float32, Float64)
-    @eval begin
-        @inline Random.rand(
-            mutable_rng::StatefulRNG,
-            ::Random.SamplerTrivial{Random.CloseOpen01{$T}},
-        ) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), $T))
-        @inline Random.randn(mutable_rng::StatefulRNG, ::Type{$T}) =
-            _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), $T))
-        @inline Random.randexp(mutable_rng::StatefulRNG, ::Type{$T}) =
-            _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), $T))
-    end
-end
+# Random's own float methods name Float32 and Float64 concretely in the second
+# slot, so a `T<:_UniformFloat` bound here would be ambiguous with them.
+@inline Random.rand(
+    mutable_rng::StatefulRNG,
+    ::Random.SamplerTrivial{Random.CloseOpen01{Float32}},
+) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float32))
+@inline Random.rand(
+    mutable_rng::StatefulRNG,
+    ::Random.SamplerTrivial{Random.CloseOpen01{Float64}},
+) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float64))
+@inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float32}) =
+    _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), Float32))
+@inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float64}) =
+    _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), Float64))
+@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float32}) =
+    _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), Float32))
+@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float64}) =
+    _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), Float64))
 
 @inline Random.randn(mutable_rng::StatefulRNG) = Random.randn(mutable_rng, Float64)
 @inline Random.randexp(mutable_rng::StatefulRNG) = Random.randexp(mutable_rng, Float64)
@@ -119,14 +143,16 @@ end
             position, _ = _try_advance(mutable_rng.rng, bits_lo, bits_hi)
         end
     end
+    # Only the prefix the stream still covers is filled, so the bridge enters the
+    # CPU body directly instead of going through a whole-destination fill.
     if !iszero(fitting_count)
-        _fill_range_cpu_unchecked!(
+        _fill_transformed_cpu!(
             mutable_rng.rng,
             mutable_rng.rng.position,
             destination,
-            range,
-            span,
+            T,
             1:Int(fitting_count),
+            _RangeCodec(range, span),
         )
         mutable_rng.rng = _rebuild(mutable_rng.rng, position, mutable_rng.rng.device)
     end
@@ -135,12 +161,10 @@ end
     return destination
 end
 
-const _StatefulUniform = Union{Bool,UInt32,Int32,UInt64,Int64,Float32,Float64}
-
 @inline Random.rand!(
     mutable_rng::StatefulRNG,
     destination::Array{T},
-) where {T<:_StatefulUniform} =
+) where {T<:_UniformResult} =
     _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
 
 # Without this hook `rand(m, T, n)` falls to Random's scalar loop instead of the

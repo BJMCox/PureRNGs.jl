@@ -3,6 +3,7 @@ module PureRNGsCUDAExt
 import CUDA
 import PureRNGs
 import KernelAbstractions
+using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
 const _CUDAGenerators = IR._BackendGenerators{IR._CUDABackend}
@@ -11,6 +12,7 @@ const _CUDAThreefry4x32 = IR.Threefry4x32{IR._CUDABackend}
 const _CUDAPhilox2x64 = IR.Philox2x64{IR._CUDABackend}
 const _CUDAPhilox4x64 = IR.Philox4x64{IR._CUDABackend}
 const _CUDAThreefry4x64 = IR.Threefry4x64{IR._CUDABackend}
+const _CUDAChaCha = IR.ChaCha{IR._CUDABackend}
 const _CUDANatural128 = Union{_CUDAPhilox4x32,_CUDAThreefry4x32}
 const _CUDANonNatural128 = Union{
     IR.Philox2x32{IR._CUDABackend},
@@ -23,10 +25,11 @@ const _CUDANonNatural128 = Union{
 }
 const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32}
 # A100 trials retain only generators where cooperative stores beat grouped fills.
+# The two-word generators are absent because their grouped store already
+# coalesces: Threefry2x64 measures 881 against 861 GiB/s on a 2^27 `UInt64` fill.
 const _CUDAPackedIntegerGenerators =
-    Union{_CUDAPhilox2x64,_CUDAPhilox4x64,_CUDAThreefry4x64}
+    Union{_CUDAPhilox2x64,_CUDAPhilox4x64,_CUDAThreefry4x64,_CUDAChaCha}
 const _CUDA_FILL_THREADS = 256
-const _CUDA_WEIGHT_FOLD_LANES = 1024
 # Large-fill benchmarks select this multiple of the device thread-capacity block count.
 const _CUDA_FILL_THREAD_CAPACITY_MULTIPLIER = 128
 const _CUDA_U32X4 = NTuple{4,VecElement{UInt32}}
@@ -41,10 +44,21 @@ const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
 const _CUDAPackedValue = Union{IR._UniformInteger,Float32,Float64}
 const _CUDAPackedCodec = Union{
     Val{:uniform},
-    Val{:normal},
+    IR._NormalCodec{IR._CUDABackend},
     IR._ExponentialCodec{IR._CUDABackend},
     IR._MappedFillCodec,
 }
+
+# The portable four-product multiply costs Philox2x64 1.9x on sm_80, where one
+# `mul.hi.u64` gives the high half. `widemul` would give it too, but [R30]
+# forbids a 128-bit integer in device typed IR, so the high half comes from
+# libdevice. The override reaches device code only, and the host keeps the
+# portable form that its own range arithmetic shares.
+@inline _mul_hi_u64(a::UInt64, b::UInt64) =
+    ccall("extern __nv_umul64hi", llvmcall, UInt64, (UInt64, UInt64), a, b)
+
+CUDA.@device_override @inline IR._mulhilo64(a::UInt64, b::UInt64) =
+    (_mul_hi_u64(a, b), a * b)
 
 @inline _bool_packs_per_block(rng) = Val(Int(IR._block_bits(rng)) ÷ 16)
 
@@ -52,54 +66,120 @@ struct _CUDANatural128Pack{T}
     lanes::_CUDA_U32X4
 end
 
-@inline IR._device_uniform_fill_plan(
+const _CUDAUniformLikeCodec =
+    Union{Val{:uniform},IR._ExponentialCodec{IR._CUDABackend},IR._MappedFillCodec}
+
+# Elements one work item writes in a grouped fill. The exponential and the
+# mapped codecs share the uniform table: they draw one value of the same width.
+@inline _fill_group_elements(::_CUDAUniformLikeCodec, rng, ::Type{Bool}) = Val(4)
+@inline _fill_group_elements(
+    ::_CUDAUniformLikeCodec,
+    rng::IR._NarrowGenerators,
+    ::Type{UInt32},
+) = Val(2)
+@inline _fill_group_elements(
+    ::_CUDAUniformLikeCodec,
+    rng::IR._Position64Generators,
+    ::Type{UInt32},
+) = Val(4)
+@inline _fill_group_elements(
+    ::_CUDAUniformLikeCodec,
+    rng::IR._Position128Generators,
+    ::Type{UInt32},
+) = Val(8)
+@inline _fill_group_elements(::_CUDAUniformLikeCodec, rng::IR.ChaCha, ::Type{UInt32}) =
+    Val(16)
+@inline _fill_group_elements(codec::_CUDAUniformLikeCodec, rng, ::Type{Int32}) =
+    _fill_group_elements(codec, rng, UInt32)
+@inline _fill_group_elements(
+    ::_CUDAUniformLikeCodec,
+    rng::IR._NarrowGenerators,
+    ::Type{UInt64},
+) = Val(1)
+@inline _fill_group_elements(
+    ::_CUDAUniformLikeCodec,
+    rng::IR._Position64Generators,
+    ::Type{UInt64},
+) = Val(2)
+@inline _fill_group_elements(
+    ::_CUDAUniformLikeCodec,
+    rng::IR._Position128Generators,
+    ::Type{UInt64},
+) = Val(4)
+@inline _fill_group_elements(::_CUDAUniformLikeCodec, rng::IR.ChaCha, ::Type{UInt64}) =
+    Val(8)
+@inline _fill_group_elements(codec::_CUDAUniformLikeCodec, rng, ::Type{Int64}) =
+    _fill_group_elements(codec, rng, UInt64)
+@inline _fill_group_elements(::_CUDAUniformLikeCodec, rng, ::Type{Float32}) = Val(4)
+@inline _fill_group_elements(::_CUDAUniformLikeCodec, rng, ::Type{Float64}) = Val(4)
+@inline _fill_group_elements(::IR._NormalCodec{IR._CUDABackend}, rng, ::Type{Float32}) =
+    Val(8)
+@inline _fill_group_elements(::IR._NormalCodec{IR._CUDABackend}, rng, ::Type{Float64}) =
+    Val(4)
+
+# A100 trials picked these output tiles and workgroup sizes.
+@inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))
+@inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
+@inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
+@inline _cooperative_uniform_fill(rng, T) = nothing
+
+@inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(512), Val(32))
+@inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(512), Val(32))
+@inline _cooperative_normal_fill(rng, T) = nothing
+
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAPhilox4x32,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)
 
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAThreefry4x32,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)
 
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     rng::_CUDAPhilox4x32,
+    ::Val{:uniform},
     ::Type{Float32},
-) = (Val(:cooperative), IR._cooperative_uniform_fill(rng, Float32)..., Val(4))
+) = (Val(:cooperative), _cooperative_uniform_fill(rng, Float32)..., Val(4))
 
+# A100 trials: a 2048-output tile for every result type, with the workgroup one
+# warp wide for a four-output store and two for a two-output store. The small
+# workgroup wins because the kernel's one barrier is free inside a warp and
+# stalls the group across warps.
 @inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt32,Int32,Float32}} =
     (Val(2048), Val(32), Val(4))
 @inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt64,Int64,Float64}} =
-    (Val(1024), Val(64), Val(2))
-@inline _packed_integer_plan(::Type{T}) where {T<:Union{UInt32,Int32}} =
-    _packed_16byte_plan(T)
-# A100 trials favor twice the output tile for 64-bit integer stores.
-@inline _packed_integer_plan(::Type{T}) where {T<:Union{UInt64,Int64}} =
     (Val(2048), Val(64), Val(2))
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
-@inline IR._device_uniform_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAPackedIntegerGenerators,
+    ::Val{:uniform},
     ::Type{T},
-) where {T<:IR._UniformInteger} = (Val(:cooperative), _packed_integer_plan(T)...)
+) where {T<:IR._UniformInteger} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
-@inline function IR._device_uniform_fill_plan(
+@inline function IR._device_fill_plan(
     ::CUDA.CUDABackend,
     rng::_CUDAGenerators,
+    ::Val{:uniform},
     ::Type{T},
 ) where {T}
-    cooperative = IR._cooperative_uniform_fill(rng, T)
+    cooperative = _cooperative_uniform_fill(rng, T)
     cooperative === nothing || return (Val(:cooperative), cooperative...)
     T === Bool && return (Val(:bool_blocks), _bool_packs_per_block(rng))
-    return (Val(:grouped), IR._device_uniform_fill_group(rng, T))
+    return (Val(:grouped), _fill_group_elements(Val(:uniform), rng, T))
 end
 
 @inline _dense_16byte_aligned(destination, ::Type{T}) where {T} =
@@ -123,14 +203,195 @@ end
     8192
 @inline _packed_integer_min_length(::_CUDAThreefry4x64, ::Type{<:Union{UInt64,Int64}}) =
     4096
+@inline _packed_integer_min_length(::_CUDAChaCha, ::Type{<:IR._UniformInteger}) = 4096
 
-@inline _packed_fallback_group(rng, ::Type{T}, ::Val{:normal}) where {T} =
-    IR._device_normal_fill_group(T)
-@inline _packed_fallback_group(
+@inline _stream_block_offset(block::UInt64, offset::UInt64) = block + offset
+@inline function _stream_block_offset(block::NTuple{2,UInt64}, offset::UInt64)
+    lo = block[1] + offset
+    return lo, block[2] + UInt64(lo < block[1])
+end
+
+@inline _cooperative_shared_words(::Val{B}, ::Val{O}, ::Val{W}) where {B,O,W} =
+    (B ÷ 64) * cld((B - 1) + O * W, B)
+
+KernelAbstractions.@kernel function _cooperative_fill_kernel!(
     rng,
+    destination,
+    ::Val{T},
+    ::Val{D},
+    ::Val{W},
+    block_width::Val{B},
+    ::Val{O},
+    ::Val{L},
+    ::Val{P},
+    ::Val{S},
+    codec,
+) where {T,D,W,B,O,L,P,S}
+    destination = reinterpret(D, vec(destination))
+    group = @index(Group, Linear)
+    lane = @index(Local, Linear)
+    shared = @localmem UInt64 (
+        S ? 2 * cld(O * W, B) : _cooperative_shared_words(block_width, Val(O), Val(W)),
+    )
+    if S
+        blocks = cld(O * W, B)
+        first_block = IR._position_block(rng.position) + UInt64((group - 1) * blocks)
+        block_offset = lane - 1
+        while block_offset < blocks
+            block_words = IR._block_words(rng, first_block + UInt64(block_offset))
+            @inbounds begin
+                shared[2block_offset+1] = block_words[1]
+                shared[2block_offset+2] = block_words[2]
+            end
+            block_offset += L
+        end
+    else
+        first = (group - 1) * O + 1
+        outputs = min(O, P * length(destination) - first + 1)
+        bits_lo, bits_hi = IR._bit_span(UInt64(first - 1), UInt16(W))
+        position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
+        block_bits = B
+        blocks = cld(Int(position.bit) + outputs * W, block_bits)
+
+        block_offset = lane - 1
+        while block_offset < blocks
+            block = _stream_block_offset(IR._position_block(position), UInt64(block_offset))
+            block_words = IR._block_words(rng, block)
+            shared_first = block_offset * length(block_words)
+            @inbounds for word in eachindex(block_words)
+                shared[shared_first+word] = block_words[word]
+            end
+            block_offset += L
+        end
+    end
+    @synchronize
+
+    write_group = @index(Group, Linear)
+    write_lane = @index(Local, Linear)
+    if S
+        pack = write_lane - 1
+        packs = O ÷ P
+        first_pack = (write_group - 1) * packs + 1
+        while pack < packs
+            @inbounds destination[first_pack+pack] =
+                _cooperative_pack(codec, T, shared, P * pack * W, Val(P), Val(W))
+            pack += L
+        end
+    else
+        write_first = (write_group - 1) * O + 1
+        write_outputs = min(O, P * length(destination) - write_first + 1)
+        write_bits_lo, write_bits_hi = IR._bit_span(UInt64(write_first - 1), UInt16(W))
+        write_position = IR._advance_position_unchecked(rng, write_bits_lo, write_bits_hi)
+        if P == 1
+            output = write_lane - 1
+            while output < write_outputs
+                raw = IR._local_dense_bits(
+                    shared,
+                    Int(write_position.bit) + output * W,
+                    Val(W),
+                )
+                @inbounds destination[write_first+output] =
+                    IR._cooperative_value(codec, T, raw)
+                output += L
+            end
+        else
+            output = P * (write_lane - 1)
+            while output < write_outputs
+                bit = Int(write_position.bit) + output * W
+                index = ((write_first - 1) + output) ÷ P + 1
+                @inbounds destination[index] =
+                    _cooperative_pack(codec, T, shared, bit, Val(P), Val(W))
+                output += P * L
+            end
+        end
+    end
+end
+
+@inline function _cooperative_pack(
+    codec,
+    T,
+    shared,
+    bit,
+    outputs_per_store::Val{P},
+    ::Val{W},
+) where {P,W}
+    return ntuple(outputs_per_store) do lane
+        raw = IR._local_dense_bits(shared, bit + (lane - 1) * W, Val(W))
+        VecElement(IR._cooperative_value(codec, T, raw))
+    end
+end
+
+KernelAbstractions.@kernel function _bool_blocks_fill_kernel!(
+    rng,
+    destination,
+    ::Val{P},
+) where {P}
+    block_ordinal = @index(Global, Linear)
+    stride = KernelAbstractions.@ndrange()[1]
+    block_count = length(destination) ÷ P
+    while block_ordinal <= block_count
+        bits_lo, bits_hi = IR._bit_span(UInt64(block_ordinal - 1), IR._block_bits(rng))
+        position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
+        block_words = IR._block_words(rng, IR._position_block(position))
+        first_pack = (block_ordinal - 1) * P + 1
+        pack = 0
+        while pack < P
+            @inbounds destination[first_pack+pack] =
+                _cooperative_pack(Val(:uniform), Bool, block_words, 16pack, Val(16), Val(1))
+            pack += 1
+        end
+        block_ordinal += stride
+    end
+end
+
+@inline _outputs_per_store(::Tuple{Val{:cooperative},Val{O},Val{L}}) where {O,L} = Val(1)
+@inline _outputs_per_store(
+    plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{P}},
+) where {O,L,P} = plan[4]
+
+@inline function _launch_cooperative_fill!(
+    backend,
+    rng,
+    destination,
     ::Type{T},
-    ::Union{Val{:uniform},IR._ExponentialCodec{IR._CUDABackend},IR._MappedFillCodec},
-) where {T} = IR._device_uniform_fill_group(rng, T)
+    codec,
+    plan,
+    stream_aligned::Val{S},
+    ::Type{D} = eltype(destination),
+) where {T,S,D}
+    outputs, workgroup = plan[2], plan[3]
+    outputs_per_store = _outputs_per_store(plan)
+    output_count = IR._val_count(outputs)
+    workgroup_size = IR._val_count(workgroup)
+    groups = cld(length(destination), output_count)
+    _cooperative_fill_kernel!(backend)(
+        rng,
+        destination,
+        Val(T),
+        Val(D),
+        Val(IR._fill_width(codec, T)),
+        Val(Int(IR._block_bits(rng))),
+        outputs,
+        workgroup,
+        outputs_per_store,
+        stream_aligned,
+        codec;
+        ndrange = groups * workgroup_size,
+        workgroupsize = workgroup_size,
+    )
+    return destination
+end
+
+@inline function IR._launch_device_fill!(
+    backend::CUDA.CUDABackend,
+    rng,
+    destination,
+    ::Type{T},
+    codec,
+    plan::Tuple{Val{:cooperative},Val{O},Val{L}},
+) where {T,O,L}
+    return _launch_cooperative_fill!(backend, rng, destination, T, codec, plan, Val(false))
+end
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
@@ -149,11 +410,11 @@ end
             destination,
             T,
             codec,
-            (Val(:grouped), _packed_fallback_group(rng, T, codec)),
+            (Val(:grouped), _fill_group_elements(codec, rng, T)),
         )
     end
 
-    IR._launch_cooperative_fill!(
+    _launch_cooperative_fill!(
         backend,
         rng,
         destination,
@@ -186,7 +447,7 @@ end
     end
 
     stream_aligned = Val(_stream_aligned_philox4x32_f32_fill(rng, destination, plan[2]))
-    IR._launch_cooperative_fill!(
+    _launch_cooperative_fill!(
         backend,
         rng,
         destination,
@@ -221,7 +482,7 @@ end
 @inline _natural128_packed(block_words, ::Type{_CUDANatural128Pack{T}}) where {T} =
     _CUDANatural128Pack{T}(_natural128_packed(block_words, T))
 
-KernelAbstractions.@kernel function _natural128_packed_kernel!(
+KernelAbstractions.@kernel function _natural128_fill_kernel!(
     rng,
     destination,
     ::Val{D},
@@ -269,14 +530,14 @@ end
             destination,
             Bool,
             codec,
-            (Val(:grouped), IR._device_uniform_fill_group(rng, Bool)),
+            (Val(:grouped), _fill_group_elements(codec, rng, Bool)),
         )
     end
 
     packed = reinterpret(_CUDA_B8X16, vec(destination))
     workitems = length(packed) ÷ P
     blocks = _cuda_packed_blocks(workitems)
-    IR._uniform_fill_bool_blocks_kernel!(backend)(
+    _bool_blocks_fill_kernel!(backend)(
         rng,
         packed,
         plan[2];
@@ -293,7 +554,7 @@ end
 end
 
 @inline _stream_aligned_philox4x32_f32_fill(rng, destination, outputs) =
-    iszero(rng.position.bit) && iszero(length(destination) % IR._fill_group_size(outputs))
+    iszero(rng.position.bit) && iszero(length(destination) % IR._val_count(outputs))
 
 @inline function IR._launch_device_fill!(
     backend::CUDA.CUDABackend,
@@ -310,13 +571,13 @@ end
             destination,
             T,
             codec,
-            (Val(:grouped), IR._device_uniform_fill_group(rng, T)),
+            (Val(:grouped), _fill_group_elements(codec, rng, T)),
         )
     end
 
     storage_type = _CUDANatural128Pack{T}
     blocks = _cuda_packed_blocks(length(destination) ÷ (_CUDA_FILL_ALIGNMENT ÷ sizeof(T)))
-    _natural128_packed_kernel!(backend)(
+    _natural128_fill_kernel!(backend)(
         rng,
         destination,
         Val(storage_type);
@@ -326,38 +587,49 @@ end
     return destination
 end
 
-@inline function IR._device_normal_fill_plan(
+@inline function IR._device_fill_plan(
     ::CUDA.CUDABackend,
     rng::_CUDAGenerators,
+    codec::IR._NormalCodec{IR._CUDABackend},
     ::Type{T},
 ) where {T}
-    cooperative = IR._cooperative_normal_fill(rng, T)
-    return cooperative === nothing ? (Val(:grouped), IR._device_normal_fill_group(T)) :
+    cooperative = _cooperative_normal_fill(rng, T)
+    return cooperative === nothing ? (Val(:grouped), _fill_group_elements(codec, rng, T)) :
            (Val(:cooperative), cooperative...)
 end
 
-@inline IR._device_normal_fill_plan(
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
+    ::IR._NormalCodec{IR._CUDABackend},
     ::Type{T},
 ) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
-@inline function IR._transformed_fill_plan(
-    ::IR._ExponentialCodec{IR._CUDABackend},
+@inline function IR._device_fill_plan(
     backend::CUDA.CUDABackend,
     rng::_CUDAGenerators,
+    ::IR._ExponentialCodec{IR._CUDABackend},
     ::Type{T},
 ) where {T<:Union{Float32,Float64}}
-    return IR._device_uniform_fill_plan(backend, rng, T)
+    return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 
-@inline function IR._device_range_fill_plan(
+@inline _grouped_candidate_plan(span::UInt64) =
+    IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
+
+@inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
-    rng::_CUDAGenerators,
-    span::UInt64,
-)
-    return IR._range_bits(span) == UInt16(128) ? nothing : (Val(:grouped), Val(2))
-end
+    ::_CUDAGenerators,
+    codec::IR._RangeCodec,
+    ::Type,
+) = _grouped_candidate_plan(codec.span)
+
+@inline IR._device_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAGenerators,
+    codec::IR._PopulationCodec,
+    ::Type,
+) = _grouped_candidate_plan(codec.cardinality)
 
 @inline function IR._allocate_array(::IR._CUDABackend, ::Type{T}, dims::Tuple) where {T}
     return CUDA.CuArray{T}(undef, dims)
@@ -365,115 +637,5 @@ end
 
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
-
-KernelAbstractions.@kernel function _prepare_weights_cuda_fold_kernel!(
-    source,
-    total_result,
-    invalid_result,
-    cumulative,
-    ::Val{validate_elements},
-) where {validate_elements}
-    lane = KernelAbstractions.@index(Local, Linear)
-    staged = KernelAbstractions.@localmem Float64 (_CUDA_WEIGHT_FOLD_LANES,)
-    total = zero(Float64)
-    invalid = false
-    first = 1
-    while first <= length(source)
-        ordinal = first + lane - 1
-        if ordinal <= length(source)
-            @inbounds staged[lane] = Float64(IR._population_value(source, UInt64(ordinal)))
-        end
-        KernelAbstractions.@synchronize
-
-        if lane == 1
-            last = min(_CUDA_WEIGHT_FOLD_LANES, length(source) - first + 1)
-            @inbounds for slot = 1:last
-                weight = staged[slot]
-                invalid |=
-                    validate_elements && (!isfinite(weight) || weight < zero(Float64))
-                total += weight
-                staged[slot] = total
-            end
-        end
-        KernelAbstractions.@synchronize
-
-        if ordinal <= length(source)
-            @inbounds cumulative[ordinal] = staged[lane]
-        end
-        KernelAbstractions.@synchronize
-        first += _CUDA_WEIGHT_FOLD_LANES
-    end
-    if lane == 1
-        invalid |= !isfinite(total) || total <= zero(Float64)
-        @inbounds begin
-            total_result[1] = total
-            invalid_result[1] = invalid
-        end
-    end
-end
-
-function IR._prepare_weight_scan(rng::_CUDAGenerators, weights, agnostic::Bool)
-    source =
-        agnostic ? IR._transfer_weights(rng.device, IR._collect_weights(weights)) : weights
-    cumulative = IR._allocate_array(rng.device, Float64, (length(source),))
-    total_result = IR._allocate_array(rng.device, Float64, (1,))
-    invalid_result = IR._allocate_array(rng.device, Bool, (1,))
-    backend = IR._fill_backend(cumulative)
-    _prepare_weights_cuda_fold_kernel!(backend)(
-        source,
-        total_result,
-        invalid_result,
-        cumulative,
-        Val(!agnostic);
-        ndrange = _CUDA_WEIGHT_FOLD_LANES,
-        workgroupsize = _CUDA_WEIGHT_FOLD_LANES,
-    )
-    only(Array(invalid_result)) && IR._invalid_weights()
-    return nothing, total_result, cumulative
-end
-
-KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
-    population,
-    cumulative,
-    thresholds,
-    destination,
-)
-    index = KernelAbstractions.@index(Global, Linear)
-    threshold = @inbounds thresholds[index]
-    lower = 1
-    upper = length(cumulative)
-    @inbounds while lower < upper
-        middle = lower + ((upper - lower) >>> 1)
-        if threshold < cumulative[middle]
-            upper = middle
-        else
-            lower = middle + 1
-        end
-    end
-    indices = eachindex(destination)
-    @inbounds begin
-        destination_index = IR._sampling_destination_index(indices, index)
-        destination[destination_index] = IR._population_value(population, UInt64(lower))
-    end
-end
-
-@inline function IR._launch_weighted_scan!(
-    ::IR._CUDABackend,
-    backend,
-    population,
-    _weights,
-    thresholds,
-    cumulative,
-    destination,
-)
-    _weighted_binary_search_kernel!(backend)(
-        population,
-        cumulative,
-        thresholds,
-        destination;
-        ndrange = length(destination),
-    )
-    return destination
-end
 
 end

@@ -1,69 +1,20 @@
-@inline function _launch_uniform!(backend, rng, destination, ::Type{T}) where {T}
-    plan = _device_uniform_fill_plan(backend, rng, T)
-    return _launch_device_fill!(backend, rng, destination, T, Val(:uniform), plan)
-end
-
-function _launch_uniform!(
-    ::KernelAbstractions.CPU,
-    rng,
-    destination::Union{Array{T},BitArray},
-    ::Type{T},
-) where {T}
-    chunk_elements = _dense_fill_chunk_elements(T)
-    _run_chunks(length(destination), chunk_elements) do first, last
-        bits_lo, bits_hi = _bit_span(UInt64(first - 1), _draw_bits(T))
-        position = _advance_position_unchecked(rng, bits_lo, bits_hi)
-        _fill_uniform_dense_cpu!(rng, position, destination, T, first:last)
-    end
-    return destination
-end
-
-@inline function _fill_uniform_prevalidated!(
+# Uniform draws run the transformed scaffold under `Val(:uniform)`, whose
+# `_fill_width` and `_cooperative_value` methods live in `fill_hooks.jl`.
+@inline function Random.rand!(
     rng::_ScalarUniformGenerators,
-    destination::AbstractArray{T},
-    threaded::Bool,
-) where {T}
-    bits_lo, bits_hi = _bit_span(UInt64(length(destination)), _draw_bits(T))
-    next_rng = _reserve(rng, bits_lo, bits_hi)
-    isempty(destination) && return destination, next_rng
-    if !threaded && rng.device isa _CPUBackend
-        _fill_uniform_dense_cpu!(rng, rng.position, destination, T, eachindex(destination))
-        return destination, next_rng
-    end
-    backend = _fill_backend(destination)
-    _launch_uniform!(backend, rng, destination, T)
-    return destination, next_rng
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformResult}
+    result, _ = _rand_transformed_next_fill!(rng, destination, threaded, Val(:uniform))
+    return result
 end
 
-@inline function _rand_next_fill!(
+@inline function rand_next!(
     rng::_ScalarUniformGenerators,
-    destination::AbstractArray{T},
-    threaded::Bool,
-) where {T}
-    _check_fill_device(rng, destination)
-    _check_serviceability(rng, T)
-    return _fill_uniform_prevalidated!(rng, destination, threaded)
-end
-
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-    @eval begin
-        @inline function Random.rand!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded::Bool = true,
-        )
-            result, _ = _rand_next_fill!(rng, destination, threaded)
-            return result
-        end
-
-        @inline function rand_next!(
-            rng::_ScalarUniformGenerators,
-            destination::AbstractArray{$T};
-            threaded::Bool = true,
-        )
-            return _rand_next_fill!(rng, destination, threaded)
-        end
-    end
+    destination::AbstractArray{T};
+    threaded = true,
+) where {T<:_UniformResult}
+    return _rand_transformed_next_fill!(rng, destination, threaded, Val(:uniform))
 end
 
 @doc """
@@ -79,104 +30,38 @@ Set `threaded=false` to request the serial CPU fill path. The keyword does not
 change the generated stream. The input generator never changes.
 """ rand_next!
 
-const _AddressIndex64 = Union{Bool,Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
-
-@noinline function _invalid_address_index()
-    throw(ArgumentError("addressed draw index must be positive"))
+@inline function rand_next(rng::_ScalarUniformGenerators, dim1::Integer, dims::Integer...)
+    return _rand_transformed_next_array(rng, Float64, (dim1, dims...), Val(:uniform))
 end
+@inline rand_next(rng::_ScalarUniformGenerators, dims::Dims) =
+    _rand_transformed_next_array(rng, Float64, dims, Val(:uniform))
 
-@noinline function _address_capacity_error()
-    throw(ArgumentError("draw exceeds the generator counter capacity"))
-end
-
-@inline function _addressed_rng_device(
-    rng::_ScalarUniformGenerators,
-    width::UInt16,
-    i::_AddressIndex64,
-)
-    i < 1 && _invalid_address_index()
-    index = UInt64(i)
-    end_lo, end_hi = _bit_span(index, width)
-    _, ok = _try_advance(rng, end_lo, end_hi)
-    ok || _address_capacity_error()
-    start_lo, start_hi = _bit_span(index - UInt64(1), width)
-    position = _advance_position_unchecked(rng, start_lo, start_hi)
-    position == rng.position && return rng
-    return _rebuild(rng, position, rng.device)
-end
-
-@inline _addressed_rng(rng::_Position64Generators, width::UInt16, i::_AddressIndex64) =
-    _addressed_rng_device(rng, width, i)
-@inline _addressed_rng(rng::_Position128Generators, width::UInt16, i::_AddressIndex64) =
-    _addressed_rng_device(rng, width, i)
-
-@noinline function _addressed_rng(rng::_Position64Generators, width::UInt16, i::Integer)
-    i < 1 && _invalid_address_index()
-    _, valid = _try_advance(rng, UInt64(0), UInt64(0))
-    valid || _address_capacity_error()
-    position = rng.position
-    block_bits = BigInt(_block_bits(rng))
-    current = BigInt(position.block) * block_bits + BigInt(position.bit)
-    capacity = (BigInt(_max_block(rng)) + 1) * block_bits
-    offset = (BigInt(i) - 1) * BigInt(width)
-    current + offset + BigInt(width) <= capacity || _address_capacity_error()
-    block, bit = divrem(current + offset, block_bits)
-    return _rebuild(rng, _Position64(UInt64(block), UInt16(bit)), rng.device)
-end
-
-@noinline function _addressed_rng(rng::_Position128Generators, width::UInt16, i::Integer)
-    i < 1 && _invalid_address_index()
-    _, valid = _try_advance(rng, UInt64(0), UInt64(0))
-    valid || _address_capacity_error()
-    position = rng.position
-    block_bits = BigInt(_block_bits(rng))
-    block = (BigInt(position.hi) << 64) + BigInt(position.lo)
-    current = block * block_bits + BigInt(position.bit)
-    capacity = (BigInt(1) << 128) * block_bits
-    offset = (BigInt(i) - 1) * BigInt(width)
-    current + offset + BigInt(width) <= capacity || _address_capacity_error()
-    start_block, bit = divrem(current + offset, block_bits)
-    mask = BigInt(typemax(UInt64))
-    lo = UInt64(start_block & mask)
-    hi = UInt64(start_block >> 64)
-    return _rebuild(rng, _Position128(lo, hi, UInt16(bit)), rng.device)
-end
-
-# The draws at consecutive addresses are the fill that starts at the first one.
-@inline function _addressed_array(
+@inline function Random.rand(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-    indices::AbstractUnitRange{<:Integer},
-    width::UInt16,
-    fill_next,
-) where {T}
-    isempty(indices) && return _allocate_draw_array(rng.device, T, (0,))
-    return first(fill_next(_addressed_rng(rng, width, first(indices)), T, length(indices)))
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_UniformResult}
+    destination, _ = _rand_transformed_next_array(rng, T, (dim1, dims...), Val(:uniform))
+    return destination
 end
+@inline Random.rand(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dims::Dims,
+) where {T<:_UniformResult} =
+    first(_rand_transformed_next_array(rng, T, dims, Val(:uniform)))
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-    @eval begin
-        @inline randat(rng::_ScalarUniformGenerators, ::Type{$T}, i::Integer) =
-            _draw_unchecked(_addressed_rng(rng, _draw_bits($T), i), $T)
-        @inline randat(
-            rng::_ScalarUniformGenerators,
-            ::Type{$T},
-            indices::AbstractUnitRange{<:Integer},
-        ) = _addressed_array(rng, $T, indices, _draw_bits($T), rand_next)
-    end
+@inline function rand_next(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dim1::Integer,
+    dims::Integer...,
+) where {T<:_UniformResult}
+    return _rand_transformed_next_array(rng, T, (dim1, dims...), Val(:uniform))
 end
-
-@doc """
-    randat(rng, T, i)
-    randat(rng, T, i:j)
-
-Return the `i`th uniform draw at or after the current position of `rng`, where
-`i` is one-based, or the vector of draws `i` through `j`. Supported result
-types are `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, `Float32`, and
-`Float64`.
-
-Addressed draws do not advance or change `rng`. They throw when `i` is not
-positive or the addressed draw exceeds the generator's counter capacity.
-
-The distribution form of `randat` takes a single index.
-""" randat
+@inline rand_next(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+    dims::Dims,
+) where {T<:_UniformResult} = _rand_transformed_next_array(rng, T, dims, Val(:uniform))
