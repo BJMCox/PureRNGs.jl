@@ -27,4 +27,13 @@ end
     return Metal.MtlArray{T}(undef, dims)
 end
 
+# Cache host wrappers without creating a device context or compiling a kernel.
+let rng_type = IR.Philox4x32{IR._MetalBackend,10},
+    array_type = Metal.MtlArray{Float32,1,Metal.PrivateStorage}
+
+    precompile(IR.rand_next, (rng_type, Type{Float32}, Int))
+    precompile(IR.rand_next!, (rng_type, array_type))
+    precompile(IR.randn_next!, (rng_type, array_type))
+end
+
 end

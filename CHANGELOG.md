@@ -29,6 +29,7 @@ Initial development release.
 
 ### Changed
 
+- Precompile CUDA and Metal host wrappers for default `Philox4x32` `Float32` vector allocation, uniform fills, and normal fills. This reduces first-call latency without precompiling GPU kernels.
 - Expanded precompilation for normal/exponential wrappers, Stateful fills, supported distributions, and device-bound host scalar calls. GPU kernels are not precompiled by these workloads.
 - CUDA packed fills reuse the aligned full-tile kernel across generator families. Shared staging skips redundant stream extraction for aligned fills. Shifted positions, partial tiles, and small-fill fallbacks are unchanged.
 - The Philox cores unroll their rounds explicitly, as the Threefry cores already did. CUDA.jl 6.4 ships a ptxas that left the ten-round loop rolled, which cost the Philox fill kernels about a third of their throughput on an A100. With the unrolled cores a Philox4x32 `Float32` fill of 2^27 elements reaches 1.3 TiB/s on an A100 under CUDA.jl 6.4. Streams are unchanged.

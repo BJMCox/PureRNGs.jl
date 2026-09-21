@@ -646,4 +646,11 @@ end
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
 
+# Cache host wrappers without creating a device context or compiling a kernel.
+let rng_type = _CUDAPhilox4x32{10}, array_type = CUDA.CuArray{Float32,1,CUDA.DeviceMemory}
+    precompile(IR.rand_next, (rng_type, Type{Float32}, Int))
+    precompile(IR.rand_next!, (rng_type, array_type))
+    precompile(IR.randn_next!, (rng_type, array_type))
+end
+
 end
