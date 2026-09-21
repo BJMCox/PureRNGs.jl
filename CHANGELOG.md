@@ -24,11 +24,12 @@ Initial development release.
 - `splitrng(rng, n; threaded=true)` derives large child vectors on all CPU threads. The children do not depend on the keyword.
 - Optional Distributions, Enzyme, and Reactant integrations. Reactant array fills of any size trace, with no per-element constants in the compiled module.
 - `StreamExhausted{R}`, thrown when a draw outruns the generator's stream. `R` is the generator type and the single `bits` field is the required span. It holds no generator value, because keeping one alive across the capacity check cost 10% to 12% per chained `Philox4x64` draw. Argument validation keeps throwing `ArgumentError`.
-- A PrecompileTools workload over every public draw kind, in the package and in the Distributions extension. The first fill, scalar draw, and distribution draw of a session no longer compile.
+- PrecompileTools workloads for common core and Distributions calls.
 - A workflow-led manual, CPU and GPU tutorials, and an exported API reference.
 
 ### Changed
 
+- Expanded precompilation for normal/exponential wrappers, Stateful fills, supported distributions, and device-bound host scalar calls. GPU kernels are not precompiled by these workloads.
 - CUDA packed fills reuse the aligned full-tile kernel across generator families. Shared staging skips redundant stream extraction for aligned fills. Shifted positions, partial tiles, and small-fill fallbacks are unchanged.
 - The Philox cores unroll their rounds explicitly, as the Threefry cores already did. CUDA.jl 6.4 ships a ptxas that left the ten-round loop rolled, which cost the Philox fill kernels about a third of their throughput on an A100. With the unrolled cores a Philox4x32 `Float32` fill of 2^27 elements reaches 1.3 TiB/s on an A100 under CUDA.jl 6.4. Streams are unchanged.
 - Exponential draws use the open midpoint lattice the normal transform already uses, and consume 23 bits for `Float32` and 52 for `Float64` instead of 24 and 53. This is stream-law version 12. The old closed lattice contained zero, so the smallest draw was a negative zero; every draw is now strictly positive. The reach is unchanged at 16.6355 and 36.7368. `Exponential`, `Weibull`, `Rayleigh`, and `Pareto` follow the new width, `Laplace` consumes 24 or 53 bits, and every draw positioned after an exponential draw in a mixed stream moves by one bit per exponential draw.

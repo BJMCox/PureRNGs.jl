@@ -381,8 +381,19 @@ include("distributions_categorical.jl")
         Distributions.Normal(),
         Distributions.Uniform(),
         Distributions.Exponential(),
+        Distributions.LogNormal(),
+        Distributions.Weibull(),
+        Distributions.Rayleigh(),
+        Distributions.Laplace(),
+        Distributions.Logistic(),
+        Distributions.Gumbel(),
+        Distributions.Pareto(),
+        Distributions.Frechet(),
+        Distributions.Cauchy(),
+        Distributions.TriangularDist(0.0, 1.0, 0.5),
         Distributions.Bernoulli(),
         Distributions.DiscreteUniform(1, 6),
+        Distributions.Categorical([0.2, 0.3, 0.5]),
     )
 
     @compile_workload begin
@@ -390,7 +401,10 @@ include("distributions_categorical.jl")
         for d in distributions
             Random.rand(rng, d)
             value, _ = IR.rand_next(rng, d)
+            Random.rand(rng, d, draws)
+            values, _ = IR.rand_next(rng, d, draws)
             destination = Vector{_result_type(d)}(undef, draws)
+            Random.rand!(rng, d, destination)
             IR.rand_next!(rng, d, destination)
         end
     end

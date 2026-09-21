@@ -25,6 +25,7 @@ using PrecompileTools: PrecompileTools, @compile_workload, @setup_workload
                 rand_next!(rng, destination; threaded = true)
             end
 
+            bridge = StatefulRNG(rng)
             for T in (Float32, Float64)
                 normal, _ = randn_next(rng, T)
                 normals, _ = randn_next(rng, T, draws)
@@ -35,6 +36,16 @@ using PrecompileTools: PrecompileTools, @compile_workload, @setup_workload
                 destination = Vector{T}(undef, draws)
                 randn_next!(rng, destination)
                 randexp_next!(rng, destination)
+                Random.randn(rng, T)
+                Random.randn(rng, T, draws)
+                Random.randn!(rng, destination)
+                Random.randexp(rng, T)
+                Random.randexp(rng, T, draws)
+                Random.randexp!(rng, destination)
+                Random.randn(bridge, T)
+                Random.randn!(bridge, destination)
+                Random.randexp(bridge, T)
+                Random.randexp!(bridge, destination)
             end
 
             dice = Vector{Int}(undef, draws)
@@ -49,9 +60,22 @@ using PrecompileTools: PrecompileTools, @compile_workload, @setup_workload
             randsample(rng, population, weights, 3)
             randsample(rng, population, table, 3)
 
-            bridge = StatefulRNG(rng)
             rand(bridge, Float64)
             rand(bridge, Float64, draws)
+        end
+
+        # Device binding needs no driver. These scalar calls run on the host.
+        for device in (
+            MLDataDevices.CUDADevice(),
+            MLDataDevices.AMDGPUDevice(),
+            MLDataDevices.MetalDevice(),
+        )
+            rng = device(Philox4x32(seed))
+            for T in (Float32, Float64)
+                rand_next(rng, T)
+                randn_next(rng, T)
+                randexp_next(rng, T)
+            end
         end
     end
 end
