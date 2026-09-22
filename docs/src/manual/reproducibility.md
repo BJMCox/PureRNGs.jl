@@ -22,7 +22,9 @@ cover ChaCha, Philox4x32R7, and Threefry4x64R13 at commit `f8e60b2`, in both
 lanes, with PractRand alongside. The same checks passed for Philox2x64R6,
 Philox4x64R7, and Threefry4x32R12 at commit `c887861`, and for ChaCha8 and
 ChaCha20 at commit `8c0e646`.
-A consolidated archive is prepared but not yet published. It contains 32
+The [consolidated evidence archive](https://github.com/BJMCox/PureRNGs.jl/releases/download/bigcrush-practrand-f8e60b2-r1/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz)
+and its [SHA-256 checksum](https://github.com/BJMCox/PureRNGs.jl/releases/download/bigcrush-practrand-f8e60b2-r1/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz.sha256)
+are available alongside the earlier logs. The archive contains 32
 BigCrush cases across 16 named generator configurations and 24 PractRand streams
 across eight configurations. Each PractRand configuration has a 1 TiB root
 stream and 256 GiB split and `subrng` streams.
