@@ -101,3 +101,37 @@ Compiled distribution arithmetic can also differ from eager mappings.
 Repeated execution of the same executable with the same input state remains reproducible.
 
 Do not use cross-backend equality of transformed values as a substitute for comparing the underlying stream and state.
+
+## TandemRNG
+
+Loading TandemRNG enables its optional PureRNGs bridge:
+
+```julia
+import PureRNGs, TandemRNG
+
+rng = TandemRNG.Tandem8x32(42)
+values, rng = PureRNGs.rand_next(rng, Float64, 17, 3)
+children = PureRNGs.splitrng(rng, Val(3))
+stateful = PureRNGs.StatefulRNG(rng)
+```
+
+The bridge supports uniform scalar, addressed, allocating, and destination draws,
+`rngkey`, `rngposition`, `splitrng`, and `subrng`. Its values and advancement follow
+Tandem's natural alignment law. Tandem remains its own generator type.
+It follows the same MLDataDevices residence rules as the built-in generators:
+bind with `CUDADevice()` before GPU allocation, preserve binding through draws and
+derivations, and reject a destination on another backend even when empty.
+Backend tokens do not pin a physical GPU. Unsupported operations do not fall back to CPU.
+`StatefulRNG(rng)` returns `TandemRNG.Stateful` for Random consumers;
+`parent(stateful)` returns its current immutable generator.
+
+With Reactant loaded, convert through `Reactant.to_rarray(rng)` before compilation.
+Uniform draws, fills, static `splitrng(..., Val(N))`, and static `subrng` retain the same
+contract. Compiled carriers omit exhaustion checks. Keep each call within Tandem's
+2^64-bit stream, with the final position below 2^64.
+Distribution and continuation methods are outside the Tandem bridge's scope.
+
+The bridge precompile workload covers K1/K32/K64, all uniform draw types, vector and
+matrix fills, addressed draws, derivations, and the stateful constructor.
+Tandem's Reactant extension caches Julia tracing methods; the first compiled call
+still builds a backend executable.
