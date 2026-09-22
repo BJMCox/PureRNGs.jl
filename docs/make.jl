@@ -39,5 +39,6 @@ makedocs(
             "Enzyme and Reactant" => "integrations/compilation.md",
         ],
         "API reference" => "api.md",
+        "Acknowledgements" => "acknowledgements.md",
     ],
 )

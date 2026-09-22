@@ -31,5 +31,6 @@ Then choose a task:
 
 [Random interoperability](@ref), [Distributions](@ref), and [Differentiation and compilation](@ref) cover optional integrations.
 The [API reference](@ref) lists exported functions.
+See [Acknowledgements](@ref) for prior art and full references for the algorithms and validation tools.
 
 PureRNGs is not a cryptographic random-number generator.
