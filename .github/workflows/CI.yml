@@ -32,7 +32,7 @@ jobs:
     env:
       JULIA_NUM_THREADS: ${{ matrix.threads }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: ${{ matrix.julia }}
@@ -64,7 +64,7 @@ jobs:
     name: Downgrade to compat floors
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1.10'
@@ -80,7 +80,7 @@ jobs:
     name: Format and Aqua
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
@@ -123,7 +123,7 @@ jobs:
       JULIA_NUM_THREADS: '4'
       PURERNGS_REACTANT_BACKEND: cpu
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: julia-actions/setup-julia@v3
         with:
           version: '1'
