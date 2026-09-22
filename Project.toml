@@ -1,7 +1,7 @@
 name = "PureRNGs"
 uuid = "2ccaadc3-3d9a-45d4-a2ec-95a2424790b7"
 version = "0.0.1"
-authors = ["Ben Cox <bcox@mpp.mpg.de>"]
+authors = ["Jessica Cox <bcox@mpp.mpg.de>"]
 
 [deps]
 MLDataDevices = "7e8f7934-dd98-4c1a-8fe8-92b47a384d40"

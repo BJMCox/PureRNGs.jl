@@ -7,6 +7,7 @@ abstract: >-
 type: software
 authors:
   - family-names: Cox
-    given-names: Ben
+    given-names: Jessica
+    email: bcox@mpp.mpg.de
 repository-code: "https://github.com/BJMCox/PureRNGs.jl"
 license: Apache-2.0
