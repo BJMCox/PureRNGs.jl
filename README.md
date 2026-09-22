@@ -34,6 +34,8 @@ Backend support differs by tier: CPU and CUDA are release gates, AMDGPU is a pre
 
 Coverage reflects CPU CI only. GPU tests run separately and are not included because hosted CI has no GPU runner.
 
+See the [BigCrush and PractRand results](https://github.com/BJMCox/PureRNGs.jl/releases/tag/statistical-evidence-2026-09-22) for statistical test logs and reproduction details.
+
 Portions of the code in this package were generated with the assistance of LLMs.
 
 [Documentation](https://bjmcox.github.io/PureRNGs.jl/) · [Apache 2.0 license](LICENSE)
