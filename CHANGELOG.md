@@ -25,7 +25,7 @@ Initial development release.
 - Optional Distributions, Enzyme, and Reactant integrations. Reactant array fills of any size trace, with no per-element constants in the compiled module.
 - `StreamExhausted{R}`, thrown when a draw outruns the generator's stream. `R` is the generator type and the single `bits` field is the required span. It holds no generator value, because keeping one alive across the capacity check cost 10% to 12% per chained `Philox4x64` draw. Argument validation keeps throwing `ArgumentError`.
 - PrecompileTools workloads for common core and Distributions calls.
-- A workflow-led manual, CPU and GPU tutorials, and an exported API reference.
+- GitHub installation instructions, a workflow-led manual, CPU and GPU tutorials, and an exported API reference.
 
 ### Changed
 

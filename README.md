@@ -8,6 +8,13 @@
 Counter-based random numbers for Julia, with explicit state and CPU/GPU array generation.
 Philox, Threefry, and ChaCha generators support uniform, normal, and exponential draws, integer ranges, weighted sampling, and key splitting.
 
+Install from GitHub using Julia 1.10 or later:
+
+```julia
+using Pkg
+Pkg.add(url="https://github.com/BJMCox/PureRNGs.jl")
+```
+
 ```julia
 using PureRNGs, Random
 
@@ -24,8 +31,6 @@ values, rng = rand_next(rng, Float32, 1_000_000) # CuArray
 ```
 
 Backend support differs by tier: CPU and CUDA are release gates, AMDGPU is a preview, and Metal is experimental. See the [Devices](https://bjmcox.github.io/PureRNGs.jl/manual/devices/) page.
-
-> **Note:** This package is not registered in the Julia General registry. Do not register it.
 
 Coverage reflects CPU CI only. GPU tests run separately and are not included because hosted CI has no GPU runner.
 

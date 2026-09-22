@@ -4,7 +4,7 @@ Describe the change and why it is needed.
 
 ## Pre-push checklist
 
-Hosted CI is manual-dispatch only while the repository is private, so this recipe is the
+Hosted CI is manual-dispatch only, so this recipe is the
 gate. See the "Before pushing" section of `CONTRIBUTING.md`.
 
 - [ ] `Pkg.test()` on the package, which sets `--check-bounds=yes`.

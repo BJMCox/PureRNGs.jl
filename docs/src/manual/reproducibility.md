@@ -20,8 +20,14 @@ PractRand also runs as a diagnostic on the native word stream and on the split a
 The [published logs](https://github.com/BJMCox/PureRNGs.jl/releases/tag/bigcrush-practrand-f8e60b2-r1)
 cover ChaCha, Philox4x32R7, and Threefry4x64R13 at commit `f8e60b2`, in both
 lanes, with PractRand alongside. The same checks passed for Philox2x64R6,
-Philox4x64R7, and Threefry4x32R12 at commit `c887861`; those logs are not yet
-uploaded. Logs record the tested revision and remain outside Git.
+Philox4x64R7, and Threefry4x32R12 at commit `c887861`, and for ChaCha8 and
+ChaCha20 at commit `8c0e646`.
+A consolidated archive is prepared but not yet published. It contains 32
+BigCrush cases across 16 named generator configurations and 24 PractRand streams
+across eight configurations. Each PractRand configuration has a 1 TiB root
+stream and 256 GiB split and `subrng` streams.
+Logs retain their original tested revisions and remain outside Git. Historical
+runs are not fresh battery passes for the latest commit.
 Hosted CI has CPU tests only, including separate extension jobs.
 
 ## Separate bits from floating-point transforms

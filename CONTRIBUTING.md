@@ -260,16 +260,14 @@ and the downgrade job covers the compat floors of the package's own dependencies
 The conformance environments in `test/environments` declare and require current stable Julia,
 because they use `[sources]`, which 1.10 does not support. The package itself still supports 1.10.
 The Reactant job tests Philox4x32, Threefry4x64, Threefry4x32, and ChaCha.
-The Turing job runs only on manual dispatch, and later on schedule; it is skipped on pull requests.
 Full-family Reactant and GPU validation remain separate release gates.
 Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
 Automatic CI and documentation runs remain disabled. Both workflows support manual dispatch only.
-TagBot is removed. The package is not registered. Tagging and registration require maintainer approval.
-Release-ready means merged and pushed to the default branch,
-with no tag and no registration.
+Dependabot checks GitHub Actions weekly and groups updates into one pull request.
+Version tags and GitHub releases are managed manually.
 
 ## Before the first release
 
