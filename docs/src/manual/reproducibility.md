@@ -17,19 +17,17 @@ PureRNGs implements the Philox and Threefry keyed bijections, but its public str
 The Philox and Threefry cores reproduce the Random123 known-answer vectors, and the ChaCha core reproduces the ChaCha8, ChaCha12, and ChaCha20 test vectors.
 RNGTest BigCrush over the packed uniform stream of every generator in both the `UInt32` and `Float64` lanes is best-effort release evidence, run on explicit request, and the release notes record which cases ran.
 PractRand also runs as a diagnostic on the native word stream and on the split and `subrng` children.
-The [published logs](https://github.com/BJMCox/PureRNGs.jl/releases/tag/bigcrush-practrand-f8e60b2-r1)
-cover ChaCha, Philox4x32R7, and Threefry4x64R13 at commit `f8e60b2`, in both
-lanes, with PractRand alongside. The same checks passed for Philox2x64R6,
-Philox4x64R7, and Threefry4x32R12 at commit `c887861`, and for ChaCha8 and
-ChaCha20 at commit `8c0e646`.
-The [consolidated evidence archive](https://github.com/BJMCox/PureRNGs.jl/releases/download/bigcrush-practrand-f8e60b2-r1/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz)
-and its [SHA-256 checksum](https://github.com/BJMCox/PureRNGs.jl/releases/download/bigcrush-practrand-f8e60b2-r1/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz.sha256)
-are available alongside the earlier logs. The archive contains 32
+The [current evidence release](https://github.com/BJMCox/PureRNGs.jl/releases/tag/statistical-evidence-2026-09-22)
+collects the latest saved results for all tested configurations.
+The [combined archive](https://github.com/BJMCox/PureRNGs.jl/releases/download/statistical-evidence-2026-09-22/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz)
+and its [SHA-256 checksum](https://github.com/BJMCox/PureRNGs.jl/releases/download/statistical-evidence-2026-09-22/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz.sha256)
+are available together. The archive contains 32
 BigCrush cases across 16 named generator configurations and 24 PractRand streams
 across eight configurations. Each PractRand configuration has a 1 TiB root
 stream and 256 GiB split and `subrng` streams.
-Logs retain their original tested revisions and remain outside Git. Historical
-runs are not fresh battery passes for the latest commit.
+These results cover the unchanged streams. Logs retain their original tested
+revisions and dates and remain outside Git. Publication does not imply that
+every battery ran again on the latest commit.
 Hosted CI has CPU tests only, including separate extension jobs.
 
 ## Separate bits from floating-point transforms
