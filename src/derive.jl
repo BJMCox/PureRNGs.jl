@@ -318,7 +318,7 @@ explicit large-job chunks.
 `purpose` is reduced modulo `2^64`, so a negative value or a value at or above
 `2^64` aliases the child of an existing purpose id. Purpose ids are a separate
 namespace from stream positions, which [`rngposition`](@ref) returns as a
-`UInt128`.
+`UInt128`, or a `BigInt` for `Philox4x64` and `Threefry4x64`.
 
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts the child at position zero. It never changes the parent.

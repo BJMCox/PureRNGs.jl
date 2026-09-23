@@ -93,8 +93,8 @@ counter block. The generator starts at the beginning of its stream on the CPU.
 
 The integer `seed` must be non-negative and fit in 32 bits. The tuple form sets
 the key exactly. The two-argument forms start at `position` consumed bits, as
-returned by [`rngposition`](@ref). This generator's small key space makes
-derived-key collisions likely beyond a few thousand program-wide derivations.
+returned by [`rngposition`](@ref). Its 32-bit key makes derived-key collisions
+common: about 1% likely after 9,300 program-wide derivations and 50% after 77,000.
 """
 struct Philox2x32{D<:_BackendToken,R} <: AbstractPureRNG
     key::NTuple{1,UInt32}
@@ -405,13 +405,24 @@ stream.
 const Threefry4x32R12 = Threefry4x32{D,12} where {D<:_BackendToken}
 
 """
+    Threefry2x64R13(seed)
+    Threefry2x64R13(key::NTuple{2,UInt64})
+
+`Threefry2x64` with thirteen rounds, the smallest round count that Salmon,
+Moraes, Dror, and Shaw (2011, Table 2) report as passing BigCrush for this
+shape. It shares every method with `Threefry2x64` and produces a different
+stream.
+"""
+const Threefry2x64R13 = Threefry2x64{D,13} where {D<:_BackendToken}
+
+"""
     Threefry4x64R13(seed)
     Threefry4x64R13(key::NTuple{4,UInt64})
 
-`Threefry4x64` with thirteen rounds, the smallest round count that Salmon,
-Moraes, Dror, and Shaw (2011, Table 2) report as passing BigCrush for this
-shape. It shares every method with `Threefry4x64` and produces a different
-stream.
+`Threefry4x64` with thirteen rounds: one more than the twelve that Salmon,
+Moraes, Dror, and Shaw (2011, Table 2) report as the minimum passing BigCrush
+for this shape, and the reduced round count in Random123's known-answer tests.
+It shares every method with `Threefry4x64` and produces a different stream.
 """
 const Threefry4x64R13 = Threefry4x64{D,13} where {D<:_BackendToken}
 
@@ -448,6 +459,7 @@ const _ROUND_ALIASES = (
     (:Philox4x32R7, :Philox4x32, 7),
     (:Philox2x64R6, :Philox2x64, 6),
     (:Philox4x64R7, :Philox4x64, 7),
+    (:Threefry2x64R13, :Threefry2x64, 13),
     (:Threefry4x32R12, :Threefry4x32, 12),
     (:Threefry4x64R13, :Threefry4x64, 13),
     (:ChaCha8, :ChaCha, 8),

@@ -7,9 +7,11 @@ const _THREEFRY4X64_ROTATIONS =
 const _THREEFRY_PARITY32 = UInt32(0x1bd11bda)
 const _THREEFRY_PARITY64 = UInt64(0x1bd11bdaa9fc1a22)
 
-# Round counts follow Random123: twenty rounds by default, thirteen for the
-# round-reduced generators. Rounds past `R` compile away.
+# Round counts follow Random123: twenty rounds by default, twelve or thirteen for
+# the round-reduced generators. The cores unroll twenty rounds, so that is the
+# most a generator can name.
 const _THREEFRY_DEFAULT_ROUNDS = 20
+const _THREEFRY_MAX_ROUNDS = 20
 
 @inline function _threefry2x(
     counter::NTuple{2,T},
@@ -18,6 +20,8 @@ const _THREEFRY_DEFAULT_ROUNDS = 20
     parity::T,
     ::Val{R},
 ) where {T,R}
+    R <= _THREEFRY_MAX_ROUNDS ||
+        throw(ArgumentError("Threefry supports at most $_THREEFRY_MAX_ROUNDS rounds"))
     k0, k1 = key
     k2 = _core_xor(_core_xor(k0, k1), parity)
     keys = (k0, k1, k2)
@@ -46,6 +50,8 @@ end
     parity::T,
     ::Val{R},
 ) where {T,R}
+    R <= _THREEFRY_MAX_ROUNDS ||
+        throw(ArgumentError("Threefry supports at most $_THREEFRY_MAX_ROUNDS rounds"))
     k0, k1, k2, k3 = key
     k4 = _core_xor(_core_xor(_core_xor(_core_xor(k0, k1), k2), k3), parity)
     keys = (k0, k1, k2, k3, k4)

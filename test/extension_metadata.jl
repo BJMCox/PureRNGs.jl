@@ -55,6 +55,7 @@ using TOML
         :StreamExhausted,
         :Threefry2x32,
         :Threefry2x64,
+        :Threefry2x64R13,
         :Threefry4x32,
         :Threefry4x32R12,
         :Threefry4x64,

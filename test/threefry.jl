@@ -64,3 +64,53 @@ end
         (0x452821e638d01377, 0xbe5466cf34e90c6c, 0xbe5466cf34e90c6c, 0xc0ac29b7c97c50dd),
     ) == (0xa7e8fde591651bd9, 0xbaafd0c30138319b, 0x84a5c1a729e685b9, 0x901d406ccebc1ba4)
 end
+
+@testset "Threefry2x32-13 Random123 KATs" begin
+    core = PureRNGs._threefry2x32
+    @test core((UInt32(0), UInt32(0)), (UInt32(0), UInt32(0)), Val(13)) ==
+          (0x9d1c5ec6, 0x8bd50731)
+    @test core((0xffffffff, 0xffffffff), (0xffffffff, 0xffffffff), Val(13)) ==
+          (0xfd36d048, 0x2d17272c)
+    @test core((0x243f6a88, 0x85a308d3), (0x13198a2e, 0x03707344), Val(13)) ==
+          (0xba3e4725, 0xf27d669e)
+end
+
+@testset "Threefry4x32-13 Random123 KATs" begin
+    core = PureRNGs._threefry4x32
+    @test core(ntuple(_ -> UInt32(0), 4), ntuple(_ -> UInt32(0), 4), Val(13)) ==
+          (0x531c7e4f, 0x39491ee5, 0x2c855a92, 0x3d6abf9a)
+    @test core(ntuple(_ -> 0xffffffff, 4), ntuple(_ -> 0xffffffff, 4), Val(13)) ==
+          (0xc4189358, 0x1c9cc83a, 0xd5881c67, 0x6a0a89e0)
+    @test core(
+        (0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344),
+        (0xa4093822, 0x299f31d0, 0x082efa98, 0xec4e6c89),
+        Val(13),
+    ) == (0x4aa71d8f, 0x734738c2, 0x431fc6a8, 0xae6debf1)
+end
+
+@testset "Threefry2x64-13 Random123 KATs" begin
+    core = PureRNGs._threefry2x64
+    @test core((UInt64(0), UInt64(0)), (UInt64(0), UInt64(0)), Val(13)) ==
+          (0xf167b032c3b480bd, 0xe91f9fee4b7a6fb5)
+    ones = 0xffffffffffffffff
+    @test core((ones, ones), (ones, ones), Val(13)) ==
+          (0xccdec5c917a874b1, 0x4df53abca26ceb01)
+    @test core(
+        (0x243f6a8885a308d3, 0x13198a2e03707344),
+        (0xa4093822299f31d0, 0x082efa98ec4e6c89),
+        Val(13),
+    ) == (0xc3aac71561042993, 0x3fe7ae8801aff316)
+end
+
+@testset "Threefry and ChaCha reject round counts past the unrolled core" begin
+    @test_throws ArgumentError PureRNGs._threefry2x64(
+        (UInt64(0), UInt64(0)),
+        (UInt64(0), UInt64(0)),
+        Val(21),
+    )
+    @test_throws ArgumentError PureRNGs._chacha(
+        ntuple(_ -> UInt32(0), 4),
+        ntuple(_ -> UInt32(0), 8),
+        Val(21),
+    )
+end

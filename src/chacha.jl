@@ -6,8 +6,9 @@ const _CHACHA_CONSTANTS =
     (UInt32(0x61707865), UInt32(0x3320646e), UInt32(0x79622d32), UInt32(0x6b206574))
 
 # Twelve rounds is the common generator choice, as in Rust's `StdRng`. Twenty
-# is the cipher's round count. Rounds past `R` compile away.
+# is the cipher's round count and the most the unrolled core runs.
 const _CHACHA_DEFAULT_ROUNDS = 12
+const _CHACHA_MAX_ROUNDS = 20
 
 # The checkpoint after each rotation is the granularity at which a compiled
 # ChaCha fill vectorizes. Checkpoints per round leave whole quarter rounds in
@@ -41,6 +42,8 @@ end
 end
 
 @inline function _chacha(counter::NTuple{4,T}, key::NTuple{8,T}, ::Val{R}) where {T,R}
+    R <= _CHACHA_MAX_ROUNDS ||
+        throw(ArgumentError("ChaCha supports at most $_CHACHA_MAX_ROUNDS rounds"))
     constants = map(value -> _core_constant(key[1], value), _CHACHA_CONSTANTS)
     input = (constants..., key..., counter...)
     x = input

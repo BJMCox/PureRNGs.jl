@@ -114,6 +114,7 @@ end
         (Philox4x32R7, Philox4x32, 7),
         (Philox2x64R6, Philox2x64, 6),
         (Philox4x64R7, Philox4x64, 7),
+        (Threefry2x64R13, Threefry2x64, 13),
         (Threefry4x32R12, Threefry4x32, 12),
         (Threefry4x64R13, Threefry4x64, 13),
         (ChaCha8, ChaCha, 8),

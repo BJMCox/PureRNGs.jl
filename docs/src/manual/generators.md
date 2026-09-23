@@ -19,7 +19,8 @@ Consecutive scalar draws inside one block reuse that decoded block.
 | `Threefry4x64` | 256 | 4 × 64 | 2^136 |
 | `ChaCha` | 256 | 16 × 32 | 2^73 |
 
-Five aliases name the same generators at a reduced round count. Each count is the smallest that Salmon, Moraes, Dror, and Shaw (2011, Table 2) report as passing BigCrush for that shape.
+Six aliases name the same generators at a reduced round count. Five use the smallest count that Salmon, Moraes, Dror, and Shaw (2011, Table 2) report as passing BigCrush for that shape.
+`Threefry4x64R13` uses thirteen rounds, one more than the twelve in that table and the reduced round count in Random123's known-answer tests.
 `Philox2x32` and `Threefry2x32` have no published minimum and so have no alias.
 
 | Alias | Family | Rounds | Default rounds |
@@ -27,6 +28,7 @@ Five aliases name the same generators at a reduced round count. Each count is th
 | `Philox4x32R7` | `Philox4x32` | 7 | 10 |
 | `Philox2x64R6` | `Philox2x64` | 6 | 10 |
 | `Philox4x64R7` | `Philox4x64` | 7 | 10 |
+| `Threefry2x64R13` | `Threefry2x64` | 13 | 20 |
 | `Threefry4x32R12` | `Threefry4x32` | 12 | 20 |
 | `Threefry4x64R13` | `Threefry4x64` | 13 | 20 |
 
@@ -41,11 +43,9 @@ Construct a generator from a nonnegative integer fitting its key, or an exact tu
 New generators start at position zero on the CPU.
 
 An integer seed splits into little-endian key words with no mixing, so adjacent
-seeds give adjacent keys. This is safe because the cores are keyed bijections
-whose outputs decorrelate adjacent keys: across all twelve configurations, the
-mean pairwise Hamming distance of the first outputs for seeds 1 to 4 lies
-between 31.0 and 32.9 of 64 bits. The mapping is part of the reproducibility
-contract, so a given seed always yields the same key.
+seeds give adjacent keys. The Random123 and ChaCha designs accept every key value
+and do not require random keys, so adjacent seeds are safe. The mapping is part
+of the reproducibility contract, so a given seed always yields the same key.
 
 ## Derive streams for separate purposes
 

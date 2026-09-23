@@ -71,3 +71,28 @@ end
     @test rand(ChaCha20(0), UInt32) == 0xade0b876
     @test rand(ChaCha8(0), UInt32) == 0x2fef003e
 end
+
+# RFC 8439 section 2.3.2, with the four counter words given as raw state words 12
+# to 15: the 32-bit block counter 1 followed by the three nonce words.
+@testset "ChaCha20 RFC 8439 block function" begin
+    key = ntuple(i -> reinterpret(UInt32, UInt8.(4(i-1) .+ (0:3)))[1], 8)
+    counter = (0x00000001, 0x09000000, 0x4a000000, 0x00000000)
+    @test PureRNGs._chacha(counter, key, Val(20)) == (
+        0xe4e7f110,
+        0x15593bd1,
+        0x1fdd0f50,
+        0xc47120a3,
+        0xc7f4d1c7,
+        0x0368c033,
+        0x9aaa2204,
+        0x4e6cd4c3,
+        0x466482d2,
+        0x09aa9f07,
+        0x05d7c214,
+        0xa2028bd9,
+        0xd19c12b5,
+        0xb94e16de,
+        0xe883d0cb,
+        0x4e3c50a2,
+    )
+end

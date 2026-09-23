@@ -40,6 +40,7 @@ Threefry4x64
 Philox4x32R7
 Philox2x64R6
 Philox4x64R7
+Threefry2x64R13
 Threefry4x32R12
 Threefry4x64R13
 ChaCha

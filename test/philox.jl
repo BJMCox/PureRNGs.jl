@@ -95,3 +95,35 @@ end
         ) == PureRNGs._philox4x64((address..., UInt64(0), UInt64(0)), key4, Val(10))
     end
 end
+
+@testset "Philox2x32-7 KAT" begin
+    core = PureRNGs._philox2x32
+    @test core((0x00000000, 0x00000000), (0x00000000,), Val(7)) == (0x257a3673, 0xcd26be2a)
+    @test core((0xffffffff, 0xffffffff), (0xffffffff,), Val(7)) == (0xab302c4d, 0x3dc9d239)
+    @test core((0x243f6a88, 0x85a308d3), (0x13198a2e,), Val(7)) == (0xbedbbe6b, 0xe4c770b3)
+end
+
+@testset "Philox2x64-7 KAT" begin
+    core = PureRNGs._philox2x64
+    @test core((UInt64(0), UInt64(0)), (UInt64(0),), Val(7)) ==
+          (0xb41da69fbfefc666, 0x511e9ce1a5534056)
+    ones = 0xffffffffffffffff
+    @test core((ones, ones), (ones,), Val(7)) == (0xa4696cc04462015d, 0x724782dae17169e9)
+    @test core((0x243f6a8885a308d3, 0x13198a2e03707344), (0xa4093822299f31d0,), Val(7)) ==
+          (0x98ed1534392bf372, 0x67528b1568882fd5)
+end
+
+@testset "Philox4x64-7 KAT" begin
+    core = PureRNGs._philox4x64
+    zero4 = ntuple(_ -> UInt64(0), 4)
+    @test core(zero4, (UInt64(0), UInt64(0)), Val(7)) ==
+          (0x5dc8ee6268ec62cd, 0x139bc570b6c125a0, 0x84d6deb4fb65f49e, 0xaff7583376d378c2)
+    ones = 0xffffffffffffffff
+    @test core(ntuple(_ -> ones, 4), (ones, ones), Val(7)) ==
+          (0x071dd84367903154, 0x48e2bbdc722b37d1, 0x6afa9890bb89f76c, 0x9194c8d8ada56ac7)
+    @test core(
+        (0x243f6a8885a308d3, 0x13198a2e03707344, 0xa4093822299f31d0, 0x082efa98ec4e6c89),
+        (0x452821e638d01377, 0xbe5466cf34e90c6c),
+        Val(7),
+    ) == (0x513a366704edf755, 0xf05d9924c07044d3, 0xbef2cb9cbea74c6c, 0x8db948de4caa1f8a)
+end
