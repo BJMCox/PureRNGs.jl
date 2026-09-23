@@ -4,7 +4,7 @@ _small_allocating_range(::Type{T}) where {T<:Unsigned} = T(2):T(3):T(74)
 _chained_range(rng, range, count) =
     _chained_draws(cursor -> rand_next(cursor, range), rng, count)
 
-@testset "R23-R26 and R55 CPU allocating range draws" begin
+@testset "CPU allocating range draws" begin
     for F in GENERATOR_TYPES, T in RANGE_INTS
         range = _small_allocating_range(T)
         rng = _positioned(F, 0x65a, UInt64(7), UInt16(61))
@@ -27,7 +27,7 @@ _chained_range(rng, range, count) =
     end
 end
 
-@testset "R26 and R55 wide packed range arrays" begin
+@testset "wide packed range arrays" begin
     ranges = (
         UInt64(0):(UInt64(1)<<32),
         UInt64(0):typemax(UInt64),
@@ -43,7 +43,7 @@ end
     end
 end
 
-@testset "R26 packed range arrays cross CPU chunks" begin
+@testset "packed range arrays cross CPU chunks" begin
     for F in (Philox2x32, Philox4x32, Philox4x64),
         range in (UInt16(2):UInt16(17), UInt64(0):(UInt64(1)<<32))
 
@@ -71,7 +71,7 @@ end
     @test next_rng === expected_next
 end
 
-@testset "R53-R55 allocating range validation" begin
+@testset "allocating range validation" begin
     nonempty = UInt16(2):UInt16(3):UInt16(20)
     for F in GENERATOR_TYPES
         base = F(0x65c)
@@ -100,7 +100,7 @@ end
 
 end
 
-@testset "R30, R54, and R61 allocating range codegen" begin
+@testset "allocating range codegen" begin
     for (F, range) in
         ((Philox2x32, UInt16(2):UInt16(17)), (Philox4x64, UInt64(0):typemax(UInt64)))
         # The kernel-facing generator: the CPU-bound 64-bit Philox core uses a

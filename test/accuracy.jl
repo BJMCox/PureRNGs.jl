@@ -1,7 +1,7 @@
 # Accuracy gates for the exponential and normal transforms. Both oracles run in
 # BigFloat: a Float64 normal quantile is itself several ulps off in the tail, so
 # it cannot bound a few-ulp claim about either normal transform. The normal
-# sweeps run both transforms [R28] selects between; each is plain Julia here, so
+# sweeps run both transforms the backend token selects between; each is plain Julia here, so
 # the token is only a dispatch tag and the host evaluates both.
 # Set PURERNGS_FULL_ACCURACY_SWEEP=1 to sweep every Float32 normal lattice point.
 
@@ -14,7 +14,7 @@ const _EXPONENTIAL_ULP_BOUND = Dict(Float32 => 2.5, Float64 => 3.0)
 # A Float64 lattice point the strided sweep misses, where the transform reaches
 # its widest known error.
 const _EXPONENTIAL_BREACH_POINT = 0x0004b2925a3b52a5
-# [R28] gates both normal transforms at 5.0 ulp for Float32 and 6.0 for Float64.
+# Both normal transforms must stay within 5.0 ulp for Float32 and 6.0 for Float64.
 const _NORMAL_ULP_BOUND = Dict(Float32 => 5.0, Float64 => 6.0)
 const _NORMAL_SWEEP_POINTS = 20_000
 const _NORMAL_MONOTONE_POINTS = 1_000_000
@@ -61,12 +61,12 @@ end
 # 2^-p cell, is exact in T, and is never zero.
 _normal_lattice_point(::Type{T}, k::Integer, p::Int) where {T} = ldexp(T(2k + 1), -(p + 1))
 
-# [R28] defines both normal transforms on the midpoint lattice only. Off the
+# Both normal transforms are defined on the midpoint lattice only. Off the
 # lattice `T(2) * u - one(T)` stops being exact and Giles loses its tail
 # argument, so every probe below is snapped to the nearest lattice point.
 _nearest_lattice_index(u::Real, p::Int) = max(0, round(Int, (u * (1 << (p + 1)) - 1) / 2))
 
-@testset "R63 exponential transform accuracy" begin
+@testset "exponential transform accuracy" begin
     device = IR._CPUBackend()
     for (T, bits) in ((Float32, 23), (Float64, 52))
         sampled =
@@ -84,7 +84,7 @@ _nearest_lattice_index(u::Real, p::Int) = max(0, round(Int, (u * (1 << (p + 1)) 
     end
 end
 
-@testset "R28 normal transforms against a BigFloat normal quantile" begin
+@testset "normal transforms against a BigFloat normal quantile" begin
     setprecision(BigFloat, 160) do
         for (T, p) in ((Float32, 23), (Float64, 52))
             stride = _FULL_SWEEP && T === Float32 ? 1 : (1 << p) ÷ _NORMAL_SWEEP_POINTS
@@ -116,7 +116,7 @@ end
     end
 end
 
-@testset "R28 normal transforms are monotone over the midpoint lattice" begin
+@testset "normal transforms are monotone over the midpoint lattice" begin
     # A quantile that steps backwards would break the coupling between the
     # uniform draw and the normal it maps to, which no ulp bound would catch.
     for (T, p) in ((Float32, 23), (Float64, 52))

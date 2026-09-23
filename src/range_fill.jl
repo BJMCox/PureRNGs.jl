@@ -1,6 +1,6 @@
-# [R55] a span through 2^32 reduces one 64-bit candidate; a wider span reduces a
-# high word followed by a low word. [R58] unweighted sampling reduces the same
-# way over the population cardinality.
+# A span through 2^32 reduces one 64-bit candidate; a wider span reduces a high
+# word followed by a low word. Unweighted sampling reduces the same way over the
+# population cardinality.
 @inline function _take_range_offset(rng, cursor, span::UInt64)
     if _range_bits(span) == UInt16(64)
         candidate, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))

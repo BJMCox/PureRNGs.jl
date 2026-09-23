@@ -196,7 +196,7 @@ function _check_distribution_preview(F, distribution, active_device)
     return nothing
 end
 
-@testset "R37 AMDGPU public host surface" begin
+@testset "AMDGPU public host surface" begin
     for F in GENERATOR_TYPES
         cpu_rng = F(0x814)
         rng = AMDGPUDevice(:discarded)(cpu_rng)
@@ -214,7 +214,7 @@ end
 
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
-@testset "R1 extension ambiguities" begin
+@testset "extension ambiguities" begin
     for name in
         (:PureRNGsAMDGPUExt, :PureRNGsDistributionsExt, :PureRNGsKernelAbstractionsExt)
         extension = Base.get_extension(IR, name)
@@ -229,7 +229,7 @@ if AMDGPU.functional()
     active_device = AMDGPU.device_id()
     @info "AMDGPU preview software identity" identity = _software_identity()
 
-    @testset "R39 AMDGPU allocation smoke" begin
+    @testset "AMDGPU allocation smoke" begin
         for F in GENERATOR_TYPES,
             T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 
@@ -254,7 +254,7 @@ if AMDGPU.functional()
         @test next_rng.position == expected_next.position
     end
 
-    @testset "R25, R30, R43, and R63 AMDGPU signed and exponential probes" begin
+    @testset "AMDGPU signed and exponential probes" begin
         for F in GENERATOR_TYPES
             cpu_rng = F(0x816)
             rng = AMDGPUDevice()(cpu_rng)
@@ -333,7 +333,7 @@ if AMDGPU.functional()
         end
     end
 
-    @testset "R43 and R64 AMDGPU fixed-distribution probes" begin
+    @testset "AMDGPU fixed-distribution probes" begin
         for F in GENERATOR_TYPES, distribution in _fixed_distributions(Float32)
             _check_distribution_preview(F, distribution, active_device)
         end
@@ -342,7 +342,7 @@ if AMDGPU.functional()
         end
     end
 
-    @testset "R65 AMDGPU immutable Enzyme preview" begin
+    @testset "AMDGPU immutable Enzyme preview" begin
         for T in (Float32, Float64),
             (fill_function, next_fill_function, next_draw) in _enzyme_cases()
 
@@ -415,7 +415,7 @@ if AMDGPU.functional()
         end
     end
 
-    @testset "R56-R58 AMDGPU unweighted sampling smoke" begin
+    @testset "AMDGPU unweighted sampling smoke" begin
         for F in GENERATOR_TYPES
             cpu_rng = F(0x91b)
             rng = AMDGPUDevice()(cpu_rng)

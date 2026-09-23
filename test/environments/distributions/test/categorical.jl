@@ -7,7 +7,7 @@ Base.getindex(::CategoricalDeviceProbe, ::Int) =
     error("device probabilities must not be read")
 IR.MLDataDevices.get_device(::CategoricalDeviceProbe) = IR.MLDataDevices.CUDADevice(:named)
 
-@testset "R68 Categorical matches raw weighted labels" begin
+@testset "Categorical matches raw weighted labels" begin
     probabilities = Float64[0, 1, 0, 3]
     distribution = Categorical(probabilities; check_args = false)
     rng = last(rand_next(Philox4x32(0x9d5), Bool))
@@ -36,7 +36,7 @@ IR.MLDataDevices.get_device(::CategoricalDeviceProbe) = IR.MLDataDevices.CUDADev
     @test filled_next === expected_next
 end
 
-@testset "R68 Categorical serial and threaded fills agree above the threshold" begin
+@testset "Categorical serial and threaded fills agree above the threshold" begin
     probabilities = Float64[1, 2, 0, 3, 4]
     distribution = Categorical(probabilities; check_args = false)
     rng = Philox4x32(0x9d6)
@@ -57,7 +57,7 @@ end
     @test serial_next === expected_next
 end
 
-@testset "R68 Categorical scalar calls retain a rebound binding" begin
+@testset "Categorical scalar calls retain a rebound binding" begin
     probabilities = Float64[0, 1, 0, 3]
     distribution = Categorical(probabilities; check_args = false)
     cpu_rng = Philox4x32(0x9d6)
@@ -71,7 +71,7 @@ end
     @test next_rng.device === rebound_rng.device
 end
 
-@testset "R68 Categorical validates probability placement and fills atomically" begin
+@testset "Categorical validates probability placement and fills atomically" begin
     rng = Philox4x32(0x9d7)
     valid = Categorical(Float64[0, 1, 0, 3]; check_args = false)
     device_probabilities =

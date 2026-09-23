@@ -7,12 +7,12 @@ const BACKEND_TOKENS = (
     PureRNGs._METAL_BACKEND,
 )
 
-@testset "R53 position layout" begin
+@testset "position layout" begin
     @test fieldtypes(PureRNGs._Position64) === (UInt64, UInt16)
     @test fieldtypes(PureRNGs._Position128) === (UInt64, UInt64, UInt16)
 end
 
-@testset "R4 and R14 generator representation" begin
+@testset "generator representation" begin
     for F in GENERATOR_TYPES
         rng = F(0)
         @test supertype(typeof(rng)) === PureRNGs.AbstractPureRNG
@@ -35,7 +35,7 @@ end
     @test all(token -> isbits(token) && sizeof(token) == 0, BACKEND_TOKENS)
 end
 
-@testset "R15 and R16 seed validation and mapping" begin
+@testset "seed validation and mapping" begin
     @test Philox2x32(0x12345678).key == (0x12345678,)
     @test Philox4x32(0x123456789abcdef0).key == (0x9abcdef0, 0x12345678)
     @test Philox2x64(0x123456789abcdef0).key == (0x123456789abcdef0,)
@@ -70,7 +70,7 @@ end
     end
 end
 
-@testset "R38 device application" begin
+@testset "device application" begin
     rng = Philox4x32(123)
     devices = (
         (MLDataDevices.CPUDevice(), PureRNGs._CPU_BACKEND, MLDataDevices.CPUDevice),
@@ -193,4 +193,28 @@ end
         @test A(0x5eed) === A(PureRNGs._family_key(F, 0x5eed))
         @test A(0x5eed, 9) === A(PureRNGs._family_key(F, 0x5eed), 9)
     end
+end
+
+@testset "generators print as the constructor call that rebuilds them" begin
+    for F in (
+            GENERATOR_TYPES...,
+            Philox4x32R7,
+            Philox2x64R6,
+            Philox4x64R7,
+            Threefry2x64R13,
+            Threefry4x32R12,
+            Threefry4x64R13,
+            ChaCha8,
+            ChaCha20,
+        ),
+        position in (0, 77)
+
+        rng = F(0x5eed, position)
+        @test eval(Meta.parse(repr(rng))) === rng
+        @test eval(Meta.parse(repr(StatefulRNG(rng)))).rng === rng
+    end
+    @test repr(Philox4x32R7(1)) == "Philox4x32R7((0x00000001, 0x00000000), 0)"
+    @test repr(ChaCha12(1)) == repr(ChaCha(1))
+    @test repr(MLD.CUDADevice()(Philox2x32(1, 64))) ==
+          "CUDADevice()(Philox2x32((0x00000001,), 64))"
 end

@@ -58,7 +58,7 @@ function _parent_allocations(mutable_rng)
     return @allocated parent(mutable_rng)
 end
 
-@testset "R32-R35 StatefulRNG scalar bridge" begin
+@testset "StatefulRNG scalar bridge" begin
     source = StatefulIR._reserve(Philox4x32(0x801), UInt64(17), UInt64(0))
     device_source = MLDataDevices.CUDADevice(:discarded)(source)
     mutable_rng = StatefulRNG(device_source)
@@ -109,7 +109,7 @@ end
     @test _bridge_allocations() == (0, 0, 0, 0, 0, 0, 0)
 end
 
-@testset "R35 StatefulRNG parent" begin
+@testset "StatefulRNG parent" begin
     root = Philox4x32(0x812)
     rebound = StatefulRNG(MLDataDevices.CUDADevice(:discarded)(root))
     @test parent(rebound) === root
@@ -124,7 +124,7 @@ end
     @test parent(exhausted_bridge) === exhausted
 end
 
-@testset "R33 bridge failure stability" begin
+@testset "bridge failure stability" begin
     for (T, width, draw) in (
         (Int32, UInt16(32), rand),
         (Int64, UInt16(64), rand),
@@ -142,7 +142,7 @@ end
     end
 end
 
-@testset "R34 range sampler dispatch" begin
+@testset "range sampler dispatch" begin
     unit = UInt16(2):UInt16(17)
     stepped = UInt16(2):UInt16(3):UInt16(17)
 
@@ -156,7 +156,7 @@ end
     end
 end
 
-@testset "R34 range bridge Array fill" begin
+@testset "range bridge Array fill" begin
     range = UInt16(2):UInt16(17)
     root = Philox4x32(0x819)
     expected, expected_rng = rand_next(root, range, 3)
@@ -192,7 +192,7 @@ end
     @test parent(empty_rng) === root
 end
 
-@testset "R34 and R54 owned bridge fills" begin
+@testset "owned bridge fills" begin
     root = Philox4x32(0x806)
     expected, expected_rng = rand_next(root, UInt64, 19)
     destination = Vector{UInt64}(undef, 19)
@@ -268,7 +268,7 @@ end
     @test exhausted_mutable.rng === exhausted
 end
 
-@testset "R34 and R54 foreign bridge fills" begin
+@testset "foreign bridge fills" begin
     uniform_root = _bridge_last(Philox2x32(0x80c), UInt16(64))
     first_uniform, expected_uniform = rand_next(uniform_root, UInt64)
     uniform_destination = BridgeVector(fill(UInt64(0xdeadbeef), 2))
@@ -294,7 +294,7 @@ end
     @test exponential_mutable.rng === expected_exponential
 end
 
-@testset "R34 seed and R35 copy" begin
+@testset "seed and copy" begin
     for F in GENERATOR_TYPES
         mutable_rng = StatefulRNG(F(0x80e))
         rand(mutable_rng, UInt32)
@@ -320,7 +320,7 @@ end
     @test replay.rng === mutable_rng.rng
 end
 
-@testset "R34 and R52 closed bridge method surface" begin
+@testset "closed bridge method surface" begin
     M = StatefulRNG{typeof(Philox4x32(0x811))}
     required = Dict(
         function_ => Set{Method}() for function_ in (
@@ -404,7 +404,7 @@ end
     @test isempty(ambiguities)
 end
 
-@testset "R32-R35 bridge draws across block boundaries" begin
+@testset "bridge draws across block boundaries" begin
     wide = UInt64(1):(UInt64(1)<<40)
     for F in (Philox2x32, Philox4x32, Threefry4x64)
         cursor = F(0x811)

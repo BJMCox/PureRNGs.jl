@@ -18,7 +18,7 @@ function _audit_error(call)
     end
 end
 
-@testset "R1 and R49 closed non-bridge method surface" begin
+@testset "closed non-bridge method surface" begin
     foreign = Base.IdSet{Any}()
     foreign_functions = Set{Any}()
     for module_ in (Base, Random), name in names(module_; all = true, imported = true)
@@ -52,7 +52,8 @@ end
         randsample!,
         randsample_next!,
     )
-    # showerror is R70's StreamExhausted display, dispatched on the package type.
+    # showerror is the StreamExhausted display and show the generator display,
+    # both dispatched on package types.
     @test foreign_functions == Set((
         rand,
         rand!,
@@ -63,6 +64,7 @@ end
         Random.seed!,
         copy,
         parent,
+        show,
         showerror,
     ))
 
@@ -208,7 +210,7 @@ end
         Base.kwarg_decl(method) == [:threaded] for
         function_ in (randsample!, randsample_next!) for method in _audit_methods(function_)
     )
-    # R21 gives the dynamic split the fill keyword. The other two forms take none.
+    # The dynamic split takes the fill keyword. The other two forms take none.
     dynamic_split = which(splitrng, Tuple{R,Int})
     @test Base.kwarg_decl(dynamic_split) == [:threaded]
     @test all(
@@ -227,11 +229,11 @@ end
     @test isempty(Base.kwarg_decl(device_method))
 end
 
-@testset "R9 and R12b assigned constants" begin
+@testset "assigned constants" begin
     @test IR._NARROW_SPLIT_COUNT === UInt64(0xffffffff)
 end
 
-@testset "R47 implemented deterministic error closure" begin
+@testset "implemented deterministic error closure" begin
     rng = Philox4x32(0xa72)
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     wrong_uniform_destination = WrongDeviceArray(Vector{UInt32}(undef, 1))
@@ -345,7 +347,7 @@ end
 
 end
 
-@testset "R70 StreamExhausted payload" begin
+@testset "StreamExhausted payload" begin
     base = Philox4x32(0x970)
     near_end = IR._rebuild(
         base,

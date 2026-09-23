@@ -27,7 +27,7 @@ function DeviceIR._check_serviceability(::Philox2x32{DeviceIR._CPUBackend}, ::Ty
     return nothing
 end
 
-@testset "R38-R40 closed backend validation" begin
+@testset "closed backend validation" begin
     cpu_rng = Philox2x32(0x751)
     cuda_rng = DeviceMLD.CUDADevice(:discarded)(cpu_rng)
     empty = DeviceValidationProbe(UInt32[])

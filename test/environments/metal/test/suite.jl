@@ -110,7 +110,7 @@ end
 
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
-@testset "R1 extension ambiguities" begin
+@testset "extension ambiguities" begin
     for name in
         (:PureRNGsMetalExt, :PureRNGsDistributionsExt, :PureRNGsKernelAbstractionsExt)
         extension = Base.get_extension(IR, name)
@@ -120,7 +120,7 @@ end
     end
 end
 
-@testset "R38 Metal public host surface" begin
+@testset "Metal public host surface" begin
     for F in METAL_GENERATORS
         cpu_rng = F(0x816)
         rng = MetalDevice()(cpu_rng)
@@ -130,7 +130,7 @@ end
             @test IR.rand_next(rng, T)[1] === IR.rand_next(cpu_rng, T)[1]
         end
         for T in (Float32, Float64)
-            # [R28] the Metal token selects Giles' erfinv, so a host draw on a
+            # The Metal token selects Giles' erfinv, so a host draw on a
             # Metal generator no longer equals the CPU normal on the same bits.
             @test randn(rng, T) === _metal_normal(cpu_rng, T)
             @test isapprox(randexp(rng, T), randexp(cpu_rng, T); rtol = 16eps(T))
@@ -139,7 +139,7 @@ end
     end
 end
 
-@testset "R41 Metal allocating exclusions" begin
+@testset "Metal allocating exclusions" begin
     for F in METAL_32_GENERATORS
         rng = MetalDevice()(F(0x817))
         for count in (0, 1)
@@ -246,7 +246,7 @@ end
     @test_throws ArgumentError IR.randsample(metal_rng, UInt32[1, 2, 3], -1)
 end
 
-@testset "R41-R64 Metal fixed-distribution surface" begin
+@testset "Metal fixed-distribution surface" begin
     for F in METAL_GENERATORS, (distribution, result_type) in METAL_FIXED_DISTRIBUTIONS
         rng = MetalDevice()(F(0x91e))
         value = rand(rng, distribution)
@@ -293,7 +293,7 @@ end
 end
 
 if Metal.functional()
-    @testset "R41 Metal served primitive smoke" begin
+    @testset "Metal served primitive smoke" begin
         for F in METAL_32_GENERATORS, T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
             cpu_rng = F(0x81b)
             rng = MetalDevice()(cpu_rng)
@@ -316,7 +316,7 @@ if Metal.functional()
         end
     end
 
-    @testset "R41-R43-R63 Metal Float32 exponential" begin
+    @testset "Metal Float32 exponential" begin
         for (F, key, raw) in METAL_EXPONENTIAL_GOLDEN_CASES
             rng = _metal_exponential_golden_rng(F, key)
             block = IR._position_block(rng.position)
@@ -358,7 +358,7 @@ if Metal.functional()
         @test maximum_ulp <= BigFloat(3)
     end
 
-    @testset "R41 Metal mid-stream fill parity" begin
+    @testset "Metal mid-stream fill parity" begin
         for F in METAL_OFFSET_GENERATORS
             for bit in METAL_OFFSET_BITS, T in METAL_OFFSET_TYPES
                 cpu_rng = _positioned(F(0x5150), UInt64(9), bit)

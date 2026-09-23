@@ -15,8 +15,9 @@ const _PHILOX_W64_1 = UInt64(0xbb67ae8584caa73b)
     return UInt32(product >> 32), UInt32(product & 0xffffffff)
 end
 
-# The portable product for plain words. [R30] forbids a 128-bit integer in
-# device typed IR, so the halves come from 32-bit pieces. A backend whose
+# The portable product for plain words. Device typed IR must not hold a 128-bit
+# integer, which not every GPU compiler supports, so the halves come from 32-bit
+# pieces. A backend whose
 # device compiler has a high-product instruction overrides this for its own
 # device code; the host keeps this form.
 @inline function _mulhilo64(a::UInt64, b::UInt64)

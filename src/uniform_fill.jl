@@ -498,7 +498,8 @@ end
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
     isempty(indices) && return nothing
     # One range check covers every store below, so the inner loops skip the
-    # per-element checks. Those cost Bool fills 3-7x and the other types up to 1.4x (BenchmarkTools, serial 2^16 fills).
+    # per-element checks. Those cost Bool fills 3-7x and the other types up to 1.4x
+    # (BenchmarkTools, serial 2^16 fills).
     checkbounds(destination, indices)
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     _fill_cursor!(
@@ -669,7 +670,8 @@ end
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
     isempty(indices) && return nothing
     # One range check covers every store below, so the inner loops skip the
-    # per-element checks. Those cost the aligned block stores about 1.4x (BenchmarkTools, serial 2^16 fills).
+    # per-element checks. Those cost the aligned block stores about 1.4x (BenchmarkTools,
+    # serial 2^16 fills).
     checkbounds(destination, indices)
     index = first(indices)
     last_index = last(indices)

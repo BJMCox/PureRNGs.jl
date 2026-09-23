@@ -31,7 +31,7 @@ const PACKED_GOLDEN_UNIFORM = (
     (false, 0x6dc19acb, 0x6dc19acb71673eb8, 0x3edb8334, 0x3fdb7066b2dc59ce),
 )
 
-@testset "R13 packed uniform golden vectors" begin
+@testset "packed uniform golden vectors" begin
     for ((F, key), (bit, word32, word64, float32_bits, float64_bits)) in
         zip(PACKED_GOLDEN_GENERATORS, PACKED_GOLDEN_UNIFORM)
         rng = _packed_golden_rng(F, key)
@@ -45,7 +45,7 @@ const PACKED_GOLDEN_UNIFORM = (
     end
 end
 
-@testset "R13, R28, R55, and R63 every family reads the uniform stream" begin
+@testset "every family reads the uniform stream" begin
     # Normal, exponential and range draws take their bits from the stream the
     # block above pins, so at one position each raw is a prefix of that word.
     # Pinning the prefix leaves every family one thing of its own to check: the
@@ -70,7 +70,7 @@ end
     end
 end
 
-@testset "R25 and R53 packed primitive widths" begin
+@testset "packed primitive widths" begin
     for (T, width) in zip(PURE_UNIFORM_TYPES, (1, 32, 32, 64, 64, 24, 53))
         @test IR._draw_bits(T) === UInt16(width)
     end
@@ -81,7 +81,7 @@ end
     end
 end
 
-@testset "R25 signed primitive bitcasts" begin
+@testset "signed primitive bitcasts" begin
     for F in GENERATOR_TYPES, (S, U) in ((Int32, UInt32), (Int64, UInt64))
         rng = _positioned(F, 0x5211, UInt64(9), UInt16(61))
         @test reinterpret(U, rand(rng, S)) === rand(rng, U)
@@ -102,7 +102,7 @@ end
     end
 end
 
-@testset "R24, R26, and R53 mixed packed continuation" begin
+@testset "mixed packed continuation" begin
     trace = (Bool, Float64, Float32, UInt64, UInt32, Bool, Float64)
     for F in GENERATOR_TYPES
         rng = _positioned(F, 0x522, UInt64(11), UInt16(63))
@@ -117,7 +117,7 @@ end
     end
 end
 
-@testset "R29 packed addressed draws at stream capacity" begin
+@testset "packed addressed draws at stream capacity" begin
     for F in (Philox2x64, Threefry2x64)
         rng = F(0x523)
         final_index = big(1) << 65
@@ -162,7 +162,7 @@ end
     end
 end
 
-@testset "R29 addressed end-span preflight" begin
+@testset "addressed end-span preflight" begin
     base = Philox4x32(0x5231)
     last = IR._rebuild(
         base,
@@ -173,7 +173,7 @@ end
     @test_throws StreamExhausted rand_at(last, UInt32, UInt64(2))
 end
 
-@testset "R26 packed BitArray fills" begin
+@testset "packed BitArray fills" begin
     # A BitArray destination packs 64 draws to a word, so it is the one CPU
     # destination whose element write is not a store.
     rng = _positioned(Philox4x32, 0x525, UInt64(4), UInt16(63))
@@ -194,7 +194,7 @@ end
           expected_rng.position
 end
 
-@testset "R26 parallel packed fills cross CPU chunks" begin
+@testset "parallel packed fills cross CPU chunks" begin
     for F in (Philox2x32, Philox4x32, Philox4x64), T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x5251, UInt64(4), UInt16(61))
         chunk_elements = IR._fill_chunk_elements(Val(:uniform), T)
@@ -268,7 +268,7 @@ end
 
 end
 
-@testset "R49 serial fills stay on the calling task" begin
+@testset "serial fills stay on the calling task" begin
     rng = _positioned(Philox4x32, 0x526, UInt64(3), UInt16(29))
     caller = current_task()
     probe = TaskWriteProbe(Vector{UInt32}(undef, 37))
@@ -280,7 +280,7 @@ end
     @test next_rng.position == expected_rng.position
 end
 
-@testset "R23 and R30 packed uniform fixed-work and codegen" begin
+@testset "packed uniform fixed-work and codegen" begin
     for F in GENERATOR_TYPES
         rng = F(0x529)
         default_value, default_next = rand_next(rng)
@@ -310,7 +310,7 @@ end
     end
 end
 
-@testset "R26 Philox4x32 Float64 dense fill near capacity" begin
+@testset "Philox4x32 Float64 dense fill near capacity" begin
     # The dense Float64 fill realigns to a block, then emits 128 draws per 53
     # blocks. Near capacity the aligned group cannot form, and the fill falls
     # back to the bit buffer.
@@ -324,7 +324,7 @@ end
     @test next_rng.position == expected_rng.position
 end
 
-@testset "R29 addressed draw ranges" begin
+@testset "addressed draw ranges" begin
     rng = _positioned(Philox4x64, 0x524, UInt64(5), UInt16(47))
     @test rand_at(rng, Float64, 3:7) == [rand_at(rng, Float64, i) for i = 3:7]
     @test randn_at(rng, Float32, 2:5) == [randn_at(rng, Float32, i) for i = 2:5]
@@ -333,7 +333,7 @@ end
     @test_throws ArgumentError rand_at(rng, UInt32, 0:3)
 end
 
-@testset "R8 fills keep one stream across index styles" begin
+@testset "fills keep one stream across index styles" begin
     linear_destinations(::Type{T}, n) where {T} = (
         Vector{T}(undef, n),
         view(Vector{T}(undef, n + 3), 1:n),

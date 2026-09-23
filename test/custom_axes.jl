@@ -1,4 +1,4 @@
-@testset "R24 and R26 zero-based CPU fills" begin
+@testset "zero-based CPU fills" begin
     for (fill!, T) in ((rand_next!, UInt32), (randn_next!, Float32))
         rng = Philox4x32(0x5240)
         serial = ZeroBasedVector(Vector{T}(undef, 9))

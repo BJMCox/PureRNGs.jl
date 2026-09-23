@@ -57,7 +57,7 @@ end
     )
 end
 
-# [R23] Nine guard methods keep Base's untyped fallbacks unreachable. The dims
+# Nine guard methods keep Base's untyped fallbacks unreachable. The dims
 # spellings would otherwise reach `Random.Sampler` through the collection path.
 Random.rand(::AbstractPureRNG) = _untyped_draw_error("rand(rng, T)", "rand_next(rng, T)")
 Random.rand(::AbstractPureRNG, ::Integer, ::Integer...) =

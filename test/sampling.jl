@@ -58,7 +58,7 @@ function _chained_unweighted(rng, population, count::Integer)
     end
 end
 
-@testset "R56-R58 unweighted sampling values and request forms" begin
+@testset "unweighted sampling values and request forms" begin
     populations = (
         collect(Int16(11):Int16(17)),
         reshape(collect(Int16(21):Int16(32)), 3, 4),
@@ -89,7 +89,7 @@ end
     @test randsample(rng, population) == chained
 end
 
-@testset "R57 device-agnostic iterable materializes once" begin
+@testset "device-agnostic iterable materializes once" begin
     rng = Philox4x32(0x902)
     starts = Ref(0)
     population = DeviceAgnosticIterable(collect(Int32(3):Int32(11)), starts)
@@ -100,7 +100,7 @@ end
     @test next_rng == expected_next
 end
 
-@testset "R58 fixed work, wide cardinality, and O(k)" begin
+@testset "fixed work, wide cardinality, and O(k)" begin
     rng = Threefry4x64(0x903)
     small = UInt64(11):UInt64(29)
     small_values, small_next = randsample_next(rng, small, 5)
@@ -118,7 +118,7 @@ end
     @test reads[] == 17
 end
 
-@testset "R58 small unweighted samples" begin
+@testset "small unweighted samples" begin
     population = UInt64(0):(UInt64(1)<<32)
     count = 128
     for F in GENERATOR_TYPES
@@ -131,7 +131,7 @@ end
     end
 end
 
-@testset "R58 parallel unweighted samples preserve the scalar stream" begin
+@testset "parallel unweighted samples preserve the scalar stream" begin
     rng = Philox4x32(0x906)
     for population in (Int32[2, 7, 19], UInt64(0):(UInt64(1)<<32))
         expected_next, expected = _chained_unweighted(rng, population, 8193)
@@ -141,7 +141,7 @@ end
     end
 end
 
-@testset "R67 threaded destination sampling uses the CPU chunk kernel" begin
+@testset "threaded destination sampling uses the CPU chunk kernel" begin
     rng = Philox4x32(0x9061)
     population = Int32[2, 7, 19]
     expected, after = randsample_next(rng, population, 8193)
@@ -153,7 +153,7 @@ end
     @test next_rng === after
 end
 
-@testset "R67 CPU destination storage does not inspect values" begin
+@testset "CPU destination storage does not inspect values" begin
     rng = Philox4x32(0x9062)
     symbol_population = Symbol[:red, :green, :blue]
     symbol_expected, symbol_after = randsample_next(rng, symbol_population, 33)
@@ -198,7 +198,7 @@ end
     )
 end
 
-@testset "R60 validation and atomic preflight" begin
+@testset "validation and atomic preflight" begin
     rng = Philox4x32(0x904)
     empty = Int32[]
     @test randsample(rng, empty, 0) == Int32[]
@@ -235,7 +235,7 @@ end
     @test again == values
 end
 
-@testset "R67 unweighted destination sampling" begin
+@testset "unweighted destination sampling" begin
     rng = Philox4x32(0x9067)
     population = Int32[11, 13, 17, 19]
     expected, after = randsample_next(rng, population, 33)
@@ -250,7 +250,7 @@ end
     @test destination.values == expected
 end
 
-@testset "R67 destination axes, overlap, and preflight" begin
+@testset "destination axes, overlap, and preflight" begin
     rng = Philox4x32(0x9068)
     population = Int32[23, 29, 31]
     expected, after = randsample_next(rng, population, 33)

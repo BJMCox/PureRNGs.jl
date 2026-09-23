@@ -107,7 +107,7 @@ function _same_transform_class(got, expected::T) where {T<:Union{Float32,Float64
 end
 
 # On the CPU backend XLA may contract a multiply-add that the host evaluates in
-# two roundings, so the final transform may differ by one ulp (R43). Raw bits
+# two roundings, so the final transform may differ by one ulp. Raw bits
 # and midpoints are still compared exactly.
 function _same_transform_value(got, expected::T) where {T<:Union{Float32,Float64}}
     REACTANT_TEST_BACKEND == "cpu" || return _same_transform_class(got, expected)
@@ -613,7 +613,7 @@ Reactant.set_default_backend(REACTANT_TEST_BACKEND)
 
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
-@testset "R1 extension ambiguities" begin
+@testset "extension ambiguities" begin
     for name in
         (:PureRNGsReactantExt, :PureRNGsReactantDistributionsExt, :PureRNGsDistributionsExt)
         extension = Base.get_extension(PureRNGs, name)
@@ -643,7 +643,7 @@ end
 end
 
 if Philox4x64 in SELECTED_GENERATORS
-    @testset "R42 wide addressed index" begin
+    @testset "wide addressed index" begin
         index = (big(1) << 122) + 1
         eager = Philox4x64(0x123456)
         carrier = Reactant.to_rarray(eager)
@@ -653,7 +653,7 @@ if Philox4x64 in SELECTED_GENERATORS
 end
 
 if Philox2x64 in SELECTED_GENERATORS
-    @testset "R43 Reactant normal primitive conformance" begin
+    @testset "Reactant normal primitive conformance" begin
         compile_rng = _positioned_at(Philox2x64(0x123456), UInt64(3), UInt16(17))
         central_rng = _positioned_at(Philox2x64(0x654321), UInt64(7), UInt16(29))
         tail_rng = Philox2x64(0x5)
@@ -675,7 +675,7 @@ if Philox2x64 in SELECTED_GENERATORS
     end
 end
 
-@testset "R42 Reactant primitive and state conformance" begin
+@testset "Reactant primitive and state conformance" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
             first = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
@@ -708,7 +708,7 @@ end
     end
 end
 
-@testset "R42 public HLO keeps state dynamic and omits preflight" begin
+@testset "public HLO keeps state dynamic and omits preflight" begin
     cases = ((Philox2x32, 4), (Philox4x32, 5), (Philox4x64, 6))
     forbidden = (
         "stablehlo.custom_call",
@@ -742,7 +742,7 @@ end
     end
 end
 
-@testset "R42 fills trace no per-element constants" begin
+@testset "fills trace no per-element constants" begin
     # A dense literal with one entry per element grows with the fill and
     # fails Reactant's constant size cap above 13 million elements.
     for F in SELECTED_GENERATORS
@@ -758,7 +758,7 @@ end
     end
 end
 
-@testset "R42 fixed distributions" begin
+@testset "fixed distributions" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
             first = _positioned_at(F(0x123456), UInt64(3), UInt16(17))
@@ -814,7 +814,7 @@ end
 
 if Philox4x32 in SELECTED_GENERATORS
     include("distribution_transforms.jl")
-    @testset "R42 added continuous fixed distributions" begin
+    @testset "added continuous fixed distributions" begin
         eager = _positioned_at(Philox4x32(0x123456), UInt64(3), UInt16(17))
         carrier = Reactant.to_rarray(eager)
         compiled = Reactant.@compile sync = true _continuous_distribution_snapshot(carrier)
@@ -828,7 +828,7 @@ if Philox4x32 in SELECTED_GENERATORS
 end
 
 if Philox2x32 in SELECTED_GENERATORS
-    @testset "R42 subnormal and cancellation mappings" begin
+    @testset "subnormal and cancellation mappings" begin
         root = _positioned_at(Philox2x32(0x123456), UInt64(3), UInt64(2), UInt16(17))
         carrier = Reactant.to_rarray(root)
         compiled =
@@ -862,7 +862,7 @@ if Philox2x32 in SELECTED_GENERATORS
 end
 
 if Philox4x32 in SELECTED_GENERATORS
-    @testset "R42 integer range method surface" begin
+    @testset "integer range method surface" begin
         carrier =
             Reactant.to_rarray(_positioned_at(Philox4x32(0x123456), UInt64(3), UInt16(17)))
         unsupported = NegativeIntegerRange(-5, -2, 4)
@@ -875,7 +875,7 @@ if Philox4x32 in SELECTED_GENERATORS
     end
 end
 
-@testset "R42 exact-end continuation" begin
+@testset "exact-end continuation" begin
     for F in (Philox2x32, Philox4x32, Philox4x64)
         F in SELECTED_GENERATORS || continue
         eager = _last_bit_rng(F)
@@ -889,7 +889,7 @@ end
     end
 end
 
-@testset "R42 eager exhaustion remains checked with Reactant loaded" begin
+@testset "eager exhaustion remains checked with Reactant loaded" begin
     for F in SELECTED_GENERATORS
         last = _last_bit_rng(F)
         value, terminal = rand_next(last, Bool)
@@ -945,7 +945,7 @@ function _same_fill_snapshot(got, expected)
            _same_value(got[5], expected[5])
 end
 
-@testset "R42 array fills" begin
+@testset "traced array fills" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
             first = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
@@ -1001,7 +1001,7 @@ function _same_snapshot_item(got, expected)
     return size(got) == size(expected) && Array(got) == expected
 end
 
-@testset "R42 range arrays, samples, and destination fills" begin
+@testset "range arrays, samples, and destination fills" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
             eager = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))

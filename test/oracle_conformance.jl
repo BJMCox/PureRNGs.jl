@@ -1,4 +1,4 @@
-# This fixture contains only R2 raw cores, counter layouts, and key derivation.
+# This fixture contains only the raw cores, counter layouts, and key derivation.
 # It intentionally contains no draw conversion or packed-stream value. Every draw
 # kind reads the same counter region, so one block output per generator suffices.
 # Captured from commit 7a6d2cfe06c610e8437b4d0ac99a5ef208a3464d.
@@ -62,7 +62,7 @@ function _testbed_draw_counter(::Type{Threefry2x32}, block::UInt64)
     return block % UInt32, ((block >> 32) & 0x00ffffff) % UInt32
 end
 
-@testset "R2 pinned testbed agreement" begin
+@testset "pinned testbed agreement" begin
     oracle = PINNED_TESTBED_ORACLE
 
     constants = oracle.constants

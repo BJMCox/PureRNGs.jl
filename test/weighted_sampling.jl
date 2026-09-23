@@ -68,7 +68,7 @@ end
 # A weighted draw takes 53 bits.
 _last_weighted_rng(F) = _terminal_rng(F, 53)
 
-@testset "R59 strict Float64 fold golden boundaries" begin
+@testset "strict Float64 fold golden boundaries" begin
     population = Int32[10, 20, 30, 40]
     weights = Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0]
     @test randsample(Philox4x32(0x9750), population, weights, 1) == Int32[10]
@@ -83,7 +83,7 @@ _last_weighted_rng(F) = _terminal_rng(F, 53)
     end
 end
 
-@testset "R56 and R59 weighted sampling surface and fixed work" begin
+@testset "weighted sampling surface and fixed work" begin
     populations = (
         ["a", "b", "c", "d"],
         reshape(collect(Int16(1):Int16(6)), 2, 3),
@@ -118,7 +118,7 @@ end
     @test randsample(rng, population, weights) == default_expected
 end
 
-@testset "R59 weighted batch equals chained weighted scalar sampling" begin
+@testset "weighted batch equals chained weighted scalar sampling" begin
     population = collect('a':'f')
     weights = [0.0, 1.0, 7.0, 0.0, 2.0, 4.0]
     rng = Philox4x32(0x9753)
@@ -133,7 +133,7 @@ end
     @test batch_next === cursor
 end
 
-@testset "R59 and R60 weighted validation precedes generation" begin
+@testset "weighted validation precedes generation" begin
     rng = Philox4x32(0x9754)
     population = [10, 20, 30]
 
@@ -162,7 +162,7 @@ end
     @test isempty(randsample(rng, population, ones(3), 0))
 end
 
-@testset "R59 weight conversion is one population-order pass" begin
+@testset "weight conversion is one population-order pass" begin
     rng = Philox4x64(0x9755)
     weights = CountedWeights([1.0, 0.0, 3.0, 2.0], 0)
     expected_next, expected = _weighted_reference(rng, 11:14, weights.values, 13)
@@ -172,7 +172,7 @@ end
     @test weights.reads == length(weights)
 end
 
-@testset "R54 and R60 weighted capacity is atomic" begin
+@testset "weighted capacity is atomic" begin
     population = [:left, :right]
     weights = [1.0, 1.0]
     for F in (Philox2x32, Threefry4x64)
@@ -187,7 +187,7 @@ end
     end
 end
 
-@testset "R67 weighted destination sampling" begin
+@testset "weighted destination sampling" begin
     rng = Philox4x32(0x9756)
     population = Int32[10, 20, 30, 40]
     weights = Float64[1, 2, 3, 4]
@@ -211,7 +211,7 @@ end
     @test preserved == before
 end
 
-@testset "R67 weighted destination may overlap prepared weights" begin
+@testset "weighted destination may overlap prepared weights" begin
     rng = Philox4x32(0x9757)
     population = Float64.(1:33)
     weights = Float64.(1:33)
@@ -228,7 +228,7 @@ end
           (empty, rng)
 end
 
-@testset "R67 Cartesian destination order" begin
+@testset "Cartesian destination order" begin
     rng = Philox4x32(0x9758)
     population = Int32[10, 20, 30, 40]
     weights = Float64[1, 2, 3, 4]
@@ -248,7 +248,7 @@ end
     end
 end
 
-@testset "R67 threaded weighted fill matches the serial fill" begin
+@testset "threaded weighted fill matches the serial fill" begin
     rng = Philox4x32(0x77e)
     population = collect(1:64)
     weights = Float64.(1:64)

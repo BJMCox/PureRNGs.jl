@@ -121,7 +121,7 @@ normal_allocations(rng, ::Type{T}) where {T} = (
     @allocated(randn_at(rng, T, 3)),
 )
 
-@testset "R28 AS241 definition" begin
+@testset "AS241 definition" begin
     # The Float32 table stops at the near tail: the midpoint sweep below shows
     # no Float32 input reaches r > 5, so the far-tail pair is never evaluated.
     @test IR._as241_coefficients(Float32) === REFERENCE_AS241_32[1:4]
@@ -157,7 +157,7 @@ normal_allocations(rng, ::Type{T}) where {T} = (
           one(Float64) - Float64(0x1p-53)
 end
 
-@testset "R28 and R43 backend token selects the normal transform" begin
+@testset "backend token selects the normal transform" begin
     # A device-placed generator drawn on the host keeps its token, so the same
     # midpoint reaches a different transform. Only the final value moves: the
     # raw bits, the midpoint, and the returned position are the CPU ones.
@@ -185,7 +185,7 @@ end
     end
 end
 
-@testset "R28 packed scalar normals" begin
+@testset "packed scalar normals" begin
     # The public draw is the AS241 reference applied to the midpoint of the raw
     # the generator stands on, at every alignment of the significand.
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
@@ -196,7 +196,7 @@ end
     end
 end
 
-@testset "R8 and R53 normal generator and mixed positions" begin
+@testset "normal generator and mixed positions" begin
     # A normal draw leaves the stream where a uniform draw can carry on.
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
         rng = _positioned(F, 0x743, UInt64(4), UInt16(61))
@@ -212,7 +212,7 @@ end
     end
 end
 
-@testset "R30 Position128 normal low-word carry" begin
+@testset "Position128 normal low-word carry" begin
     for F in (Philox4x64, Threefry4x64), T in NORMAL_TYPES
         rng = F(0x746)
         bit = UInt16(IR._block_bits(rng) - _transformed_width(T))
@@ -223,7 +223,7 @@ end
     end
 end
 
-@testset "R23 and R30 normal fixed-work and codegen" begin
+@testset "normal fixed-work and codegen" begin
     for F in GENERATOR_TYPES
         rng = F(0x744)
         default_value, default_next = randn_next(rng)

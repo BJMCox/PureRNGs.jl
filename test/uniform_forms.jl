@@ -8,7 +8,7 @@
     @test first(rand_next(successor, UInt64)) == first(rand_next(cursor, UInt64))
 end
 
-@testset "R23-R26 CPU allocating uniform draws" begin
+@testset "CPU allocating uniform draws" begin
     for F in GENERATOR_TYPES, T in PURE_UNIFORM_TYPES
         rng = F(0x62a)
 
@@ -48,7 +48,7 @@ end
     end
 end
 
-@testset "R23 and R24 CPU allocating defaults and return order" begin
+@testset "CPU allocating defaults and return order" begin
     # The untyped array form of each family draws Float64 and reaches the same
     # generator as the typed one.
     for F in GENERATOR_TYPES
@@ -71,7 +71,7 @@ end
     end
 end
 
-@testset "R23 tuple dimensions match splatted dimensions" begin
+@testset "tuple dimensions match splatted dimensions" begin
     rng = Philox4x32(0x62c)
     @test rand(rng, Float32, (2, 3)) == rand(rng, Float32, 2, 3)
     @test randn(rng, Float64, (4,)) == randn(rng, Float64, 4)

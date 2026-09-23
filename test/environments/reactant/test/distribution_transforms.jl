@@ -22,7 +22,7 @@ function _six_transform_snapshot(rng, d)
     )
 end
 
-@testset "R64 six native compiled mappings" begin
+@testset "six native compiled mappings" begin
     for T in (Float32, Float64), d in six_transform_distributions(T)
         first_rng = last(rand_next(Philox4x32(0x654), Bool))
         first_carrier = Reactant.to_rarray(first_rng)
@@ -48,7 +48,7 @@ function _triangular_compiled_boundary(u, d)
     return REACTANT_DISTRIBUTIONS_EXT._map_primitive(d, u)
 end
 
-@testset "R64 compiled triangular boundaries" begin
+@testset "compiled triangular boundaries" begin
     for T in (Float32, Float64),
         d in (
             TriangularDist(T(0), T(2), T(0)),

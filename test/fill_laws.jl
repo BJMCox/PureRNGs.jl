@@ -192,14 +192,14 @@ function _serial_fill_allocation_law(family, spec, F)
     return nothing
 end
 
-@testset "R23, R25, and R29 scalar and addressed draws" begin
+@testset "scalar and addressed draws" begin
     for family in DRAW_FAMILIES, spec in family.specs, F in GENERATOR_TYPES
         _scalar_draw_law(family, spec, F)
         _scalar_capacity_law(family, spec, F)
     end
 end
 
-@testset "R23, R24, and R26 bulk fills equal the scalar chain" begin
+@testset "bulk fills equal the scalar chain" begin
     for family in DRAW_FAMILIES, spec in family.specs
         for F in GENERATOR_TYPES
             _bulk_fill_law(family, spec, F)
@@ -208,7 +208,7 @@ end
     end
 end
 
-@testset "R23 and R26 grouped fills equal the scalar chain" begin
+@testset "grouped fills equal the scalar chain" begin
     # The Philox4x32 fill decodes whole groups of aligned draws, so the stream
     # has to match the scalar chain on either side of a group boundary, at a
     # start bit no group can align to, and at the last bit of a block.
@@ -226,14 +226,14 @@ end
     end
 end
 
-@testset "R26 small allocating fill boundary" begin
+@testset "small allocating fill boundary" begin
     # 128 elements take the small allocating path, 129 the dense one.
     for family in DRAW_FAMILIES, spec in family.specs, count in (128, 129)
         _small_allocating_law(family, spec, count)
     end
 end
 
-@testset "R30, R39, R40, and R54 fill exhaustion and preflight" begin
+@testset "fill exhaustion and preflight" begin
     for family in DRAW_FAMILIES, spec in family.specs
         _empty_destination_law(family, spec)
         for F in GENERATOR_TYPES
@@ -242,7 +242,7 @@ end
     end
 end
 
-@testset "R23 and R30 serial fills allocate nothing" begin
+@testset "serial fills allocate nothing" begin
     for family in DRAW_FAMILIES, spec in family.specs, F in GENERATOR_TYPES
         _serial_fill_allocation_law(family, spec, F)
     end

@@ -3,7 +3,7 @@ integer_allocations(rng, range) =
 
 addressed_range_allocations(rng, range) = @allocated(rand_at(rng, range, 3))
 
-@testset "R55 packed integer ranges" begin
+@testset "packed integer ranges" begin
     threshold = UInt64(1) << 32
     @test IR._range_bits(UInt64(1)) === UInt16(64)
     @test IR._range_bits(threshold) === UInt16(64)
@@ -41,7 +41,7 @@ addressed_range_allocations(rng, range) = @allocated(rand_at(rng, range, 3))
     end
 end
 
-@testset "R8 and R53 mixed primitive and range positions" begin
+@testset "mixed primitive and range positions" begin
     small = UInt16(3):UInt16(41)
     wide = UInt64(0):(UInt64(1)<<32)
     for F in GENERATOR_TYPES
@@ -70,7 +70,7 @@ end
     end
 end
 
-@testset "R53 and R54 range capacity and validation" begin
+@testset "range capacity and validation" begin
     small = UInt8(1):UInt8(7)
     wide = UInt64(0):(UInt64(1)<<32)
     for F in GENERATOR_TYPES, (range, width) in ((small, 64), (wide, 128))
@@ -107,7 +107,7 @@ end
     end
 end
 
-@testset "R23 and R55 range method and mapping surface" begin
+@testset "range method and mapping surface" begin
     rng = Philox4x32(0x555)
     rounded = LinRange{Int64}(Int64(1)<<53, (Int64(1)<<53)+Int64(4), 5)
     @test rand(rng, rounded) === _range_reference_draw(rng, rounded)
@@ -115,7 +115,7 @@ end
     @test rand(rng, long) === Int64(0)
 end
 
-@testset "R29 and R55 addressed range draws" begin
+@testset "addressed range draws" begin
     # A far index still lands where the chain of same-span draws reaches.
     for F in (Philox4x32, Threefry4x64, ChaCha),
         range in (-3:3, Int32(10):Int32(-2):Int32(-10), UInt64(1):(UInt64(2)^40))
@@ -127,7 +127,7 @@ end
 
     rng = Philox4x32(0x559)
     for range in (1:6, 1:(2^40))
-        # [R29] pins the addressed draw to the fill element at the same index.
+        # An addressed draw equals the fill element at the same index.
         @test [rand_at(rng, range, i) for i = 1:8] == rand(rng, range, 8)
         @inferred rand_at(rng, range, 3)
         addressed_range_allocations(rng, range)
@@ -137,7 +137,7 @@ end
     @test_throws ArgumentError rand_at(rng, Int8(2):Int8(1), 1)
 end
 
-@testset "R30 and R55 fixed-work range codegen" begin
+@testset "fixed-work range codegen" begin
     for F in GENERATOR_TYPES,
         range in (
             Int8(-2):Int8(3),

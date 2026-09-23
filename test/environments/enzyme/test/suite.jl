@@ -22,7 +22,7 @@ PureRNGs.MLDataDevices.get_device(::CountingVector) = PureRNGs.MLDataDevices.CPU
 
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
-@testset "R1 extension ambiguities" begin
+@testset "extension ambiguities" begin
     for name in (:PureRNGsEnzymeCoreExt, :PureRNGsDistributionsExt)
         extension = Base.get_extension(PureRNGs, name)
         @testset "$name" begin
@@ -31,12 +31,12 @@ PureRNGs.MLDataDevices.get_device(::CountingVector) = PureRNGs.MLDataDevices.CPU
     end
 end
 
-@testset "R65 Enzyme activity boundary" begin
+@testset "Enzyme activity boundary" begin
     @test ER.inactive_type(AbstractPureRNG)
     @test !ER.inactive_type(StatefulRNG)
 end
 
-@testset "R65 closed rule surface" begin
+@testset "closed rule surface" begin
     extension = Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt)
     # rand! carries the immutable, StatefulRNG, and range fills; rand_next!
     # carries all but the StatefulRNG one. Distribution and population fills have
@@ -108,7 +108,7 @@ function pure_fill_cases(rng, ::Type{T}, count) where {T}
 end
 
 
-@testset "R65 omitted keyword and StatefulRNG annotations" begin
+@testset "omitted keyword and StatefulRNG annotations" begin
     rng = Philox4x32(0x6506)
     expected, expected_rng = randn_next(rng, Float64, 9)
 
@@ -148,7 +148,7 @@ end
     @test parent(mutable_shadow) === rng
 end
 
-@testset "R65 StatefulRNG reverse normal overwrite" begin
+@testset "StatefulRNG reverse normal overwrite" begin
     rng = StatefulRNG(Philox4x32(0x6501))
     expected, expected_rng = randn_next(parent(rng), Float64, 8)
     destination = zeros(8)
@@ -174,7 +174,7 @@ end
 end
 
 
-@testset "R65 immutable fill rules" begin
+@testset "immutable fill rules" begin
     for T in (Float32, Float64), case in pure_fill_cases(Philox4x32(0x6503), T, 13)
         fill_function, next_fill_function, expected = case
         expected_values, expected_rng = expected
@@ -235,7 +235,7 @@ end
 end
 
 
-@testset "R65 constant and batched destinations" begin
+@testset "constant and batched destinations" begin
     for T in (Float32, Float64)
         rng = Philox4x32(0x6504)
         expected, expected_rng = randexp_next(rng, T, 17)
@@ -283,7 +283,7 @@ end
 end
 
 
-@testset "R65 failed primal preserves shadows" begin
+@testset "failed primal preserves shadows" begin
     rng = Philox4x32(0x6505)
     exhausted =
         PureRNGs._rebuild(rng, PureRNGs._terminal64(PureRNGs._max_block(rng)), rng.device)
@@ -303,7 +303,7 @@ end
 end
 
 
-@testset "R65 StatefulRNG fill rules" begin
+@testset "StatefulRNG fill rules" begin
     for T in (Float32, Float64),
         (fill_function, expected) in fill_cases(Philox4x32(0x6502), T, 11)
 
@@ -454,7 +454,7 @@ function range_fill_result!(fill_function, rng, destination, range, threaded)
 end
 
 
-@testset "R65 range fill keeps its destination second" begin
+@testset "range fill keeps its destination second" begin
     rng = Philox4x32(0x650c)
     expected, _ = rand_next!(rng, Vector{Int}(undef, 8), 3:9)
     for mode in (Forward, Reverse)
@@ -474,7 +474,7 @@ end
 end
 
 
-@testset "R65 one primal execution" begin
+@testset "one primal execution" begin
     rng = Philox4x32(0x6507)
     expected, _ = randn_next(rng, Float64, 10)
     for (mode, shadow_writes) in ((Forward, 10), (Reverse, 20))

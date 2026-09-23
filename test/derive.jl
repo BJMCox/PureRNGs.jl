@@ -1,6 +1,6 @@
 zero_position(rng) = PureRNGs._zero_position(typeof(rng))
 
-@testset "R20 derivation state law" begin
+@testset "derivation state law" begin
     for F in (Philox2x32, Threefry4x64)
         rng = F(123)
         moved = PureRNGs._reserve(rng, UInt64(7), UInt64(0))
@@ -20,7 +20,7 @@ zero_position(rng) = PureRNGs._zero_position(typeof(rng))
     @test subrng(rng, (UInt128(1) << 64) + UInt128(42)) == subrng(rng, 42)
 end
 
-@testset "R13 derivation golden vectors" begin
+@testset "derivation golden vectors" begin
     # The six generators outside the pinned testbed scope carry revision-9 vectors here.
     # The two pinned-testbed generators and their provenance live in oracle_conformance.jl.
     cases = (
@@ -132,7 +132,7 @@ end
           (0xc6dcc08a,)
 end
 
-@testset "R21 request forms and bounds" begin
+@testset "request forms and bounds" begin
     for F in (Philox4x32,)
         rng = F(123)
         @test splitrng(rng, Val(0)) === ()
@@ -150,7 +150,7 @@ end
     end
 end
 
-@testset "R21 threaded derivation" begin
+@testset "threaded derivation" begin
     for F in (Philox4x32, Threefry2x64, ChaCha)
         rng = F(123)
         # 4096 is the chunk size, so these counts straddle a chunk boundary.
@@ -179,7 +179,7 @@ end
 # Specialize the measurement so Julia 1.10 does not box heterogeneous loop results.
 derive_allocations(rng) = (@allocated(splitrng(rng, Val(3))), @allocated(subrng(rng, 42)))
 
-@testset "R30 inference and allocation" begin
+@testset "inference and allocation" begin
     for F in (Philox2x32, Threefry4x64)
         rng = F(123)
         @test @inferred(splitrng(rng, Val(3))) isa NTuple{3,typeof(rng)}

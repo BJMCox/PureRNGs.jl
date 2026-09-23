@@ -254,7 +254,7 @@ end
     d::Union{_FixedDistribution,Distributions.Categorical},
 ) = IR._check_serviceability(rng, _result_type(d))
 
-# [R41] Metal serves no distribution draw. The result type is checked first so a
+# Metal serves no distribution draw. The result type is checked first so a
 # type Metal does not serve keeps reporting the device error.
 @inline function IR._check_serviceability(
     rng::IR._BackendGenerators{IR._MetalBackend},

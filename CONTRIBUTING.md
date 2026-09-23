@@ -169,6 +169,8 @@ include("test/environments/distributions/test/runtests.jl")
 choice when the suite must not inherit the current session's loaded packages.
 
 The MeasureBase and Turing environments verify host `StatefulRNG` conformance.
+The KernelAbstractions environment runs the device fill and weighted-scan kernels on
+the KernelAbstractions CPU backend, so they are checked without a GPU.
 CUDA is a local gate, not a hosted CI job. Record the exact source revision
 for each device run. See [Devices](docs/src/manual/devices.md) for support
 levels and [Differentiation and compilation](docs/src/integrations/compilation.md)

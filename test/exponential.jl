@@ -23,7 +23,7 @@ function _exponential_sweep(::Type{T}, raws) where {T}
     return minimum(lowest), maximum(highest), all(positive_finite)
 end
 
-@testset "R63 exponential lattice and transform" begin
+@testset "exponential lattice and transform" begin
     cases = (
         (
             Float32,
@@ -63,7 +63,7 @@ end
     end
 end
 
-@testset "R63 the exponential lattice is open at both ends" begin
+@testset "the exponential lattice is open at both ends" begin
     # The Float32 sweep is complete, so its extremes are the reach itself; the
     # strided Float64 sweep only has to stay inside it.
     device = IR._CPUBackend()
@@ -84,13 +84,13 @@ end
     end
 end
 
-@testset "R23 and R53 exponential scalar defaults" begin
+@testset "exponential scalar defaults" begin
     rng = Philox4x32(0x864)
     @test randexp_next(rng) === randexp_next(rng, Float64)
     @test_throws ArgumentError randexp(rng)
 end
 
-@testset "R8, R26, R38, and R63 exponential stream" begin
+@testset "exponential stream" begin
     for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         rng = _positioned(F, 0x865, UInt64(4), UInt16(61))
         _, next_rng = randexp_next(rng, T)
@@ -103,7 +103,7 @@ end
     rng = _packed_golden_rng(PACKED_GOLDEN_GENERATORS[1]...)
     device_rng = MLD.CUDADevice()(rng)
     @test rand(rng, Float32) === rand(device_rng, Float32)
-    # [R28] the token selects the normal transform, so the two generators share
+    # The token selects the normal transform, so the two generators share
     # the midpoint the transform reads, not the value it returns.
     @test _reference_normal(rng, Float32) === _reference_normal(device_rng, Float32)
     @test _reference_exponential_lattice(
@@ -125,7 +125,7 @@ end
     )
 end
 
-@testset "R30 exponential codegen" begin
+@testset "exponential codegen" begin
     rng = MLD.CUDADevice()(Philox4x64(0x86b))
     for (function_, signature) in (
         (randexp, Tuple{typeof(rng),Type{Float64}}),

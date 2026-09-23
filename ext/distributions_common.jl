@@ -198,7 +198,7 @@ end
     IR._draw_bits(T)
 
 @inline function _discrete_span(d::Distributions.DiscreteUniform)
-    # UInt64 wrap maps cardinality 2^64 to the R55 zero sentinel.
+    # UInt64 wrap maps cardinality 2^64 to zero, the range reduction's full-width case.
     return (d.b % UInt64 - d.a % UInt64) + UInt64(1)
 end
 

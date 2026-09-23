@@ -34,7 +34,7 @@ function six_transform_chain(rng, d, count)
     return values, cursor
 end
 
-@testset "R64 six-transform scalar mappings" begin
+@testset "six-transform scalar mappings" begin
     rng = Philox4x32(0x9d5)
     for T in (Float32, Float64), d in six_transform_distributions(T)
         expected, expected_next, input = six_transform_reference_next(rng, d)
@@ -50,7 +50,7 @@ end
     end
 end
 
-@testset "R64 six-transform forms preserve order and state" begin
+@testset "six-transform forms preserve order and state" begin
     for T in (Float32, Float64), d in six_transform_distributions(T)
         rng = Philox4x32(0x9d6)
         expected, expected_next = six_transform_chain(rng, d, 5)
@@ -67,7 +67,7 @@ end
     end
 end
 
-@testset "R64 six-transform boundaries and preflight" begin
+@testset "six-transform boundaries and preflight" begin
     rng = Philox4x32(0x9d7)
     for T in (Float32, Float64)
         pareto = Pareto(T(2), T(3))

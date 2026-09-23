@@ -1,7 +1,7 @@
 # A codec selects the width, mapping, and fill plan through dispatch.
 abstract type _MappedFillCodec end
-# Both transform codecs carry the backend because the token selects the
-# transform: [R28] for the normal, [R63] for the exponential.
+# Both transform codecs carry the backend because the token selects the normal
+# and exponential transforms.
 struct _NormalCodec{B<:_BackendToken}
     backend::B
 end
@@ -56,7 +56,8 @@ end
 ) where {T}
     isempty(indices) && return nothing
     # One range check covers every store below, so the inner loops skip the
-    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools, serial 2^16 fills).
+    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools,
+    # serial 2^16 fills).
     checkbounds(destination, indices)
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     @inbounds for index in indices
@@ -209,7 +210,8 @@ end
 ) where {T<:_UniformFloat}
     isempty(indices) && return nothing
     # One range check covers every store below, so the inner loops skip the
-    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools, serial 2^16 fills).
+    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools,
+    # serial 2^16 fills).
     checkbounds(destination, indices)
     bits = Int(_fill_width(codec, T))
     width = Val(bits)
@@ -253,7 +255,8 @@ end
 ) where {T}
     isempty(indices) && return nothing
     # One range check covers every store below, so the inner loops skip the
-    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools, serial 2^16 fills).
+    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools,
+    # serial 2^16 fills).
     checkbounds(destination, indices)
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     _fill_cursor!(rng, cursor, destination, T, first(indices), length(indices), codec)
@@ -339,7 +342,7 @@ function _launch_cpu!(rng, destination::BitArray, ::Type{Bool}, codec::_MappedFi
     return destination
 end
 
-# [R54] the whole span is reserved before any element is written, so a fill
+# The whole span is reserved before any element is written, so a fill
 # either runs or throws. Callers keep their own validation prefix ahead of this.
 @inline function _fill_prevalidated!(
     rng::_ScalarUniformGenerators,

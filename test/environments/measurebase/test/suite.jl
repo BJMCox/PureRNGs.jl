@@ -43,7 +43,7 @@ function check_replay(::Type{T}, measure) where {T}
     @test parent(actual_rng) !== ROOT
 end
 
-@testset "R66 MeasureBase environment" begin
+@testset "MeasureBase environment" begin
     @info "MeasureBase conformance environment" MEASUREBASE_IDENTITY
 
     @testset "standard measures" begin

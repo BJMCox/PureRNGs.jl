@@ -7,7 +7,7 @@ function _thrown_message(call)
     return ""
 end
 
-@testset "R23 untyped draw guards name both draw forms" begin
+@testset "untyped draw guards name both draw forms" begin
     rng = Philox4x32(0x6a1)
     cases = (
         (() -> rand(rng), "rand(rng, T)", "rand_next(rng, T)"),

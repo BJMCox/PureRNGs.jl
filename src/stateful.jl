@@ -44,6 +44,9 @@ end
 
 @inline Base.parent(mutable_rng::StatefulRNG) = mutable_rng.rng
 
+Base.show(io::IO, mutable_rng::StatefulRNG) =
+    print(io, "StatefulRNG(", mutable_rng.rng, ")")
+
 # Reading the held generator whole copies it through a stack blob that the
 # next draw's stores then feed back through memory. Reading it word by word
 # keeps the scalar bridge path in registers between the load and the store.

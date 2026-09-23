@@ -1,9 +1,9 @@
 using TOML
 
-@testset "R36-R38 extension metadata and exports" begin
+@testset "extension metadata and exports" begin
     project = TOML.parsefile(joinpath(pkgdir(PureRNGs), "Project.toml"))
 
-    # [R36] a CPU-only user loads no KernelAbstractions, so the core suite runs
+    # A CPU-only user loads no KernelAbstractions, so the core suite runs
     # with its extension absent.
     @test Base.get_extension(PureRNGs, :PureRNGsKernelAbstractionsExt) === nothing
     @test !haskey(project["deps"], "KernelAbstractions")

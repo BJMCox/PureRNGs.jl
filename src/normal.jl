@@ -172,9 +172,9 @@ const _GILES_G3_64 = (
     return value
 end
 
-# [R28] `log` and `sqrt` are the execution site's native operations and are the
+# `log` and `sqrt` are the execution site's native operations and are the
 # only ones a fast-math substitution may touch. CUDA takes the substitution for
-# `Float32` only: it costs 4.686 ulp against the 5.0 gate and buys 1.27x on an
+# `Float32` only: it costs 4.686 ulp against the 5.0 ulp bound and buys 1.27x on an
 # A100. `Float64` keeps the accurate pair because NVPTX lowers the fast
 # `Float64` square root to `rsqrt.approx.f64`, which is accurate to 2^-23 and
 # costs about 6e9 ulp, and because the fast pair buys nothing at that width.
@@ -191,7 +191,7 @@ end
     return q * (_quantile_horner(r, A) / _quantile_horner(r, B))
 end
 
-# [R28] the Float32 far tail `r > 5` is unreachable: the largest `r` the Float32
+# The Float32 far tail `r > 5` is unreachable: the largest `r` the Float32
 # midpoint lattice reaches is 4.08. LLVM cannot prove it and keeps a third
 # division, which costs 5 % of the CPU fill and a division slow path on a GPU.
 @inline function _as241_tail_chain(r::Float32)
@@ -220,7 +220,7 @@ end
     return abs(q) <= T(0.425) ? _as241_central(q) : _as241_tail(u, q)
 end
 
-# Defined on the [R28] midpoint lattice, where `T(2) * u - one(T)` is exact. Off
+# Defined on the midpoint lattice, where `T(2) * u - one(T)` is exact. Off
 # the lattice that subtraction loses the low bits of `u` and the tail argument
 # with them, so the ulp bounds hold for lattice inputs only.
 #
@@ -253,9 +253,9 @@ end
     return sqrt2 * (x * p)
 end
 
-# [R28] the backend token selects the transform. Both reach the same lattice
-# ends and both stay inside the [R43] ulp gates; AS241 is the faster on a CPU
-# and Giles the faster on a GPU, by a factor of about two in each direction.
+# The backend token selects the transform. Both reach the same lattice ends and
+# stay within 5 ulp for Float32 and 6 ulp for Float64 of the true quantile; AS241 is the
+# faster on a CPU and Giles the faster on a GPU, by a factor of about two in each direction.
 @inline _normal_transform(::_CPUBackend, u::T) where {T<:_UniformFloat} = _as241(u)
 @inline _normal_transform(device::_CUDABackend, u::T) where {T<:_UniformFloat} =
     _giles_erfinv(device, u)

@@ -2,7 +2,7 @@
 @inline _exponential_bits(::Type{Float32}) = UInt16(23)
 @inline _exponential_bits(::Type{Float64}) = UInt16(52)
 
-# [R63] draws on the open midpoint lattice [R28] already defines: `u` and
+# Draws on the open midpoint lattice the normal transform uses: `u` and
 # `v = 1 - u` are both exact in `T`, neither endpoint occurs, so the transform
 # output is strictly positive with reach `(width + 1) * ln 2`.
 @inline function _exponential_lattice(::Type{T}, value::UInt64) where {T<:_UniformFloat}

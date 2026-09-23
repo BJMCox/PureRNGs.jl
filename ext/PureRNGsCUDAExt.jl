@@ -50,8 +50,8 @@ const _CUDAPackedCodec = Union{
 }
 
 # The portable four-product multiply costs Philox2x64 1.9x on sm_80, where one
-# `mul.hi.u64` gives the high half. `widemul` would give it too, but [R30]
-# forbids a 128-bit integer in device typed IR, so the high half comes from
+# `mul.hi.u64` gives the high half. `widemul` would give it too, but device
+# typed IR must not hold a 128-bit integer, so the high half comes from
 # libdevice. The override reaches device code only, and the host keeps the
 # portable form that its own range arithmetic shares.
 @inline _mul_hi_u64(a::UInt64, b::UInt64) =

@@ -44,8 +44,8 @@ end
 ) where {R<:AbstractPureRNG} =
     throw(StreamExhausted{R}((UInt128(bits_hi) << 64) | UInt128(bits_lo)))
 
-# [R70] fixes the field at UInt128, so a wider addressed span reports the
-# widest value the field holds.
+# The field is a UInt128, so a wider addressed span reports the widest value
+# the field holds.
 @noinline _stream_exhausted(::Type{R}, bits::Integer) where {R<:AbstractPureRNG} =
     throw(StreamExhausted{R}(bits > typemax(UInt128) ? typemax(UInt128) : UInt128(bits)))
 
@@ -484,6 +484,24 @@ for (alias, F, R) in _ROUND_ALIASES
         (::Type{$alias})(seed::Integer, position::Integer) =
             $alias(_family_key($F, seed), position)
     end
+end
+
+# A generator prints as the constructor call that rebuilds it: the alias name for
+# a reduced round count, the exact key, the consumed position, and the device.
+for F in _GENERATOR_SYMBOLS
+    @eval _display_name(::Type{<:$F}) = $(QuoteNode(F))
+end
+for (alias, F, R) in _ROUND_ALIASES
+    R == _default_rounds(getfield(@__MODULE__, F)) && continue
+    @eval _display_name(::Type{<:$F{<:_BackendToken,$R}}) = $(QuoteNode(alias))
+end
+
+function Base.show(io::IO, rng::AbstractPureRNG)
+    on_device = !(rng.device isa _CPUBackend)
+    on_device && print(io, nameof(MLDataDevices.get_device_type(rng.device)), "()(")
+    print(io, _display_name(typeof(rng)), "(", rng.key, ", ", rngposition(rng), ")")
+    on_device && print(io, ")")
+    return nothing
 end
 
 @noinline function _seed_width_error(family::Symbol, key_bits::Int)

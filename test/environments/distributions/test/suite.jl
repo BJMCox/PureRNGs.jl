@@ -98,7 +98,7 @@ function distribution_allocations(rng, distribution, destination)
     )
 end
 
-@testset "R64 fixed distribution scalar forms" begin
+@testset "fixed distribution scalar forms" begin
     for F in GENERATOR_TYPES,
         T in (Float32, Float64),
         distribution in fixed_distributions(T)
@@ -115,7 +115,7 @@ end
     end
 end
 
-@testset "R64 fixed distribution arrays and fills" begin
+@testset "fixed distribution arrays and fills" begin
     for (F, distribution) in fixed_distribution_array_cases()
         rng = F(0x902)
         expected_next, expected = primitive_chain(rng, distribution, 12)
@@ -152,7 +152,7 @@ end
     end
 end
 
-@testset "R40 and R64 mapped fill traversal" begin
+@testset "mapped fill traversal" begin
     rng = Philox4x32(0x9a2)
 
     distribution = Bernoulli{Float64}(0.375)
@@ -177,7 +177,7 @@ end
     @test all(task -> task === caller, probe.writers)
 end
 
-@testset "R54 and R64 atomic preflight and zero sizes" begin
+@testset "atomic preflight and zero sizes" begin
     for distribution in fixed_distributions(Float64)
         rng = Philox4x32(0x903)
         width = EXT._distribution_span(distribution)
@@ -202,7 +202,7 @@ end
     end
 end
 
-@testset "R64 validation and closed dispatch" begin
+@testset "validation and closed dispatch" begin
     rng = Philox4x32(0x904)
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     invalid = (
@@ -253,7 +253,7 @@ end
     @test_throws StreamExhausted rand_at(last, distribution, 2)
 end
 
-@testset "R1 and R64 allocations and ambiguity freedom" begin
+@testset "allocations and ambiguity freedom" begin
     rng = Philox4x32(0x905)
     normal = Normal{Float32}(0.0f0, 1.0f0)
     destination = Vector{Float32}(undef, 17)
@@ -269,7 +269,7 @@ end
     @test isempty(Test.detect_ambiguities(EXT; recursive = true))
 end
 
-@testset "R34 Distributions StatefulRNG smoke" begin
+@testset "Distributions StatefulRNG smoke" begin
     normal_root = Philox4x32(0x812)
     normal = Normal()
     scalar_expected, scalar_next = randn_next(normal_root, Float64)

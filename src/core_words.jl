@@ -13,7 +13,7 @@ function _word_mulhilo end
     product = a * b
     # Callers guarantee a nonnegative product. The dynamic sign and abs preserve
     # that value while preventing XLA from contracting its rounding into the
-    # next operation. Without it, the central R43 normal probe differs from the
+    # next operation. Without it, a compiled central normal draw differs from the
     # CPU result in its last bit.
     return abs(copysign(product, sign))
 end

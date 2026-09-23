@@ -42,7 +42,7 @@ CUDA.allowscalar(false)
 
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.
-@testset "R1 extension ambiguities" begin
+@testset "extension ambiguities" begin
     for name in (
         :PureRNGsCUDAExt,
         :PureRNGsEnzymeCoreExt,
@@ -254,7 +254,7 @@ end
 @inline _write_coefficients!(destination, coefficients) =
     _write_coefficients!(destination, 0, coefficients)
 
-# [R28] the CUDA token's transform at a strided lattice point. The stride is a
+# The CUDA token's transform at a strided lattice point. The stride is a
 # type parameter so the index arithmetic folds.
 function _giles_lattice_kernel!(destination, ::Type{T}, ::Val{S}) where {T,S}
     index = (CUDA.blockIdx().x - 1) * CUDA.blockDim().x + CUDA.threadIdx().x
@@ -1089,14 +1089,14 @@ end
     end
 end
 
-@testset "R28 and R43 device normal ulp over a strided lattice" begin
+@testset "device normal ulp over a strided lattice" begin
     # Float32: the reference is the same formula evaluated in Float64 at the
     # same lattice point. Its own error is about 1e-16 relative, eight decades
     # below a Float32 ulp, and the core suite gates the formula itself against a
     # BigFloat quantile. A toolkit change that moves the device `log` or `sqrt`
-    # past the [R28] bound of 5.0 ulp fails here.
-    # Float64: the reference is the host evaluation of the same formula. [R43]
-    # lets the two differ through `log` and `sqrt` only, so a device build that
+    # past the 5.0 ulp bound fails here.
+    # Float64: the reference is the host evaluation of the same formula. The two
+    # may differ through `log` and `sqrt` only, so a device build that
     # substitutes an approximate one for either fails here. An approximate
     # `Float64` square root alone costs about 6e9 ulp, nine decades past this
     # bound; the measured worst is 3 ulp.
@@ -1599,7 +1599,7 @@ end
     end
 end
 
-@testset "R56-R58 and R60 CUDA unweighted sampling" begin
+@testset "CUDA unweighted sampling" begin
     for F in GENERATOR_TYPES
         cpu_rng = F(0x91a)
         gpu_rng = device(cpu_rng)
@@ -1678,7 +1678,7 @@ end
     @test isempty(d2h_sizes)
 end
 
-@testset "R30 GPU-bound scalar allocation" begin
+@testset "GPU-bound scalar allocation" begin
     for F in GENERATOR_TYPES
         rng = device(F(0x123456))
         range = UInt32(2):UInt32(3):UInt32(74)
@@ -1850,7 +1850,7 @@ end
     end
 end
 
-@testset "R67 CUDA population destination fills" begin
+@testset "CUDA population destination fills" begin
     rng = device(Philox4x32(0x9767))
     population = CUDA.CuArray(Int32[11, 13, 17, 19])
     expected, after = randsample_next(rng, population, 33)

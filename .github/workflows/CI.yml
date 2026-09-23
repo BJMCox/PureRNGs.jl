@@ -119,6 +119,7 @@ jobs:
           - {suite: reactant, args: 'Philox4x32 Threefry4x64 Threefry4x32 ChaCha'}
           - {suite: measurebase, args: ''}
           - {suite: turing, args: ''}
+          - {suite: kernelabstractions, args: ''}
     env:
       JULIA_NUM_THREADS: '4'
       PURERNGS_REACTANT_BACKEND: cpu

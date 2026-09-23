@@ -80,7 +80,7 @@ function check_replay(ensemble, sampler_factory, count)
     @test first_calls == second_calls
 end
 
-@testset "R66 Turing environment" begin
+@testset "Turing environment" begin
     @test Threads.nthreads() >= 4
     @info "Turing conformance environment" TEST_RECORD
     @testset "serial replay" begin
