@@ -193,7 +193,7 @@ function _serial_fill_allocation_law(family, spec, F)
 end
 
 @testset "scalar and addressed draws" begin
-    for family in DRAW_FAMILIES, spec in family.specs, F in GENERATOR_TYPES
+    for family in DRAW_FAMILIES, spec in family.specs, F in LAYOUT_GENERATORS
         _scalar_draw_law(family, spec, F)
         _scalar_capacity_law(family, spec, F)
     end
@@ -201,7 +201,7 @@ end
 
 @testset "bulk fills equal the scalar chain" begin
     for family in DRAW_FAMILIES, spec in family.specs
-        for F in GENERATOR_TYPES
+        for F in LAYOUT_GENERATORS
             _bulk_fill_law(family, spec, F)
         end
         _strided_view_law(family, spec)
@@ -236,14 +236,14 @@ end
 @testset "fill exhaustion and preflight" begin
     for family in DRAW_FAMILIES, spec in family.specs
         _empty_destination_law(family, spec)
-        for F in GENERATOR_TYPES
+        for F in LAYOUT_GENERATORS
             _exhaustion_law(family, spec, F)
         end
     end
 end
 
 @testset "serial fills allocate nothing" begin
-    for family in DRAW_FAMILIES, spec in family.specs, F in GENERATOR_TYPES
+    for family in DRAW_FAMILIES, spec in family.specs, F in LAYOUT_GENERATORS
         _serial_fill_allocation_law(family, spec, F)
     end
 end

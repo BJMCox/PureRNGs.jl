@@ -5,7 +5,7 @@ _chained_range(rng, range, count) =
     _chained_draws(cursor -> rand_next(cursor, range), rng, count)
 
 @testset "CPU allocating range draws" begin
-    for F in GENERATOR_TYPES, T in RANGE_INTS
+    for F in LAYOUT_GENERATORS, T in RANGE_INTS
         range = _small_allocating_range(T)
         rng = _positioned(F, 0x65a, UInt64(7), UInt16(61))
         original_position = rng.position
@@ -33,7 +33,7 @@ end
         UInt64(0):typemax(UInt64),
         UInt64(7):UInt64(3):UInt64(0xfffffffffffffffd),
     )
-    for F in GENERATOR_TYPES, range in ranges
+    for F in LAYOUT_GENERATORS, range in ranges
         rng = _positioned(F, 0x65b, UInt64(9), UInt16(63))
         expected_next, expected = _chained_range(rng, range, 9)
         values, next_rng = rand_next(rng, range, 3, 3)

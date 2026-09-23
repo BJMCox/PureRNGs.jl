@@ -20,6 +20,13 @@ const GENERATOR_TYPES = (
     ChaCha,
 )
 
+# Stream laws hold for a block layout, not for a particular core, so one generator
+# per layout covers them: 64-bit blocks, 128-bit blocks of 32-bit words (with the
+# grouped fast paths), 128-bit blocks of 64-bit words (host multiply), 256-bit
+# blocks with 128-bit positions, and 512-bit blocks. The Threefry cores share
+# these layouts and keep their own known-answer and per-generator tests.
+const LAYOUT_GENERATORS = (Philox2x32, Philox4x32, Philox2x64, Philox4x64, ChaCha)
+
 const PURE_UNIFORM_TYPES = (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
 const NORMAL_TYPES = (Float32, Float64)
 const EXPONENTIAL_TYPES = (Float32, Float64)
