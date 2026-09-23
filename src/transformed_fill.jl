@@ -55,6 +55,9 @@ end
     codec,
 ) where {T}
     isempty(indices) && return nothing
+    # One range check covers every store below, so the inner loops skip the
+    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools, serial 2^16 fills).
+    checkbounds(destination, indices)
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     @inbounds for index in indices
         value, cursor = _codec_take(codec, rng, cursor, T)
@@ -205,6 +208,9 @@ end
     codec,
 ) where {T<:_UniformFloat}
     isempty(indices) && return nothing
+    # One range check covers every store below, so the inner loops skip the
+    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools, serial 2^16 fills).
+    checkbounds(destination, indices)
     bits = Int(_fill_width(codec, T))
     width = Val(bits)
     group = _transformed_group_draws(bits)
@@ -246,6 +252,9 @@ end
     codec,
 ) where {T}
     isempty(indices) && return nothing
+    # One range check covers every store below, so the inner loops skip the
+    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools, serial 2^16 fills).
+    checkbounds(destination, indices)
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     _fill_cursor!(rng, cursor, destination, T, first(indices), length(indices), codec)
     return nothing
@@ -286,9 +295,7 @@ end
         ordinal = first + offset
         ordinal > count && break
         value, cursor = _codec_take(codec, rng, cursor, T)
-        # [R67] the destination ordinal is an index into `eachindex`, not a raw
-        # linear index, so a custom axis is written in draw order.
-        destination[indices[firstindex(indices)+ordinal-1]] = value
+        destination[_destination_index(indices, ordinal)] = value
     end
     return nothing
 end

@@ -17,7 +17,7 @@ end
     width = UInt64(_draw_bits(T))
     shift = _block_shift(rng)
     remaining = length(indices)
-    @inbounds for index in indices
+    for index in indices
         destination[index] = _draw_unchecked(rng, position, T)
         remaining -= 1
         iszero(remaining) ||
@@ -85,7 +85,8 @@ end
 @inline _val_count(::Val{N}) where {N} = N
 
 # The fallback every uniform block store below drops into when its alignment
-# does not hold. It writes by linear index, as those stores do.
+# does not hold. Like those stores, it counts draws by ordinal and writes each
+# one to that ordinal's `eachindex` position, so offset axes stay in bounds.
 @inline function _fill_group_cursor!(
     rng,
     position,
@@ -95,12 +96,13 @@ end
     ::Val{N},
 ) where {T,N}
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
-    last = length(destination)
+    indices = eachindex(destination)
+    last = length(indices)
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
         raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(Int(_draw_bits(T))))
-        destination[index] = _from_bits(T, raw)
+        destination[_destination_index(indices, index)] = _from_bits(T, raw)
     end
     return nothing
 end
@@ -119,11 +121,12 @@ end
         return _fill_group_cursor!(rng, position, destination, Bool, first, group)
     words = _block(rng, _position_block(position))
     word = _select_tuple_value(words, position.bit >> UInt16(5))
-    last = length(destination)
+    indices = eachindex(destination)
+    last = length(indices)
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
-        destination[index] =
+        destination[_destination_index(indices, index)] =
             !iszero((word >> (UInt16(31) - word_bit - UInt16(offset))) & UInt32(1))
     end
     return nothing
@@ -153,11 +156,13 @@ end
         return _fill_group_cursor!(rng, position, destination, Bool, first, group)
     block_words = _block_words(rng, _position_block(position))
     word = _select_tuple_value(block_words, position.bit >> UInt16(6))
-    last = length(destination)
+    indices = eachindex(destination)
+    last = length(indices)
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
-        destination[index] = !iszero((word >> (UInt16(63) - word_bit - offset)) & 1)
+        destination[_destination_index(indices, index)] =
+            !iszero((word >> (UInt16(63) - word_bit - offset)) & 1)
     end
     return nothing
 end
@@ -174,11 +179,12 @@ end
     iszero(position.bit) && UInt16(32N) == _block_bits(rng) ||
         return _fill_group_cursor!(rng, position, destination, T, first, group)
     words = _block(rng, _position_block(position))
-    last = length(destination)
+    indices = eachindex(destination)
+    last = length(indices)
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
-        destination[index] =
+        destination[_destination_index(indices, index)] =
             _from_bits(T, UInt64(_select_tuple_value(words, UInt16(offset))))
     end
     return nothing
@@ -196,13 +202,14 @@ end
     iszero(position.bit) && UInt16(32N) == _block_bits(rng) ||
         return _fill_group_cursor!(rng, position, destination, T, first, group)
     block_words = _block_words(rng, _position_block(position))
-    last = length(destination)
+    indices = eachindex(destination)
+    last = length(indices)
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
         word = _select_tuple_value(block_words, UInt16(offset >> 1))
         raw = iseven(offset) ? word >> UInt16(32) : word
-        destination[index] = _from_bits(T, raw)
+        destination[_destination_index(indices, index)] = _from_bits(T, raw)
     end
     return nothing
 end
@@ -219,11 +226,13 @@ end
     iszero(position.bit) && UInt16(64N) == _block_bits(rng) ||
         return _fill_group_cursor!(rng, position, destination, T, first, group)
     block_words = _block_words(rng, _position_block(position))
-    last = length(destination)
+    indices = eachindex(destination)
+    last = length(indices)
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
-        destination[index] = _from_bits(T, _select_tuple_value(block_words, UInt16(offset)))
+        destination[_destination_index(indices, index)] =
+            _from_bits(T, _select_tuple_value(block_words, UInt16(offset)))
     end
     return nothing
 end
@@ -488,6 +497,9 @@ end
     indices,
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
     isempty(indices) && return nothing
+    # One range check covers every store below, so the inner loops skip the
+    # per-element checks. Those cost Bool fills 3-7x and the other types up to 1.4x (BenchmarkTools, serial 2^16 fills).
+    checkbounds(destination, indices)
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     _fill_cursor!(
         rng,
@@ -656,6 +668,9 @@ end
     indices,
 ) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
     isempty(indices) && return nothing
+    # One range check covers every store below, so the inner loops skip the
+    # per-element checks. Those cost the aligned block stores about 1.4x (BenchmarkTools, serial 2^16 fills).
+    checkbounds(destination, indices)
     index = first(indices)
     last_index = last(indices)
     block = position.block
@@ -696,7 +711,7 @@ end
     index = first_index
     last_index = last(indices)
     chunk = ((first_index - 1) >> 6) + 1
-    @inbounds while index + 63 <= last_index
+    while index + 63 <= last_index
         raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
         # Stream bits are MSB-first; BitArray chunks store their first bit lowest.
         destination.chunks[chunk] = bitreverse(raw)
@@ -706,13 +721,13 @@ end
     if index <= last_index
         raw = UInt64(0)
         offset = 0
-        @inbounds while index <= last_index
+        while index <= last_index
             bit, cursor = _take_dense_bits_unchecked(rng, cursor, Val(1))
             raw |= bit << offset
             index += 1
             offset += 1
         end
-        @inbounds destination.chunks[chunk] = raw
+        destination.chunks[chunk] = raw
     end
     return nothing
 end

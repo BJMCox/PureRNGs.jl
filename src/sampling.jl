@@ -116,10 +116,6 @@ end
     return _allocate_array(rng.device, eltype(population), (count,))
 end
 
-@inline function _sampling_destination_index(indices, ordinal::Int)
-    return @inbounds indices[firstindex(indices)+ordinal-1]
-end
-
 @inline function _population_value(
     population::AbstractRange{T},
     ordinal::UInt64,
@@ -132,9 +128,10 @@ end
 end
 
 @inline function _population_value(population::AbstractArray, ordinal::UInt64)
-    indices = CartesianIndices(axes(population))
-    index = @inbounds indices[firstindex(indices)+Int(ordinal)-1]
-    return @inbounds population[index]
+    return @inbounds population[_destination_index(
+        CartesianIndices(axes(population)),
+        Int(ordinal),
+    )]
 end
 
 # The population codec reduces a candidate over the cardinality and gathers the

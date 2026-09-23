@@ -131,7 +131,7 @@ end
 # child this way, and four-word Philox about a third less.
 @inline function _derive_children!(children, rng, from::Int, to::Int)
     index = from
-    @inbounds while index + 3 <= to
+    while index + 3 <= to
         a = _derive_child(rng, UInt64(index - 1))
         b = _derive_child(rng, UInt64(index))
         c = _derive_child(rng, UInt64(index + 1))
@@ -142,7 +142,7 @@ end
         children[index+3] = d
         index += 4
     end
-    @inbounds while index <= to
+    while index <= to
         children[index] = _derive_child(rng, UInt64(index - 1))
         index += 1
     end

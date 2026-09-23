@@ -20,7 +20,7 @@ KernelAbstractions.@kernel function _transformed_fill_kernel!(
 ) where {T}
     ordinal = @index(Global, Linear)
     indices = eachindex(destination)
-    index = @inbounds indices[firstindex(indices)+ordinal-1]
+    index = @inbounds IR._destination_index(indices, ordinal)
     bits_lo, bits_hi = IR._bit_span(UInt64(ordinal - 1), IR._fill_width(codec, T))
     position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
     @inbounds destination[index] = IR._transformed_draw_unchecked(codec, rng, position, T)
@@ -203,7 +203,7 @@ KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
     end
     indices = eachindex(destination)
     @inbounds begin
-        destination_index = IR._sampling_destination_index(indices, index)
+        destination_index = @inbounds IR._destination_index(indices, index)
         destination[destination_index] = IR._population_value(population, UInt64(lower))
     end
 end

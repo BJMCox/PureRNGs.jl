@@ -394,6 +394,11 @@ end
     codec,
     plan::Tuple{Val{:cooperative},Val{O},Val{L}},
 ) where {T,O,L}
+    # The cooperative kernel stores from index one, so offset axes take the
+    # generic kernel, which writes each draw to its `eachindex` position.
+    if Base.has_offset_axes(destination)
+        return IR._launch_device_fill!(backend, rng, destination, T, codec, nothing)
+    end
     return _launch_cooperative_fill!(backend, rng, destination, T, codec, plan, Val(false))
 end
 

@@ -12,7 +12,7 @@ end
 function _collect_weights(weights)
     converted = Vector{Float64}(undef, length(weights))
     invalid = false
-    @inbounds for ordinal in eachindex(converted)
+    for ordinal in eachindex(converted)
         weight = Float64(_population_value(weights, UInt64(ordinal)))
         converted[ordinal] = weight
         invalid |= !isfinite(weight) || weight < zero(Float64)
@@ -25,7 +25,7 @@ end
     cumulative = Vector{Float64}(undef, length(weights))
     total = zero(Float64)
     invalid = false
-    @inbounds for ordinal = 1:length(weights)
+    for ordinal = 1:length(weights)
         weight = Float64(_population_value(weights, UInt64(ordinal)))
         invalid |= !isfinite(weight) || weight < zero(Float64)
         total += weight
@@ -105,10 +105,10 @@ function _transfer_weights(device, weights::Vector{Float64})
 end
 
 # `threshold < cumulative[end]`; odd spans overlap one index between both halves.
-@inline function _weighted_cdf_index(cumulative, threshold)
+Base.@propagate_inbounds function _weighted_cdf_index(cumulative, threshold)
     lower = 1
     span = length(cumulative)
-    @inbounds while span > 1
+    while span > 1
         half = span >>> 1
         middle = lower + half - 1
         lower = ifelse(!(threshold < cumulative[middle]), middle + 1, lower)
@@ -128,18 +128,23 @@ end
 )
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
     indices = eachindex(destination)
+    # One range check covers every store below; per-element checks in these
+    # loops cost up to 25% (BenchmarkTools, serial 2^16 weighted fills).
+    checkbounds(indices, (firstindex(indices) - 1) .+ ordinals)
     ordinal = first(ordinals)
     last_ordinal = last(ordinals)
     if length(ordinals) >= _WEIGHTED_LOOKUP_LANES
         thresholds = Vector{Float64}(undef, _WEIGHTED_LOOKUP_LANES)
         lower = Vector{Int}(undef, _WEIGHTED_LOOKUP_LANES)
-        @inbounds while ordinal <= last_ordinal - (_WEIGHTED_LOOKUP_LANES - 1)
+        while ordinal <= last_ordinal - (_WEIGHTED_LOOKUP_LANES - 1)
             for lane = 1:_WEIGHTED_LOOKUP_LANES
                 raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
                 thresholds[lane] = _weighted_threshold_from_bits(raw, total)
                 lower[lane] = 1
             end
             span = length(cumulative)
+            # The search keeps every `middle` inside `cumulative` and every lane
+            # inside the two scratch vectors; checking them costs 10-14%.
             while span > 1
                 half = span >>> 1
                 @inbounds @simd for lane = 1:_WEIGHTED_LOOKUP_LANES
@@ -152,9 +157,9 @@ end
                 end
                 span -= half
             end
-            for lane = 1:_WEIGHTED_LOOKUP_LANES
+            @inbounds for lane = 1:_WEIGHTED_LOOKUP_LANES
                 population_index = lower[lane]
-                index = _sampling_destination_index(indices, ordinal + lane - 1)
+                index = _destination_index(indices, ordinal + lane - 1)
                 destination[index] = _population_value(population, UInt64(population_index))
             end
             ordinal += _WEIGHTED_LOOKUP_LANES
@@ -164,7 +169,7 @@ end
         raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
         threshold = _weighted_threshold_from_bits(raw, total)
         population_index = _weighted_cdf_index(cumulative, threshold)
-        index = _sampling_destination_index(indices, ordinal)
+        index = _destination_index(indices, ordinal)
         destination[index] = _population_value(population, UInt64(population_index))
         ordinal += 1
     end
@@ -230,7 +235,7 @@ end
 @inline function _fill_weighted_thresholds!(::_CPUBackend, rng, total::Float64, thresholds)
     isempty(thresholds) && return thresholds
     cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
-    @inbounds for index in eachindex(thresholds)
+    for index in eachindex(thresholds)
         raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
         thresholds[index] = _weighted_threshold_from_bits(raw, total)
     end
