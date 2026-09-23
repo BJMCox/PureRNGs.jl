@@ -452,3 +452,29 @@ end
         @test threaded_rng.position == serial_rng.position
     end
 end
+
+# Spawning chunk tasks allocates, so a default call that allocates exactly what
+# the explicit serial call allocates or less never left the calling task.
+_fill_allocations(f, args...; kwargs...) =
+    (f(args...; kwargs...); @allocations f(args...; kwargs...))
+
+@testset "CPU fills are serial unless threaded is requested" begin
+    rng = Philox4x32(0x5c6)
+    n = 8 * IR._fill_chunk_elements(Val(:uniform), Float64)
+    destination = Vector{Float64}(undef, n)
+    calls = (
+        (rand_next!, (rng, destination)),
+        (randn_next!, (rng, destination)),
+        (randsample_next!, (rng, 1.0:10.0, destination)),
+        (rand_next, (rng, Float64, n)),
+        (randn_next, (rng, Float64, n)),
+        (rand_next, (rng, 1:10, n)),
+        (randsample_next, (rng, collect(1:10), n)),
+        (randsample_next, (rng, 1:10, collect(1.0:10.0), n)),
+    )
+    for (f, args) in calls
+        serial = _fill_allocations(f, args...; threaded = false)
+        @test _fill_allocations(f, args...) <= serial
+        @test _fill_allocations(f, args...; threaded = true) > serial
+    end
+end

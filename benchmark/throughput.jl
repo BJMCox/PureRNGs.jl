@@ -12,6 +12,7 @@ using Printf
 # target_device = MLDataDevices.CUDADevice()
 # next_fill_function = randexp_next!
 # result_type = Float32
+# threaded = true  # CPU only; fills are serial by default
 # elements = 2^27
 # include("benchmark/throughput.jl")
 #
@@ -21,7 +22,7 @@ using Printf
 @isdefined(result_type) || (result_type = UInt64)
 @isdefined(elements) || (elements = 2^22)
 @isdefined(seconds) || (seconds = 10.0)
-@isdefined(threaded) || (threaded = true)
+@isdefined(threaded) || (threaded = false)
 @isdefined(next_fill_function) || (next_fill_function = rand_next!)
 
 elements isa Integer || error("elements must be an integer")

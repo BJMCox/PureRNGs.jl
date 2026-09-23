@@ -160,8 +160,7 @@ end
     return _population_value(codec.population, ordinal)
 end
 
-function _randsample_next_unweighted!(rng, population, destination, threaded)
-    checked = _check_threaded(threaded)
+function _randsample_next_unweighted!(rng, population, destination, threaded::Bool)
     _check_sampling_fill_device(rng, destination)
     _check_sampling_serviceability(rng)
     agnostic = _check_population_device(rng, population)
@@ -173,14 +172,14 @@ function _randsample_next_unweighted!(rng, population, destination, threaded)
     !isempty(destination) && iszero(cardinality) && _empty_sampling_population()
 
     codec = _PopulationCodec(indexed, cardinality)
-    return _fill_prevalidated!(rng, destination, checked, codec)
+    return _fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 @noinline function _empty_sampling_population()
     throw(ArgumentError("population must be non-empty when k is positive"))
 end
 
-function _randsample_next_unweighted(rng, population, requested_count)
+function _randsample_next_unweighted(rng, population, requested_count, threaded::Bool)
     agnostic = _check_population_device(rng, population)
     _check_sampling_serviceability(rng)
     count = requested_count === nothing ? nothing : _sampling_count(requested_count)
@@ -192,12 +191,12 @@ function _randsample_next_unweighted(rng, population, requested_count)
 
     destination = _allocate_sampling_result(rng, indexed, count)
     codec = _PopulationCodec(indexed, cardinality)
-    return _fill_prevalidated!(rng, destination, true, codec)
+    return _fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 """
-    randsample(rng, population[, count])
-    randsample(rng, population, weights[, count])
+    randsample(rng, population[, count]; threaded=false)
+    randsample(rng, population, weights[, count]; threaded=false)
 
 Sample with replacement from `population`. Without `count`, return as many
 draws as the population has elements. With `weights`, use non-negative finite
@@ -229,17 +228,22 @@ julia> randsample(rng, pop, 1)
  10
 ```
 """
-@inline function randsample(rng::AbstractPureRNG, population)
-    return first(_randsample_next_unweighted(rng, population, nothing))
+@inline function randsample(rng::AbstractPureRNG, population; threaded::Bool = false)
+    return first(_randsample_next_unweighted(rng, population, nothing, threaded))
 end
 
-@inline function randsample(rng::AbstractPureRNG, population, count::Integer)
-    return first(_randsample_next_unweighted(rng, population, count))
+@inline function randsample(
+    rng::AbstractPureRNG,
+    population,
+    count::Integer;
+    threaded::Bool = false,
+)
+    return first(_randsample_next_unweighted(rng, population, count, threaded))
 end
 
 """
-    randsample_next(rng, population[, count]) -> (values, next_rng)
-    randsample_next(rng, population, weights[, count]) -> (values, next_rng)
+    randsample_next(rng, population[, count]; threaded=false) -> (values, next_rng)
+    randsample_next(rng, population, weights[, count]; threaded=false) -> (values, next_rng)
 
 Sample with replacement from `population` and return the advanced immutable
 generator with the result. Without `count`, return as many draws as the
@@ -249,21 +253,26 @@ proportional to the desired probabilities.
 The result is a vector on the generator's device. The input generator never
 changes.
 """
-@inline function randsample_next(rng::AbstractPureRNG, population)
-    return _randsample_next_unweighted(rng, population, nothing)
+@inline function randsample_next(rng::AbstractPureRNG, population; threaded::Bool = false)
+    return _randsample_next_unweighted(rng, population, nothing, threaded)
 end
 
-@inline function randsample_next(rng::AbstractPureRNG, population, count::Integer)
-    return _randsample_next_unweighted(rng, population, count)
+@inline function randsample_next(
+    rng::AbstractPureRNG,
+    population,
+    count::Integer;
+    threaded::Bool = false,
+)
+    return _randsample_next_unweighted(rng, population, count, threaded)
 end
 
 """
-    randsample!(rng, population[, weights], destination; threaded=true) -> destination
+    randsample!(rng, population[, weights], destination; threaded=false) -> destination
 
 Sample with replacement into `destination`. Its length determines the number of
 draws, and it must have exactly the prepared population element type. Return the
-identical destination. `threaded=false` keeps an unweighted CPU fill on the
-calling task.
+identical destination. Fills run on the calling task by default; `threaded=true`
+splits a CPU fill across threads without changing the values.
 
 Inputs and the complete random span are validated before writing. A destination
 that might alias `population` is rejected; it may alias `weights` after the
@@ -290,13 +299,13 @@ julia> randsample!(rng, [10, 20, 30, 40], destination)
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
-    threaded = true,
+    threaded::Bool = false,
 )
     return first(_randsample_next_unweighted!(rng, population, destination, threaded))
 end
 
 """
-    randsample_next!(rng, population[, weights], destination; threaded=true) -> (destination, next_rng)
+    randsample_next!(rng, population[, weights], destination; threaded=false) -> (destination, next_rng)
 
 Sample with replacement into `destination` and return the advanced immutable
 generator. The fill and validation rules are the same as for [`randsample!`](@ref).
@@ -306,7 +315,7 @@ The input generator is not changed.
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
-    threaded = true,
+    threaded::Bool = false,
 )
     return _randsample_next_unweighted!(rng, population, destination, threaded)
 end

@@ -237,7 +237,13 @@ end
     return thresholds
 end
 
-function _randsample_next_weighted(rng, population, weights, requested_count)
+function _randsample_next_weighted(
+    rng,
+    population,
+    weights,
+    requested_count,
+    threaded::Bool,
+)
     population_agnostic = _check_population_device(rng, population)
     weights_agnostic = _check_sampling_device(rng, weights, "weights")
     _check_sampling_serviceability(rng)
@@ -255,6 +261,18 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     next_rng = _sampling_reservation(rng, count, _WEIGHT_BITS)
     destination = _allocate_sampling_result(rng, indexed, count)
     isempty(destination) && return destination, next_rng
+    if !threaded && rng.device isa _CPUBackend
+        _fill_weighted_cpu!(
+            rng,
+            rng.position,
+            indexed,
+            total,
+            cumulative,
+            destination,
+            1:count,
+        )
+        return destination, next_rng
+    end
 
     backend = _fill_backend(rng.device, destination)
     _fill_weighted_samples!(
@@ -269,8 +287,7 @@ function _randsample_next_weighted(rng, population, weights, requested_count)
     return destination, next_rng
 end
 
-function _randsample_next_weighted!(rng, population, weights, destination, threaded)
-    checked = _check_threaded(threaded)
+function _randsample_next_weighted!(rng, population, weights, destination, threaded::Bool)
     _check_sampling_fill_device(rng, destination)
     _check_sampling_serviceability(rng)
     population_agnostic = _check_population_device(rng, population)
@@ -287,7 +304,7 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, length(destination), _WEIGHT_BITS)
     isempty(destination) && return destination, next_rng
-    if !checked && rng.device isa _CPUBackend
+    if !threaded && rng.device isa _CPUBackend
         _fill_weighted_cpu!(
             rng,
             rng.position,
@@ -314,9 +331,10 @@ end
 @inline function randsample(
     rng::AbstractPureRNG,
     population,
-    weights::Union{AbstractVector{<:Real},WeightTable},
+    weights::Union{AbstractVector{<:Real},WeightTable};
+    threaded::Bool = false,
 )
-    return first(_randsample_next_weighted(rng, population, weights, nothing))
+    return first(_randsample_next_weighted(rng, population, weights, nothing, threaded))
 end
 
 
@@ -324,9 +342,20 @@ end
     rng::AbstractPureRNG,
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
-    count::Integer,
+    count::Integer;
+    threaded::Bool = false,
 )
-    return first(_randsample_next_weighted(rng, population, weights, count))
+    return first(_randsample_next_weighted(rng, population, weights, count, threaded))
+end
+
+
+@inline function randsample_next(
+    rng::AbstractPureRNG,
+    population,
+    weights::Union{AbstractVector{<:Real},WeightTable};
+    threaded::Bool = false,
+)
+    return _randsample_next_weighted(rng, population, weights, nothing, threaded)
 end
 
 
@@ -334,18 +363,10 @@ end
     rng::AbstractPureRNG,
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
+    count::Integer;
+    threaded::Bool = false,
 )
-    return _randsample_next_weighted(rng, population, weights, nothing)
-end
-
-
-@inline function randsample_next(
-    rng::AbstractPureRNG,
-    population,
-    weights::Union{AbstractVector{<:Real},WeightTable},
-    count::Integer,
-)
-    return _randsample_next_weighted(rng, population, weights, count)
+    return _randsample_next_weighted(rng, population, weights, count, threaded)
 end
 
 @inline function randsample!(
@@ -353,7 +374,7 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
-    threaded = true,
+    threaded::Bool = false,
 )
     return first(
         _randsample_next_weighted!(rng, population, weights, destination, threaded),
@@ -365,7 +386,7 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
-    threaded = true,
+    threaded::Bool = false,
 )
     return _randsample_next_weighted!(rng, population, weights, destination, threaded)
 end

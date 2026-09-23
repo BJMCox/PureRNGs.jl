@@ -35,60 +35,64 @@ end
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     range::AbstractRange{T},
-    threaded,
+    threaded::Bool,
 ) where {T<:_RangeInteger}
-    checked = _check_threaded(threaded)
     _check_fill_device(rng, destination)
     _check_serviceability(rng, range)
     codec = _RangeCodec(range, _range_span(range))
-    return _fill_prevalidated!(rng, destination, checked, codec)
+    return _fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 @inline function _rand_next_range_array(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
     dims::Tuple,
+    threaded::Bool,
 ) where {T<:_RangeInteger}
     _check_serviceability(rng, range)
     destination = _allocate_draw_array(rng.device, T, dims)
     codec = _RangeCodec(range, _range_span(range))
-    return _fill_prevalidated!(rng, destination, true, codec)
+    return _fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 @inline function Random.rand(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 ) where {T<:_RangeInteger}
-    destination, _ = _rand_next_range_array(rng, range, (dim1, dims...))
+    destination, _ = _rand_next_range_array(rng, range, (dim1, dims...), threaded)
     return destination
 end
 @inline Random.rand(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
-    dims::Dims,
-) where {T<:_RangeInteger} = first(_rand_next_range_array(rng, range, dims))
+    dims::Dims;
+    threaded::Bool = false,
+) where {T<:_RangeInteger} = first(_rand_next_range_array(rng, range, dims, threaded))
 
 @inline function rand_next(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 ) where {T<:_RangeInteger}
-    return _rand_next_range_array(rng, range, (dim1, dims...))
+    return _rand_next_range_array(rng, range, (dim1, dims...), threaded)
 end
 @inline rand_next(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},
-    dims::Dims,
-) where {T<:_RangeInteger} = _rand_next_range_array(rng, range, dims)
+    dims::Dims;
+    threaded::Bool = false,
+) where {T<:_RangeInteger} = _rand_next_range_array(rng, range, dims, threaded)
 
 @inline function Random.rand!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     range::AbstractRange{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_RangeInteger}
     return first(_rand_next_range_fill!(rng, destination, range, threaded))
 end
@@ -97,7 +101,7 @@ end
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
     range::AbstractRange{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_RangeInteger}
     return _rand_next_range_fill!(rng, destination, range, threaded)
 end

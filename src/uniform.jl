@@ -3,7 +3,7 @@
 @inline function Random.rand!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_UniformResult}
     result, _ = _rand_transformed_next_fill!(rng, destination, threaded, Val(:uniform))
     return result
@@ -12,56 +12,74 @@ end
 @inline function rand_next!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_UniformResult}
     return _rand_transformed_next_fill!(rng, destination, threaded, Val(:uniform))
 end
 
 @doc """
-    rand_next!(rng, destination; threaded=true) -> (destination, next_rng)
-    rand_next!(rng, destination, range; threaded=true) -> (destination, next_rng)
+    rand_next!(rng, destination; threaded=false) -> (destination, next_rng)
+    rand_next!(rng, destination, range; threaded=false) -> (destination, next_rng)
 
 Fill `destination` from `rng` and return the advanced immutable generator with
 the same destination. The destination element type must be `Bool`, `UInt32`,
 `Int32`, `UInt64`, `Int64`, `Float32`, or `Float64`, or with `range` the
 integer element type of that range, and its device must match the generator.
 
-Set `threaded=false` to request the serial CPU fill path. The keyword does not
-change the generated stream. The input generator never changes.
+Fills run serially by default. Set `threaded=true` to split a CPU fill across
+threads; the keyword never changes the generated stream. The input generator
+never changes.
 """ rand_next!
 
-@inline function rand_next(rng::_ScalarUniformGenerators, dim1::Integer, dims::Integer...)
-    return _rand_transformed_next_array(rng, Float64, (dim1, dims...), Val(:uniform))
+@inline function rand_next(
+    rng::_ScalarUniformGenerators,
+    dim1::Integer,
+    dims::Integer...;
+    threaded::Bool = false,
+)
+    return _rand_transformed_next_array(
+        rng,
+        Float64,
+        (dim1, dims...),
+        Val(:uniform),
+        threaded,
+    )
 end
-@inline rand_next(rng::_ScalarUniformGenerators, dims::Dims) =
-    _rand_transformed_next_array(rng, Float64, dims, Val(:uniform))
+@inline rand_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
+    _rand_transformed_next_array(rng, Float64, dims, Val(:uniform), threaded)
 
 @inline function Random.rand(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 ) where {T<:_UniformResult}
-    destination, _ = _rand_transformed_next_array(rng, T, (dim1, dims...), Val(:uniform))
+    destination, _ =
+        _rand_transformed_next_array(rng, T, (dim1, dims...), Val(:uniform), threaded)
     return destination
 end
 @inline Random.rand(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-    dims::Dims,
+    dims::Dims;
+    threaded::Bool = false,
 ) where {T<:_UniformResult} =
-    first(_rand_transformed_next_array(rng, T, dims, Val(:uniform)))
+    first(_rand_transformed_next_array(rng, T, dims, Val(:uniform), threaded))
 
 @inline function rand_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 ) where {T<:_UniformResult}
-    return _rand_transformed_next_array(rng, T, (dim1, dims...), Val(:uniform))
+    return _rand_transformed_next_array(rng, T, (dim1, dims...), Val(:uniform), threaded)
 end
 @inline rand_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-    dims::Dims,
-) where {T<:_UniformResult} = _rand_transformed_next_array(rng, T, dims, Val(:uniform))
+    dims::Dims;
+    threaded::Bool = false,
+) where {T<:_UniformResult} =
+    _rand_transformed_next_array(rng, T, dims, Val(:uniform), threaded)

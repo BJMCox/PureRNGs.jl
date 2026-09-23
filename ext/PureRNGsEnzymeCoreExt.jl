@@ -113,7 +113,7 @@ for fill_function in (
             ::Type,
             rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
             destination::EnzymeCore.Annotation{<:_FloatAbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _forward_pure(
                 config,
@@ -130,7 +130,7 @@ for fill_function in (
             ::Type,
             rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
             destination::EnzymeCore.Annotation{<:_FloatAbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _augmented_pure(
                 config,
@@ -148,7 +148,7 @@ for fill_function in (
             ::Nothing,
             ::EnzymeCore.Const{<:IR.AbstractPureRNG},
             destination::EnzymeCore.Annotation{<:_FloatAbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             _zero_shadow!(destination)
             return nothing, nothing
@@ -169,7 +169,7 @@ for fill_function in (Random.rand!, IR.rand_next!, IR.randsample!, IR.randsample
             rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
             argument::EnzymeCore.Annotation,
             destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _forward_pure(
                 config,
@@ -187,7 +187,7 @@ for fill_function in (Random.rand!, IR.rand_next!, IR.randsample!, IR.randsample
             rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
             argument::EnzymeCore.Annotation,
             destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _augmented_pure(
                 config,
@@ -206,7 +206,7 @@ for fill_function in (Random.rand!, IR.rand_next!, IR.randsample!, IR.randsample
             ::EnzymeCore.Const{<:IR.AbstractPureRNG},
             argument::EnzymeCore.Annotation,
             destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             _zero_shadow!(destination)
             return nothing, _argument_adjoint(argument), nothing
@@ -224,7 +224,7 @@ for fill_function in (IR.randsample!, IR.randsample_next!)
             population::EnzymeCore.Annotation,
             weights::EnzymeCore.Annotation,
             destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _forward_pure(
                 config,
@@ -243,7 +243,7 @@ for fill_function in (IR.randsample!, IR.randsample_next!)
             population::EnzymeCore.Annotation,
             weights::EnzymeCore.Annotation,
             destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _augmented_pure(
                 config,
@@ -263,7 +263,7 @@ for fill_function in (IR.randsample!, IR.randsample_next!)
             population::EnzymeCore.Annotation,
             weights::EnzymeCore.Annotation,
             destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             _zero_shadow!(destination)
             return nothing,
@@ -285,7 +285,7 @@ for fill_function in (Random.rand!, IR.rand_next!)
             rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
             destination::EnzymeCore.Annotation{<:AbstractArray},
             range::EnzymeCore.Annotation{<:AbstractRange};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _forward_pure(
                 config,
@@ -303,7 +303,7 @@ for fill_function in (Random.rand!, IR.rand_next!)
             rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
             destination::EnzymeCore.Annotation{<:AbstractArray},
             range::EnzymeCore.Annotation{<:AbstractRange};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             return _augmented_pure(
                 config,
@@ -322,7 +322,7 @@ for fill_function in (Random.rand!, IR.rand_next!)
             ::EnzymeCore.Const{<:IR.AbstractPureRNG},
             destination::EnzymeCore.Annotation{<:AbstractArray},
             range::EnzymeCore.Annotation{<:AbstractRange};
-            threaded::Bool = true,
+            threaded::Bool = false,
         )
             _zero_shadow!(destination)
             return nothing, nothing, _argument_adjoint(range)

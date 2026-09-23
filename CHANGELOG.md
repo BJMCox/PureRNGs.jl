@@ -6,6 +6,12 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## Unreleased
 
+### Changed
+
+- CPU fills, allocating draws, sampling, and `splitrng(rng, n)` run serially by default, as `Random` does. Pass `threaded = true` to split a CPU fill across threads. Values are unchanged either way. Large fills that relied on the old threaded default run slower until they opt in.
+- Allocating draws, addressed array draws, and allocating sampling now accept the `threaded` keyword.
+- `threaded` is a typed `Bool` keyword. A non-`Bool` value throws a `TypeError` instead of an `ArgumentError`.
+
 ## 0.0.1 - 2026-09-22
 
 Initial development release.

@@ -279,28 +279,29 @@ end
     return IR._fill_prevalidated!(rng, destination, threaded, codec)
 end
 
-@inline function _rand_distribution_next_fill!(rng, d, destination, threaded)
+@inline function _rand_distribution_next_fill!(rng, d, destination, threaded::Bool)
     IR._check_fill_device(rng, destination)
     IR._check_serviceability(rng, d)
     _validate_distribution(d)
     return _fill_distribution_prevalidated!(rng, d, destination, threaded)
 end
 
-@inline function _rand_distribution_next_array(rng, d, dims)
+@inline function _rand_distribution_next_array(rng, d, dims, threaded::Bool)
     result_type = _result_type(d)
     IR._check_serviceability(rng, d)
     _validate_distribution(d)
     destination = IR._allocate_draw_array(rng.device, result_type, dims)
-    return _fill_distribution_prevalidated!(rng, d, destination, true)
+    return _fill_distribution_prevalidated!(rng, d, destination, threaded)
 end
 
 @inline function Random.rand(
     rng::IR._ScalarUniformGenerators,
     d::_FixedDistribution,
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 )
-    destination, _ = _rand_distribution_next_array(rng, d, (dim1, dims...))
+    destination, _ = _rand_distribution_next_array(rng, d, (dim1, dims...), threaded)
     return destination
 end
 
@@ -308,19 +309,19 @@ end
     rng::IR._ScalarUniformGenerators,
     d::_FixedDistribution,
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 )
-    return _rand_distribution_next_array(rng, d, (dim1, dims...))
+    return _rand_distribution_next_array(rng, d, (dim1, dims...), threaded)
 end
 
 @inline function Random.rand!(
     rng::IR._ScalarUniformGenerators,
     d::_FloatMapped{T},
     destination::AbstractArray{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_FloatType}
-    result, _ =
-        _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    result, _ = _rand_distribution_next_fill!(rng, d, destination, threaded)
     return result
 end
 
@@ -328,10 +329,9 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Bernoulli{<:_FloatType},
     destination::AbstractArray{Bool};
-    threaded = true,
+    threaded::Bool = false,
 )
-    result, _ =
-        _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    result, _ = _rand_distribution_next_fill!(rng, d, destination, threaded)
     return result
 end
 
@@ -339,10 +339,9 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.DiscreteUniform,
     destination::AbstractArray{Int};
-    threaded = true,
+    threaded::Bool = false,
 )
-    result, _ =
-        _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    result, _ = _rand_distribution_next_fill!(rng, d, destination, threaded)
     return result
 end
 
@@ -350,27 +349,27 @@ end
     rng::IR._ScalarUniformGenerators,
     d::_FloatMapped{T},
     destination::AbstractArray{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_FloatType}
-    return _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    return _rand_distribution_next_fill!(rng, d, destination, threaded)
 end
 
 @inline function IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Bernoulli{<:_FloatType},
     destination::AbstractArray{Bool};
-    threaded = true,
+    threaded::Bool = false,
 )
-    return _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    return _rand_distribution_next_fill!(rng, d, destination, threaded)
 end
 
 @inline function IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
     d::Distributions.DiscreteUniform,
     destination::AbstractArray{Int};
-    threaded = true,
+    threaded::Bool = false,
 )
-    return _rand_distribution_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    return _rand_distribution_next_fill!(rng, d, destination, threaded)
 end
 
 include("distributions_categorical.jl")

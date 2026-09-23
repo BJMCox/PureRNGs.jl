@@ -41,34 +41,6 @@ end
     @test size(first(rand_next(rng, 3))) == (3,)
 end
 
-@testset "Section 11 non-Bool threaded is an ArgumentError" begin
-    rng = Philox4x32(0x6a2)
-    weights = fill(1.0, 5)
-    calls = (
-        () -> rand!(rng, Vector{Float64}(undef, 4); threaded = 1),
-        () -> rand_next!(rng, Vector{Float64}(undef, 4); threaded = 1),
-        () -> randn!(rng, Vector{Float64}(undef, 4); threaded = 1),
-        () -> randn_next!(rng, Vector{Float64}(undef, 4); threaded = 1),
-        () -> randexp!(rng, Vector{Float64}(undef, 4); threaded = 1),
-        () -> randexp_next!(rng, Vector{Float64}(undef, 4); threaded = 1),
-        () -> rand!(rng, Vector{Int}(undef, 4), 1:5; threaded = 1),
-        () -> rand_next!(rng, Vector{Int}(undef, 4), 1:5; threaded = 1),
-        () -> randsample!(rng, 1:5, Vector{Int}(undef, 4); threaded = 1),
-        () -> randsample_next!(rng, 1:5, Vector{Int}(undef, 4); threaded = 1),
-        () -> randsample!(rng, 1:5, weights, Vector{Int}(undef, 4); threaded = 1),
-        () -> randsample_next!(rng, 1:5, weights, Vector{Int}(undef, 4); threaded = 1),
-    )
-    for call in calls
-        @test_throws ArgumentError call()
-        @test occursin("threaded", _thrown_message(call))
-    end
-
-    # The bridge fills take no `threaded` keyword, so the closed surface rejects
-    # the call instead.
-    mutable_rng = StatefulRNG(Philox4x32(0x6a3))
-    @test_throws MethodError rand!(mutable_rng, Vector{Float64}(undef, 4); threaded = 1)
-end
-
 @testset "Fill device mismatch names both devices" begin
     rng = Philox4x32(0x6a4)
     message = _thrown_message(() -> rand!(rng, WrongDeviceArray(Vector{UInt32}(undef, 1))))

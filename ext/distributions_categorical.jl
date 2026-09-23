@@ -111,7 +111,7 @@ end
     return destination, next_rng
 end
 
-@inline function _rand_categorical_next_fill!(rng, d, destination, threaded)
+@inline function _rand_categorical_next_fill!(rng, d, destination, threaded::Bool)
     IR._check_fill_device(rng, destination)
     IR._check_serviceability(rng, d)
     probabilities, prepared, total, cumulative = _prepare_categorical(rng, d)
@@ -126,7 +126,7 @@ end
     )
 end
 
-@inline function _rand_categorical_next_array(rng, d, dims)
+@inline function _rand_categorical_next_array(rng, d, dims, threaded::Bool)
     IR._check_serviceability(rng, d)
     probabilities, prepared, total, cumulative = _prepare_categorical(rng, d)
     destination = IR._allocate_draw_array(rng.device, Int, dims)
@@ -137,7 +137,7 @@ end
         total,
         cumulative,
         destination,
-        true,
+        threaded,
     )
 end
 
@@ -145,9 +145,10 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 )
-    destination, _ = _rand_categorical_next_array(rng, d, (dim1, dims...))
+    destination, _ = _rand_categorical_next_array(rng, d, (dim1, dims...), threaded)
     return destination
 end
 
@@ -155,19 +156,19 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 )
-    return _rand_categorical_next_array(rng, d, (dim1, dims...))
+    return _rand_categorical_next_array(rng, d, (dim1, dims...), threaded)
 end
 
 @inline function Random.rand!(
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     destination::AbstractArray{Int};
-    threaded = true,
+    threaded::Bool = false,
 )
-    result, _ =
-        _rand_categorical_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    result, _ = _rand_categorical_next_fill!(rng, d, destination, threaded)
     return result
 end
 
@@ -175,7 +176,7 @@ end
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
     destination::AbstractArray{Int};
-    threaded = true,
+    threaded::Bool = false,
 )
-    return _rand_categorical_next_fill!(rng, d, destination, IR._check_threaded(threaded))
+    return _rand_categorical_next_fill!(rng, d, destination, threaded)
 end

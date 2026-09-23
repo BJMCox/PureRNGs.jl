@@ -149,9 +149,10 @@ Random.randexp(::AbstractPureRNG, ::Dims) =
 @inline randexp_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-    indices::AbstractUnitRange{<:Integer},
+    indices::AbstractUnitRange{<:Integer};
+    threaded::Bool = false,
 ) where {T<:_UniformFloat} =
-    _addressed_array(rng, T, indices, _exponential_bits(T), randexp_next)
+    _addressed_array(rng, T, indices, _exponential_bits(T), randexp_next, threaded)
 
 @doc """
     randexp_next(rng[, T]) -> (value, next_rng)
@@ -184,7 +185,7 @@ positive or the addressed draw exceeds the generator's counter capacity.
 @inline function Random.randexp!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_UniformFloat}
     result, _ = _rand_transformed_next_fill!(
         rng,
@@ -198,7 +199,7 @@ end
 @inline function randexp_next!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
-    threaded = true,
+    threaded::Bool = false,
 ) where {T<:_UniformFloat}
     return _rand_transformed_next_fill!(
         rng,
@@ -209,64 +210,84 @@ end
 end
 
 @doc """
-    randexp_next!(rng, destination; threaded=true) -> (destination, next_rng)
+    randexp_next!(rng, destination; threaded=false) -> (destination, next_rng)
 
 Fill a `Float32` or `Float64` destination with standard exponential values and
 return the advanced immutable generator with the same destination. The
 destination's device must match the generator.
 
-Set `threaded=false` to request the serial CPU fill path. The keyword does not
-change the generated stream. The input generator never changes.
+Fills run serially by default. Set `threaded=true` to split a CPU fill across
+threads; the keyword never changes the generated stream. The input generator
+never changes.
 """ randexp_next!
 
 @inline function randexp_next(
     rng::_ScalarUniformGenerators,
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 )
     return _rand_transformed_next_array(
         rng,
         Float64,
         (dim1, dims...),
         _ExponentialCodec(rng.device),
+        threaded,
     )
 end
-@inline randexp_next(rng::_ScalarUniformGenerators, dims::Dims) =
-    _rand_transformed_next_array(rng, Float64, dims, _ExponentialCodec(rng.device))
+@inline randexp_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
+    _rand_transformed_next_array(
+        rng,
+        Float64,
+        dims,
+        _ExponentialCodec(rng.device),
+        threaded,
+    )
 
 @inline function Random.randexp(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 ) where {T<:_UniformFloat}
-    destination, _ =
-        _rand_transformed_next_array(rng, T, (dim1, dims...), _ExponentialCodec(rng.device))
+    destination, _ = _rand_transformed_next_array(
+        rng,
+        T,
+        (dim1, dims...),
+        _ExponentialCodec(rng.device),
+        threaded,
+    )
     return destination
 end
 @inline Random.randexp(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-    dims::Dims,
-) where {T<:_UniformFloat} =
-    first(_rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device)))
+    dims::Dims;
+    threaded::Bool = false,
+) where {T<:_UniformFloat} = first(
+    _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device), threaded),
+)
 @inline randexp_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-    dims::Dims,
+    dims::Dims;
+    threaded::Bool = false,
 ) where {T<:_UniformFloat} =
-    _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device))
+    _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device), threaded)
 
 @inline function randexp_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dim1::Integer,
-    dims::Integer...,
+    dims::Integer...;
+    threaded::Bool = false,
 ) where {T<:_UniformFloat}
     return _rand_transformed_next_array(
         rng,
         T,
         (dim1, dims...),
         _ExponentialCodec(rng.device),
+        threaded,
     )
 end

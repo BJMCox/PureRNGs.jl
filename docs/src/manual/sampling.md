@@ -26,7 +26,7 @@ change: about 2.33e-10 at `s = 2^32 - 1`, and about 5.42e-20 at
 
 ```@example sampling
 dice = Vector{Int}(undef, 16)
-_, rng = rand_next!(rng, dice, 1:6; threaded=false)
+_, rng = rand_next!(rng, dice, 1:6)
 dice
 ```
 
@@ -97,7 +97,7 @@ faithfully and depend on weight order.
 ```@example sampling
 expected, next_rng = randsample_next(rng, population, weights, 12)
 destination = similar(expected)
-_, rng = randsample_next!(rng, population, weights, destination; threaded=false)
+_, rng = randsample_next!(rng, population, weights, destination)
 @assert destination == expected
 @assert rng == next_rng
 destination
@@ -113,8 +113,8 @@ All inputs, including weights and the complete random span, are validated
 before the destination is changed. Empty destinations still validate the
 population and weights, then consume no bits. A destination that might alias
 the population is rejected. It may alias weights only after those weights have
-been validated and privately prepared. On CPU, `threaded=false` uses the
-calling task directly; it does not look up or launch a backend.
+been validated and privately prepared. On CPU, a fill uses the calling task
+directly unless `threaded=true`; it does not look up or launch a backend.
 
 ## Keep data on the right device
 

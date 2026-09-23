@@ -184,8 +184,9 @@ end
             _audit_methods(function_)
         )
     )
+    # Scalar forms take no keywords; the array and sampling forms take only `threaded`.
     @test all(
-        isempty(Base.kwarg_decl(method)) for function_ in (
+        Base.kwarg_decl(method) ⊆ [:threaded] for function_ in (
             rand,
             randn,
             randexp,
@@ -317,8 +318,6 @@ end
             () -> rand_next(exhausted, UInt8(1):UInt8(2), 1),
         ),
     )
-    # A non-Bool `threaded` keyword belongs here too, but `errors.jl` already
-    # pins its class and its message on every fill entry point.
     method_errors = (
         (:uniform_result_type, () -> rand(rng, Float16)),
         (:uniform_continuation_result_type, () -> rand_next(rng, Float16)),

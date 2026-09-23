@@ -10,7 +10,7 @@ distribution = LogNormal(2.0, 0.5)
 values, rng = rand_next(rng, distribution, 1024)
 
 buffer = similar(values)
-_, rng = rand_next!(rng, distribution, buffer; threaded=false)
+_, rng = rand_next!(rng, distribution, buffer)
 x = rand_at(rng, distribution, 1)
 ```
 
@@ -77,7 +77,7 @@ Every derived distribution inherits these bounds through its transform.
 ```julia
 distribution = Logistic(0.0, 1.0)
 values, rng = rand_next(rng, distribution, 128)
-_, rng = rand_next!(rng, distribution, values; threaded=false)
+_, rng = rand_next!(rng, distribution, values)
 ```
 
 `LogNormal(μ, 0)` still consumes its normal span. Valid transforms may
@@ -108,7 +108,7 @@ distribution = Categorical([0.1, 0.7, 0.2])
 labels, rng = rand_next(rng, distribution, 1024)
 
 buffer = similar(labels)
-_, rng = rand_next!(rng, distribution, buffer; threaded=false)
+_, rng = rand_next!(rng, distribution, buffer)
 label = rand_at(rng, distribution, 1)
 ```
 

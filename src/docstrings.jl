@@ -37,8 +37,8 @@ julia> rand(next_rng, UInt32)
 """ Random.rand(::AbstractPureRNG, ::Any...)
 
 @doc """
-    rand!(rng::AbstractPureRNG, dest; threaded = true) -> dest
-    rand!(rng::AbstractPureRNG, dest, range; threaded = true) -> dest
+    rand!(rng::AbstractPureRNG, dest; threaded = false) -> dest
+    rand!(rng::AbstractPureRNG, dest, range; threaded = false) -> dest
 
 Fill `dest` with uniform values from the held position of `rng` without
 advancing it. Two calls on the same generator write the same values. Use
@@ -48,8 +48,8 @@ The destination element type must be `Bool`, `UInt32`, `Int32`, `UInt64`,
 `Int64`, `Float32`, or `Float64`, or with `range` the integer element type of
 that range. The destination device must match the generator device.
 
-`threaded = false` requests the serial CPU fill path. The keyword picks how the
-work is scheduled and never changes the values written.
+Fills run serially by default. `threaded = true` splits a CPU fill across threads.
+The keyword picks how the work is scheduled and never changes the values written.
 """ Random.rand!(::AbstractPureRNG, ::AbstractArray, ::Any...)
 
 @doc """
@@ -65,14 +65,15 @@ forms allocate on the generator's device.
 """ Random.randn(::AbstractPureRNG, ::Any...)
 
 @doc """
-    randn!(rng::AbstractPureRNG, dest; threaded = true) -> dest
+    randn!(rng::AbstractPureRNG, dest; threaded = false) -> dest
 
 Fill a `Float32` or `Float64` destination with standard normal values from the
 held position of `rng` without advancing it. Two calls on the same generator
 write the same values. Use [`randn_next!`](@ref) to continue the stream.
 
-The destination device must match the generator device. `threaded = false`
-requests the serial CPU fill path and never changes the values written.
+The destination device must match the generator device. Fills run serially by
+default; `threaded = true` splits a CPU fill across threads and never changes the
+values written.
 """ Random.randn!(::AbstractPureRNG, ::AbstractArray, ::Any...)
 
 @doc """
@@ -88,13 +89,14 @@ forms allocate on the generator's device.
 """ Random.randexp(::AbstractPureRNG, ::Any...)
 
 @doc """
-    randexp!(rng::AbstractPureRNG, dest; threaded = true) -> dest
+    randexp!(rng::AbstractPureRNG, dest; threaded = false) -> dest
 
 Fill a `Float32` or `Float64` destination with standard exponential values from
 the held position of `rng` without advancing it. Two calls on the same
 generator write the same values. Use [`randexp_next!`](@ref) to continue the
 stream.
 
-The destination device must match the generator device. `threaded = false`
-requests the serial CPU fill path and never changes the values written.
+The destination device must match the generator device. Fills run serially by
+default; `threaded = true` splits a CPU fill across threads and never changes the
+values written.
 """ Random.randexp!(::AbstractPureRNG, ::AbstractArray, ::Any...)

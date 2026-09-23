@@ -1026,23 +1026,3 @@ end
         end
     end
 end
-
-# The carrier fills take a traced destination, so the keyword is only reachable
-# from inside a traced call.
-_threaded_carrier_next!(rng, destination) = rand_next!(rng, destination; threaded = 1)
-_threaded_carrier_fill!(rng, destination) = rand!(rng, destination; threaded = 1)
-
-@testset "Section 11 non-Bool threaded on the carrier fills" begin
-    carrier = Reactant.to_rarray(Philox4x32(0x9a1))
-    destination = Reactant.to_rarray(zeros(Float64, 4))
-    for probe in (_threaded_carrier_next!, _threaded_carrier_fill!)
-        thrown = try
-            Reactant.@compile sync = true probe(carrier, destination)
-            nothing
-        catch error
-            error
-        end
-        @test thrown isa ArgumentError
-        @test occursin("threaded", sprint(showerror, thrown))
-    end
-end

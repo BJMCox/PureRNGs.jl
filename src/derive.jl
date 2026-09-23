@@ -156,7 +156,7 @@ end
 
 """
     splitrng(rng)
-    splitrng(rng, n; threaded=true)
+    splitrng(rng, n; threaded=false)
     splitrng(rng, Val(N))
 
 Derive child keys from distinct counter addresses. The ordinary `n` form
@@ -164,7 +164,7 @@ returns a vector. The `Val` form returns an allocation-free tuple for static or
 GPU code. The default derives two children.
 
 The `n` form takes `threaded`, which selects a parallel derivation on the CPU
-and defaults to `true`. The children are identical for either value.
+and defaults to `false`. The children are identical for either value.
 
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts each child at position zero. It never changes the parent.
@@ -200,8 +200,7 @@ splitrng(rng::AbstractPureRNG) = splitrng(rng, Val(2))
     return ntuple(i -> _derive_child(rng, UInt64(i - 1)), Val(N))
 end
 
-function splitrng(rng::R, count::Integer; threaded = true) where {R<:AbstractPureRNG}
-    threaded = _check_threaded(threaded)
+function splitrng(rng::R, count::Integer; threaded::Bool = false) where {R<:AbstractPureRNG}
     0 <= count <= typemax(Int) ||
         throw(ArgumentError("n must satisfy 0 <= n <= typemax(Int)"))
     _check_split_count(rng, count)

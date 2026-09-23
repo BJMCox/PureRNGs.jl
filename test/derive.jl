@@ -158,16 +158,7 @@ end
             @test splitrng(rng, count; threaded = true) ==
                   splitrng(rng, count; threaded = false)
         end
-        @test_throws ArgumentError splitrng(rng, 4; threaded = 1)
     end
-
-    threaded_message = try
-        splitrng(Philox4x32(123), 4; threaded = 1)
-        ""
-    catch error
-        error.msg
-    end
-    @test occursin("threaded", threaded_message)
 end
 
 # Keep both results live so the optimizer cannot drop either measured allocation.

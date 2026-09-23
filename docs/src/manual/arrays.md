@@ -53,15 +53,17 @@ Buffer reuse avoids repeated allocation. Continuing the returned state preserves
 
 ## Control CPU threading
 
-Large CPU fills use threads. Fills too small to split run serially on the calling task.
-Inside your own threaded loop, disable internal threading:
+CPU fills run serially on the calling task by default, as `Random` fills do.
+Pass `threaded=true` to split a large fill into chunks across Julia's threads:
 
 ```@example arrays
-_, rng = rand_next!(rng, buffer; threaded=false)
+_, rng = rand_next!(rng, buffer; threaded=true)
 ```
 
-This keyword belongs to destination-fill methods, not allocating draws.
-It affects CPU execution only.
+Destination fills, allocating draws, sampling, and `splitrng(rng, n)` all take the keyword.
+It never changes the values: a threaded fill writes the same stream as the serial one.
+It affects CPU execution only. Fills too small to split stay on the calling task.
+Leave it off inside your own threaded loop, so the outer loop owns the parallelism.
 
 See [Parallel jobs](@ref) for a complete outer-threaded workflow.
 

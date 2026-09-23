@@ -10,7 +10,7 @@ using Base.Threads
 function job_mean(root, job)
     rng = subrng(root, job)
     buffer = Vector{Float64}(undef, 1024)
-    randn!(rng, buffer; threaded=false)
+    randn!(rng, buffer)
     return sum(buffer) / length(buffer)
 end
 
@@ -27,7 +27,7 @@ results
 ```
 
 The root uses a 128-bit key to leave room for many derived job keys.
-The example disables inner fill threading because the outer loop owns parallelism.
+Inner fills run serially by default, so the outer loop owns all the parallelism.
 
 `subrng` reduces its purpose ID modulo 2^64, so job IDs differing by 2^64 alias.
 

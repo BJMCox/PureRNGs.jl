@@ -1,12 +1,3 @@
-# Section 11 makes a non-Bool `threaded` an ArgumentError, so the public fill
-# keywords stay untyped and pass through here. The asserted return keeps the
-# fill body type-stable.
-@noinline function _check_threaded(threaded)
-    threaded isa Bool ||
-        throw(ArgumentError("threaded must be a Bool, got $(typeof(threaded))"))
-    return threaded::Bool
-end
-
 @noinline function _fill_device_mismatch(generator_device, destination_device)
     throw(
         ArgumentError(

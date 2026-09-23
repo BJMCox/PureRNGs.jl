@@ -50,9 +50,11 @@ end
     indices::AbstractUnitRange{<:Integer},
     width::UInt16,
     fill_next,
+    threaded::Bool,
 ) where {T}
     isempty(indices) && return _allocate_draw_array(rng.device, T, (0,))
-    return first(fill_next(_addressed_rng(rng, width, first(indices)), T, length(indices)))
+    addressed = _addressed_rng(rng, width, first(indices))
+    return first(fill_next(addressed, T, length(indices); threaded))
 end
 
 @inline rand_at(
@@ -63,8 +65,10 @@ end
 @inline rand_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-    indices::AbstractUnitRange{<:Integer},
-) where {T<:_UniformResult} = _addressed_array(rng, T, indices, _draw_bits(T), rand_next)
+    indices::AbstractUnitRange{<:Integer};
+    threaded::Bool = false,
+) where {T<:_UniformResult} =
+    _addressed_array(rng, T, indices, _draw_bits(T), rand_next, threaded)
 
 @doc """
     rand_at(rng, T, i)

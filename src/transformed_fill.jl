@@ -367,15 +367,12 @@ end
 @inline function _rand_transformed_next_fill!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T},
-    threaded,
+    threaded::Bool,
     codec::_TransformedFillCodec,
 ) where {T}
-    # The keyword is checked first, before the device, so every public fill
-    # reports the same error for the same input whichever entry it came through.
-    checked = _check_threaded(threaded)
     _check_fill_device(rng, destination)
     _check_serviceability(rng, T)
-    return _fill_prevalidated!(rng, destination, checked, codec)
+    return _fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 @inline function _rand_transformed_next_array(
@@ -383,10 +380,11 @@ end
     ::Type{T},
     dims::Tuple,
     codec::_TransformedFillCodec,
+    threaded::Bool,
 ) where {T}
     _check_serviceability(rng, T)
     destination = _allocate_draw_array(rng.device, T, dims)
-    return _fill_prevalidated!(rng, destination, true, codec)
+    return _fill_prevalidated!(rng, destination, threaded, codec)
 end
 
 # A scalar draw is the one-element case of a fill: the codec's width, reserved
