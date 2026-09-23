@@ -92,14 +92,16 @@ Random.rng_native_52(::StatefulRNG) = UInt64
     mutable_rng::StatefulRNG,
     ::Random.SamplerTrivial{Random.CloseOpen01{Float16}},
 ) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float16))
-@inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float32}) =
-    _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), Float32))
-@inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float64}) =
-    _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), Float64))
-@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float32}) =
-    _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), Float32))
-@inline Random.randexp(mutable_rng::StatefulRNG, ::Type{Float64}) =
-    _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), Float64))
+for T in (Float16, Float32, Float64)
+    @eval begin
+        @inline Random.randn(mutable_rng::StatefulRNG, ::Type{$T}) =
+            _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), $T))
+        @inline Random.randn(mutable_rng::StatefulRNG, ::Type{Complex{$T}}) =
+            _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), Complex{$T}))
+        @inline Random.randexp(mutable_rng::StatefulRNG, ::Type{$T}) =
+            _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), $T))
+    end
+end
 
 @inline Random.randn(mutable_rng::StatefulRNG) = Random.randn(mutable_rng, Float64)
 @inline Random.randexp(mutable_rng::StatefulRNG) = Random.randexp(mutable_rng, Float64)
@@ -198,7 +200,7 @@ end
 @inline Random.randn!(
     mutable_rng::StatefulRNG,
     destination::Array{T},
-) where {T<:Union{Float32,Float64}} = _commit_bridge!(
+) where {T<:_NormalResult} = _commit_bridge!(
     mutable_rng,
     randn_next!(mutable_rng.rng, destination; threaded = false),
 )
@@ -206,7 +208,7 @@ end
 @inline Random.randexp!(
     mutable_rng::StatefulRNG,
     destination::Array{T},
-) where {T<:Union{Float32,Float64}} = _commit_bridge!(
+) where {T<:_TransformFloat} = _commit_bridge!(
     mutable_rng,
     randexp_next!(mutable_rng.rng, destination; threaded = false),
 )

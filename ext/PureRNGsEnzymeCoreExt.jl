@@ -6,8 +6,9 @@ import Random
 
 const IR = PureRNGs
 const ER = EnzymeCore.EnzymeRules
-const _FloatArray = Array{<:Union{Float32,Float64}}
-const _FloatAbstractArray = AbstractArray{<:Union{Float32,Float64}}
+const _FloatElement = Union{IR._TransformFloat,IR._ComplexResult}
+const _FloatArray = Array{<:_FloatElement}
+const _FloatAbstractArray = AbstractArray{<:_FloatElement}
 const _Duplicated = Union{EnzymeCore.Duplicated,EnzymeCore.DuplicatedNoNeed}
 const _BatchDuplicated = Union{EnzymeCore.BatchDuplicated,EnzymeCore.BatchDuplicatedNoNeed}
 
@@ -156,8 +157,7 @@ for fill_function in (
     end
 end
 
-# The range fill puts its destination second, so it needs its own rule rather
-# than the untyped three-argument one above.
+# The range fill puts its destination second, so it needs its own rule.
 for fill_function in (Random.rand!, IR.rand_next!)
     @eval begin
         @inline function ER.forward(
@@ -251,13 +251,10 @@ end
 # Distribution and population fills have no rule: Enzyme differentiates them
 # directly and returns the pathwise gradient, holding the random bits fixed.
 # Enzyme cannot yet differentiate the task scheduler of a threaded CPU fill (the
-# process exits), so an active threaded fill stops here with an error instead.
+# process exits), so a threaded fill without a rule of its own stops here with an
+# error instead: allocating draws, range and population sampling, and distribution fills.
 @noinline function _threaded_fill_not_differentiable()
-    throw(
-        ArgumentError(
-            "threaded distribution and population fills are not differentiable; use threaded = false",
-        ),
-    )
+    throw(ArgumentError("threaded fills are not differentiable; use threaded = false"))
 end
 
 @inline ER.forward(

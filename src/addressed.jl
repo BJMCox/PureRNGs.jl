@@ -52,6 +52,7 @@ end
     fill_next,
     threaded::Bool,
 ) where {T}
+    _check_serviceability(rng, T)
     isempty(indices) && return _allocate_draw_array(rng.device, T, (0,))
     addressed = _addressed_rng(rng, width, first(indices))
     return first(fill_next(addressed, T, length(indices); threaded))

@@ -18,7 +18,8 @@ Enzyme differentiates them directly and returns the pathwise gradient: the deriv
 A fill therefore agrees with the equivalent chain of scalar draws, so `sum` of a `Normal(μ, σ)` fill has `∂/∂μ` equal to the number of draws.
 Sampled indices do not move with the weights, so weights receive no gradient.
 
-Threaded distribution and population fills are not differentiable. An active one with `threaded = true` throws an `ArgumentError`; keep the serial default when differentiating. Primitive fills stay differentiable with either setting.
+In-place uniform, normal, and exponential fills stay differentiable with either `threaded` setting.
+Other threaded CPU work under differentiation, such as allocating draws, range and population sampling, and distribution fills, throws an `ArgumentError`; keep the serial default when differentiating.
 Mutable `StatefulRNG` effects are not differentiated.
 
 Use `Enzyme.Const(rng)` for the generator when differentiating a supported fill.

@@ -22,9 +22,9 @@ end
     rand_next!(rng, destination, range; threaded=false) -> (destination, next_rng)
 
 Fill `destination` from `rng` and return the advanced immutable generator with
-the same destination. The destination element type must be `Bool`, `UInt32`,
-`Int32`, `UInt64`, `Int64`, `Float32`, or `Float64`, or with `range` the
-integer element type of that range, and its device must match the generator.
+the same destination. The destination element type must be a result type
+[`rand_next`](@ref) supports, or with `range` the integer element type of that
+range, and its device must match the generator.
 
 Fills run serially by default. Set `threaded=true` to split a CPU fill across
 threads; the keyword never changes the generated stream. The input generator

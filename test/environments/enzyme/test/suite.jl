@@ -435,6 +435,20 @@ threaded_normal_sum(rng, mu, count) =
     @test iszero(weight_gradient)
 end
 
+threaded_half_fill(rng, scale, count) =
+    scale * Float32(sum(randn!(rng, zeros(Float16, count); threaded = true)))
+
+@testset "threaded primitive fills of every float type stay differentiable" begin
+    rng = Philox4x32(0x650a)
+    n =
+        8 *
+        PureRNGs._fill_chunk_elements(PureRNGs._NormalCodec(PureRNGs._CPU_BACKEND), Float16)
+    values = randn(rng, Float16, n)
+    derivative =
+        autodiff(Reverse, threaded_half_fill, Active, Const(rng), Active(2.0f0), Const(n))
+    @test derivative[1][2] == Float32(sum(values))
+end
+
 @testset "threaded fills under differentiation throw instead of crashing" begin
     rng = Philox4x32(0x6509)
     n = 8 * PureRNGs._fill_chunk_elements(Val(:uniform), Float64)

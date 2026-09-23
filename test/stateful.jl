@@ -359,8 +359,9 @@ end
     )
     require(Random.randn, Tuple{M})
     require(Random.randexp, Tuple{M})
-    for T in (Float32, Float64)
+    for T in (Float16, Float32, Float64)
         require(Random.randn, Tuple{M,Type{T}})
+        require(Random.randn, Tuple{M,Type{Complex{T}}})
         require(Random.randexp, Tuple{M,Type{T}})
     end
     for T in PURE_UNIFORM_TYPES
@@ -482,7 +483,18 @@ end
     @test rand(bridge, Int128(1):Int128(6)) in 1:6
     @test rand(bridge, (1, 2, 3)) in (1, 2, 3)
     @test rand(bridge, Char) isa Char
-    @test randn(bridge, Float16) isa Float16
+    for T in (Float16, ComplexF16, ComplexF64)
+        normal_bridge = StatefulRNG(Philox4x32(0x5a7))
+        values, state = randn_next(Philox4x32(0x5a7), T, 3)
+        @test [randn(normal_bridge, T), randn(normal_bridge, T)] == values[1:2]
+        @test randn!(normal_bridge, Vector{T}(undef, 1)) == values[3:3]
+        @test parent(normal_bridge) === state
+    end
+    exponential_bridge = StatefulRNG(Philox4x32(0x5a8))
+    exponentials, state = randexp_next(Philox4x32(0x5a8), Float16, 4)
+    @test randexp(exponential_bridge, Float16) === exponentials[1]
+    @test randexp(exponential_bridge, Float16, 3) == exponentials[2:4]
+    @test parent(exponential_bridge) === state
     @test sort(shuffle(bridge, 1:5)) == 1:5
     @test length(randstring(bridge)) == 8
 

@@ -53,7 +53,9 @@ end
     return UInt64(cardinality)
 end
 
-@inline function _sampling_cardinality(population::OrdinalRange{T}) where {T<:_RangeInteger}
+@inline function _sampling_cardinality(
+    population::OrdinalRange{T},
+) where {T<:_RangeInteger64}
     isempty(population) && return zero(UInt64)
     first_value = Int128(first(population))
     last_value = Int128(last(population))

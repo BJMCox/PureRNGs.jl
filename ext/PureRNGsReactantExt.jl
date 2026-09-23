@@ -722,7 +722,7 @@ end
     return T <: Signed ? _bitcast_signed(T, bits) : _convert(T, bits)
 end
 
-@inline function _range_element(range::LinRange{T}, offset) where {T<:IR._RangeInteger}
+@inline function _range_element(range::LinRange{T}, offset) where {T<:IR._RangeInteger64}
     denominator = max(length(range) - 1, 1)
     t = _convert(Float64, offset) / Float64(denominator)
     value = (one(Float64) - t) * first(range) + t * last(range)
@@ -732,7 +732,7 @@ end
 @inline function IR._range_value(
     rng::_ReactantRNG,
     range::Union{OrdinalRange{T},LinRange{T}},
-) where {T<:IR._RangeInteger}
+) where {T<:IR._RangeInteger64}
     span = length(range) % UInt64
     return _range_element(range, _range_offset(rng, span))
 end
@@ -740,7 +740,7 @@ end
 @inline function Random.rand(
     rng::_ReactantRNG,
     range::Union{OrdinalRange{T},LinRange{T}},
-) where {T<:IR._RangeInteger}
+) where {T<:IR._RangeInteger64}
     isempty(range) && throw(ArgumentError("range must be non-empty"))
     return IR._range_value(rng, range)
 end
@@ -748,7 +748,7 @@ end
 @inline function IR.rand_next(
     rng::_ReactantRNG,
     range::Union{OrdinalRange{T},LinRange{T}},
-) where {T<:IR._RangeInteger}
+) where {T<:IR._RangeInteger64}
     isempty(range) && throw(ArgumentError("range must be non-empty"))
     width = UInt64(IR._range_bits(length(range) % UInt64))
     return IR._range_value(rng, range), _advance(rng, width)
@@ -916,7 +916,6 @@ for (fill, fill_next, draw_next, T) in (
             destination::_TracedArray{T};
             threaded::Bool = false,
         ) where {T<:$T}
-            threaded
             values, next_rng = $draw_next(rng, T, size(destination)...)
             return _store!(destination, values), next_rng
         end
@@ -935,7 +934,7 @@ end
 @inline function _population_values(
     population::Union{OrdinalRange{T},LinRange{T}},
     ordinals,
-) where {T<:IR._RangeInteger}
+) where {T<:IR._RangeInteger64}
     return _range_element(population, ordinals - UInt64(1)).data
 end
 

@@ -117,3 +117,29 @@ end
     @test_throws ArgumentError rand_next(device_rng, Int128(1):Int128(6), 4)
     @test rand(device_rng, UInt128) === rand(Philox4x32(0x7c7), UInt128)
 end
+
+# Chunks hold 1024 (128-bit) to 16384 (8-bit) elements and a fill splits from
+# three chunks, so these counts cross chunk seams in the threaded fill.
+@testset "threaded fills of the new types cross chunk seams" begin
+    for T in (UInt8, Float16, UInt128, ComplexF64), F in (Philox4x32, ChaCha)
+        rng = F(0x7c8, 9)
+        count = 3 * PureRNGs._fill_chunk_elements(Val(:uniform), T) + 5
+        chained = Vector{T}(undef, count)
+        state = rng
+        for index = 1:count
+            chained[index], state = rand_next(state, T)
+        end
+        threaded, next_rng = rand_next(rng, T, count; threaded = true)
+        @test threaded == chained
+        @test next_rng === state
+    end
+end
+
+@testset "128-bit populations sample by index" begin
+    rng = Philox4x32(0x7c9)
+    population = (UInt128(2)^127):(UInt128(2)^127+5)
+    samples, next_rng = randsample_next(rng, population, 40)
+    @test samples == population[first(rand_next(rng, 1:6, 40))]
+    @test next_rng === last(rand_next(rng, 1:6, 40))
+    @test_throws ArgumentError randsample(rng, typemin(Int128):typemax(Int128), 4)
+end
