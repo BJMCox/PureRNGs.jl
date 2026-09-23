@@ -156,124 +156,6 @@ for fill_function in (
     end
 end
 
-# Distribution fills and unweighted population fills share the shape
-# `(rng, argument, destination)`. The distribution types live behind the
-# Distributions extension, so the argument position stays untyped; the range
-# rule below is more specific and keeps `rand!(rng, destination, range)` out.
-for fill_function in (Random.rand!, IR.rand_next!, IR.randsample!, IR.randsample_next!)
-    @eval begin
-        @inline function ER.forward(
-            config::ER.FwdConfig,
-            function_annotation::EnzymeCore.Const{typeof($fill_function)},
-            ::Type,
-            rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
-            argument::EnzymeCore.Annotation,
-            destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = false,
-        )
-            return _forward_pure(
-                config,
-                function_annotation,
-                (rng, argument, destination),
-                destination,
-                threaded,
-            )
-        end
-
-        @inline function ER.augmented_primal(
-            config::ER.RevConfig,
-            function_annotation::EnzymeCore.Const{typeof($fill_function)},
-            ::Type,
-            rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
-            argument::EnzymeCore.Annotation,
-            destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = false,
-        )
-            return _augmented_pure(
-                config,
-                function_annotation,
-                (rng, argument, destination),
-                destination,
-                threaded,
-            )
-        end
-
-        @inline function ER.reverse(
-            ::ER.RevConfig,
-            ::EnzymeCore.Const{typeof($fill_function)},
-            ::Type,
-            ::Nothing,
-            ::EnzymeCore.Const{<:IR.AbstractPureRNG},
-            argument::EnzymeCore.Annotation,
-            destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = false,
-        )
-            _zero_shadow!(destination)
-            return nothing, _argument_adjoint(argument), nothing
-        end
-    end
-end
-
-for fill_function in (IR.randsample!, IR.randsample_next!)
-    @eval begin
-        @inline function ER.forward(
-            config::ER.FwdConfig,
-            function_annotation::EnzymeCore.Const{typeof($fill_function)},
-            ::Type,
-            rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
-            population::EnzymeCore.Annotation,
-            weights::EnzymeCore.Annotation,
-            destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = false,
-        )
-            return _forward_pure(
-                config,
-                function_annotation,
-                (rng, population, weights, destination),
-                destination,
-                threaded,
-            )
-        end
-
-        @inline function ER.augmented_primal(
-            config::ER.RevConfig,
-            function_annotation::EnzymeCore.Const{typeof($fill_function)},
-            ::Type,
-            rng::EnzymeCore.Const{<:IR.AbstractPureRNG},
-            population::EnzymeCore.Annotation,
-            weights::EnzymeCore.Annotation,
-            destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = false,
-        )
-            return _augmented_pure(
-                config,
-                function_annotation,
-                (rng, population, weights, destination),
-                destination,
-                threaded,
-            )
-        end
-
-        @inline function ER.reverse(
-            ::ER.RevConfig,
-            ::EnzymeCore.Const{typeof($fill_function)},
-            ::Type,
-            ::Nothing,
-            ::EnzymeCore.Const{<:IR.AbstractPureRNG},
-            population::EnzymeCore.Annotation,
-            weights::EnzymeCore.Annotation,
-            destination::EnzymeCore.Annotation{<:AbstractArray};
-            threaded::Bool = false,
-        )
-            _zero_shadow!(destination)
-            return nothing,
-            _argument_adjoint(population),
-            _argument_adjoint(weights),
-            nothing
-        end
-    end
-end
-
 # The range fill puts its destination second, so it needs its own rule rather
 # than the untyped three-argument one above.
 for fill_function in (Random.rand!, IR.rand_next!)
@@ -365,5 +247,45 @@ for fill_function in (Random.rand!, Random.randn!, Random.randexp!)
         end
     end
 end
+
+# Distribution and population fills have no rule: Enzyme differentiates them
+# directly and returns the pathwise gradient, holding the random bits fixed.
+# Enzyme cannot yet differentiate the task scheduler of a threaded CPU fill (the
+# process exits), so an active threaded fill stops here with an error instead.
+@noinline function _threaded_fill_not_differentiable()
+    throw(
+        ArgumentError(
+            "threaded distribution and population fills are not differentiable; use threaded = false",
+        ),
+    )
+end
+
+@inline ER.forward(
+    ::ER.FwdConfig,
+    ::EnzymeCore.Const{typeof(IR._run_chunks)},
+    ::Type,
+    ::EnzymeCore.Annotation,
+    ::EnzymeCore.Annotation{Int},
+    ::EnzymeCore.Annotation{Int},
+) = _threaded_fill_not_differentiable()
+
+@inline ER.augmented_primal(
+    ::ER.RevConfig,
+    ::EnzymeCore.Const{typeof(IR._run_chunks)},
+    ::Type,
+    ::EnzymeCore.Annotation,
+    ::EnzymeCore.Annotation{Int},
+    ::EnzymeCore.Annotation{Int},
+) = _threaded_fill_not_differentiable()
+
+@inline ER.reverse(
+    ::ER.RevConfig,
+    ::EnzymeCore.Const{typeof(IR._run_chunks)},
+    ::Type,
+    tape,
+    ::EnzymeCore.Annotation,
+    ::EnzymeCore.Annotation{Int},
+    ::EnzymeCore.Annotation{Int},
+) = _threaded_fill_not_differentiable()
 
 end

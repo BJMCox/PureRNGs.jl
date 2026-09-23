@@ -38,17 +38,17 @@ end
 
 @testset "R65 closed rule surface" begin
     extension = Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt)
-    # rand! carries the immutable, StatefulRNG, distribution and range fills;
-    # rand_next! carries all but the StatefulRNG one.
+    # rand! carries the immutable, StatefulRNG, and range fills; rand_next!
+    # carries all but the StatefulRNG one. Distribution and population fills have
+    # no rule, and the scheduler rule stops threaded fills under differentiation.
     expected_counts = (
-        (Random.rand!, 4),
+        (Random.rand!, 3),
         (Random.randn!, 2),
         (Random.randexp!, 2),
-        (rand_next!, 3),
+        (rand_next!, 2),
         (randn_next!, 1),
         (randexp_next!, 1),
-        (randsample!, 2),
-        (randsample_next!, 2),
+        (PureRNGs._run_chunks, 1),
     )
     for rule in (ER.forward, ER.augmented_primal, ER.reverse)
         owned = filter(method -> method.module === extension, methods(rule))
@@ -330,196 +330,122 @@ end
 end
 
 
-function argument_fill_result!(fill_function, rng, argument, destination, threaded)
-    return fill_function(rng, argument, destination; threaded = threaded)
-end
-
-function argument_fill_objective!(
-    fill_function,
-    rng,
-    argument,
-    destination,
-    scale,
-    threaded,
-)
-    fill_function(rng, argument, destination; threaded = threaded)
-    return scale * sum(destination)
-end
-
-function weighted_fill_result!(
-    fill_function,
-    rng,
-    population,
-    weights,
-    destination,
-    threaded,
-)
-    return fill_function(rng, population, weights, destination; threaded = threaded)
-end
-
-function weighted_fill_objective!(
-    fill_function,
-    rng,
-    population,
-    weights,
-    destination,
-    scale,
-    threaded,
-)
-    fill_function(rng, population, weights, destination; threaded = threaded)
-    return scale * sum(destination)
-end
-
-
-@testset "R65 distribution and population fills carry no tangent" begin
-    population = [2.0, 3.0, 5.0, 7.0]
-    weights = [0.1, 0.2, 0.3, 0.4]
-    # Each shadow is nonzero, so without a rule the fill would propagate it.
-    cases = (
-        (Random.rand!, rand_next!, Normal(0.0, 1.0), Normal(1.0, 0.0)),
-        (randsample!, randsample_next!, population, fill(1.0, 4)),
-    )
-
-    for (fill_function, next_fill_function, argument, argument_shadow) in cases,
-        (function_under_test, continued) in
-        ((fill_function, false), (next_fill_function, true))
-
-        rng = Philox4x32(0x6508)
-        expected, expected_rng = next_fill_function(rng, argument, zeros(12))
-
-        values = zeros(12)
-        shadow = fill(5.0, 12)
-        shadow_result, primal_result = autodiff(
-            ForwardWithPrimal,
-            argument_fill_result!,
-            Duplicated,
-            Const(function_under_test),
-            Const(rng),
-            Duplicated(argument, argument_shadow),
-            Duplicated(values, shadow),
-            Const(true),
-        )
-        if continued
-            @test primal_result[1] === values
-            @test primal_result[2] === expected_rng
-            @test shadow_result[1] === shadow
-        else
-            @test primal_result === values
-            @test shadow_result === shadow
-        end
-        @test values == expected
-        @test iszero(shadow)
-
-        reverse_values = zeros(12)
-        reverse_shadow = fill(9.0, 12)
-        derivative = only(
-            autodiff(
-                Reverse,
-                argument_fill_objective!,
-                Active,
-                Const(function_under_test),
-                Const(rng),
-                Const(argument),
-                Duplicated(reverse_values, reverse_shadow),
-                Active(1.5),
-                Const(true),
-            ),
-        )
-        @test reverse_values == expected
-        @test iszero(reverse_shadow)
-        @test derivative[5] ≈ sum(expected)
+function scalar_normal_sum(rng, mu, sigma, count)
+    total = 0.0
+    for _ = 1:count
+        value, rng = rand_next(rng, Normal(mu, sigma))
+        total += value
     end
+    return total
+end
 
-    for (function_under_test, continued) in ((randsample!, false), (randsample_next!, true))
+fill_normal_sum(rng, mu, sigma, count) =
+    sum(first(rand_next!(rng, Normal(mu, sigma), zeros(count))))
 
-        rng = Philox4x32(0x6509)
-        expected, expected_rng = randsample_next!(rng, population, weights, zeros(12))
+fill_laplace_sum(rng, mu, count) =
+    sum(first(rand_next!(rng, Laplace(mu, 1.0), zeros(count))))
 
-        values = zeros(12)
-        shadow = fill(5.0, 12)
-        shadow_result, primal_result = autodiff(
-            ForwardWithPrimal,
-            weighted_fill_result!,
-            Duplicated,
-            Const(function_under_test),
-            Const(rng),
-            Duplicated(population, fill(1.0, 4)),
-            Duplicated(weights, fill(1.0, 4)),
-            Duplicated(values, shadow),
-            Const(true),
-        )
-        if continued
-            @test primal_result[1] === values
-            @test primal_result[2] === expected_rng
-            @test shadow_result[1] === shadow
-        else
-            @test primal_result === values
-            @test shadow_result === shadow
-        end
-        @test values == expected
-        @test iszero(shadow)
+fill_uniform_sum(rng, upper, count) =
+    sum(first(rand_next!(rng, Uniform(0.0, upper), zeros(count))))
 
-        reverse_values = zeros(12)
-        reverse_shadow = fill(9.0, 12)
-        derivative = only(
-            autodiff(
-                Reverse,
-                weighted_fill_objective!,
-                Active,
-                Const(function_under_test),
-                Const(rng),
-                Const(population),
-                Const(weights),
-                Duplicated(reverse_values, reverse_shadow),
-                Active(1.5),
-                Const(true),
-            ),
-        )
-        @test reverse_values == expected
-        @test iszero(reverse_shadow)
-        @test derivative[6] ≈ sum(expected)
-    end
+sample_square_sum(rng, population, count) =
+    sum(abs2, first(randsample_next!(rng, population, zeros(count))))
 
-    active_rng = Philox4x32(0x650a)
-    active_expected, _ = rand_next!(active_rng, Normal(0.0, 1.0), zeros(12))
-    active_values = zeros(12)
-    active_shadow = fill(9.0, 12)
-    active_derivative = only(
-        autodiff(
-            Reverse,
-            argument_fill_objective!,
-            Active,
-            Const(Random.rand!),
-            Const(active_rng),
-            Active(Normal(0.0, 1.0)),
-            Duplicated(active_values, active_shadow),
-            Active(1.5),
-            Const(true),
-        ),
+weighted_sample_sum(rng, population, weights, count) =
+    sum(first(randsample_next!(rng, population, weights, zeros(count))))
+
+threaded_normal_sum(rng, mu, count) =
+    sum(first(rand_next!(rng, Normal(mu, 1.0), zeros(count); threaded = true)))
+
+@testset "distribution and population fills give pathwise gradients" begin
+    rng = Philox4x32(0x6508)
+    n = 12
+    standard = first(rand_next(rng, Normal(0.0, 1.0), n))
+
+    # A fill and the equivalent chain of scalar draws read the same bits, so
+    # both differentiate to d/dmu = n and d/dsigma = sum of the standard draws.
+    scalar = autodiff(
+        Reverse,
+        scalar_normal_sum,
+        Active,
+        Const(rng),
+        Active(0.5),
+        Active(2.0),
+        Const(n),
     )
-    @test active_values == active_expected
-    @test iszero(active_shadow)
-    @test active_derivative[3] === Normal{Float64}(0.0, 0.0)
-    @test active_derivative[5] ≈ sum(active_expected)
-
-    bernoulli = Bernoulli(0.3)
-    rng = Philox4x32(0x650b)
-    expected, _ = rand_next!(rng, bernoulli, Vector{Bool}(undef, 12))
-    values = Vector{Bool}(undef, 12)
-    derivative = only(
+    filled = autodiff(
+        Reverse,
+        fill_normal_sum,
+        Active,
+        Const(rng),
+        Active(0.5),
+        Active(2.0),
+        Const(n),
+    )
+    @test filled[1][2] ≈ scalar[1][2] ≈ n
+    @test filled[1][3] ≈ scalar[1][3] ≈ sum(standard)
+    @test only(
         autodiff(
             Forward,
-            argument_fill_objective!,
-            Const(Random.rand!),
+            fill_normal_sum,
             Const(rng),
-            Const(bernoulli),
-            Const(values),
-            Duplicated(2.0, 1.0),
-            Const(true),
+            Duplicated(0.5, 1.0),
+            Const(2.0),
+            Const(n),
         ),
+    ) ≈ n
+
+    @test autodiff(Reverse, fill_laplace_sum, Active, Const(rng), Active(0.5), Const(n))[1][2] ≈
+          n
+    unit = first(rand_next(rng, Uniform(0.0, 1.0), n))
+    @test autodiff(Reverse, fill_uniform_sum, Active, Const(rng), Active(2.0), Const(n))[1][2] ≈
+          sum(unit)
+
+    # A gather is linear in the population: each element's gradient is twice its
+    # value times the number of draws that picked it.
+    population = [2.0, 3.0, 5.0, 7.0]
+    draws = first(randsample_next(rng, population, n))
+    gradient = zeros(4)
+    autodiff(
+        Reverse,
+        sample_square_sum,
+        Active,
+        Const(rng),
+        Duplicated(population, gradient),
+        Const(n),
     )
-    @test values == expected
-    @test derivative ≈ sum(expected)
+    @test gradient ≈ [2 * value * count(==(value), draws) for value in population]
+
+    # The drawn indices are piecewise constant in the weights, so only the
+    # population carries a gradient.
+    weights = [0.1, 0.2, 0.3, 0.4]
+    weighted_draws = first(randsample_next(rng, population, weights, n))
+    population_gradient = zeros(4)
+    weight_gradient = zeros(4)
+    autodiff(
+        Reverse,
+        weighted_sample_sum,
+        Active,
+        Const(rng),
+        Duplicated(population, population_gradient),
+        Duplicated(weights, weight_gradient),
+        Const(n),
+    )
+    @test population_gradient == [count(==(value), weighted_draws) for value in population]
+    @test iszero(weight_gradient)
+end
+
+@testset "threaded fills under differentiation throw instead of crashing" begin
+    rng = Philox4x32(0x6509)
+    n = 8 * PureRNGs._fill_chunk_elements(Val(:uniform), Float64)
+    @test_throws ArgumentError autodiff(
+        Reverse,
+        threaded_normal_sum,
+        Active,
+        Const(rng),
+        Active(0.5),
+        Const(n),
+    )
 end
 
 

@@ -11,7 +11,15 @@ Treat the immutable generator as constant.
 An overwriting random fill clears the destination's incoming shadow.
 It does not differentiate the seed or repeat the primal draw during the reverse pass.
 
-These rules cover CPU and CUDA use. They do not promise general differentiation through sampling, distribution objects, or mutable `StatefulRNG` effects.
+These rules cover CPU and CUDA use.
+
+Distribution fills, such as `rand!(rng, Normal(μ, σ), destination)`, and population sampling with `randsample!` have no rule.
+Enzyme differentiates them directly and returns the pathwise gradient: the derivative of the computed values with the random bits held fixed.
+A fill therefore agrees with the equivalent chain of scalar draws, so `sum` of a `Normal(μ, σ)` fill has `∂/∂μ` equal to the number of draws.
+Sampled indices do not move with the weights, so weights receive no gradient.
+
+Threaded distribution and population fills are not differentiable. An active one with `threaded = true` throws an `ArgumentError`; keep the serial default when differentiating. Primitive fills stay differentiable with either setting.
+Mutable `StatefulRNG` effects are not differentiated.
 
 Use `Enzyme.Const(rng)` for the generator when differentiating a supported fill.
 Differentiate the computation consuming the samples, not the random key.
@@ -20,7 +28,7 @@ Differentiate the computation consuming the samples, not the random key.
 using PureRNGs, Random, Enzyme
 
 function sample_sum!(rng, destination, scale)
-    randn!(rng, destination; threaded=false)
+    randn!(rng, destination)
     return scale * sum(destination)
 end
 
