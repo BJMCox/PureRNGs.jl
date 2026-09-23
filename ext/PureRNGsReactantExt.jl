@@ -367,6 +367,13 @@ end
 @inline _convert_result(::Type{UInt32}, raw) = _convert(UInt32, raw)
 @inline _convert_result(::Type{UInt64}, raw) = raw
 @inline _convert_result(::Type{Int32}, raw) = _bitcast_signed(Int32, raw)
+@inline _convert_result(::Type{UInt8}, raw) = _convert(UInt8, raw)
+@inline _convert_result(::Type{UInt16}, raw) = _convert(UInt16, raw)
+@inline _convert_result(::Type{Int8}, raw) = _bitcast_signed(Int8, raw)
+@inline _convert_result(::Type{Int16}, raw) = _bitcast_signed(Int16, raw)
+# Both steps are exact, as in the eager map: an 11-bit integer and a power of two.
+@inline _convert_result(::Type{Float16}, raw) =
+    _convert(Float16, _convert(Float32, raw) * Float32(0x1p-11))
 @inline _convert_result(::Type{Int64}, raw) = _bitcast_signed(Int64, raw)
 @inline _convert_result(::Type{Float32}, raw) = _convert(Float32, raw) * Float32(0x1p-24)
 @inline _convert_result(::Type{Float64}, raw) = _convert(Float64, raw) * Float64(0x1p-53)
@@ -422,7 +429,20 @@ end
     return _advance(rng, bits_lo, bits_hi, bits_top)
 end
 
-for T in (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64)
+for T in (
+    Bool,
+    UInt8,
+    Int8,
+    UInt16,
+    Int16,
+    UInt32,
+    UInt64,
+    Int32,
+    Int64,
+    Float16,
+    Float32,
+    Float64,
+)
     @eval begin
         @inline Random.rand(rng::_ReactantRNG, ::Type{$T}) = _draw(rng, $T)
         @inline function IR.rand_next(rng::_ReactantRNG, ::Type{$T})
@@ -477,6 +497,9 @@ end
 
 @inline _normal_from_raw(raw, ::Type{T}) where {T<:Union{Float32,Float64}} =
     _normal_transform(_open_midpoint(raw, T), T)
+# A Float16 normal or exponential is the Float32 value on the same bits, rounded once.
+@inline _normal_from_raw(raw, ::Type{Float16}) =
+    _convert(Float16, _normal_from_raw(raw, Float32))
 
 @inline IR._midpoint_value(rng::_ReactantRNG, ::Type{T}) where {T<:Union{Float32,Float64}} =
     _open_midpoint(_raw(rng, Val(IR._normal_bits(T))), T)
@@ -518,11 +541,13 @@ end
 
 @inline _exponential_from_raw(raw, ::Type{T}) where {T} =
     _exponential_transform(one(T) - _open_midpoint(raw, T), T)
+@inline _exponential_from_raw(raw, ::Type{Float16}) =
+    _convert(Float16, _exponential_from_raw(raw, Float32))
 
 @inline _exponential_value(rng, ::Type{T}) where {T} =
     _exponential_from_raw(_raw(rng, Val(IR._exponential_bits(T))), T)
 
-for T in (Float32, Float64)
+for T in (Float16, Float32, Float64)
     @eval begin
         @inline Random.randn(rng::_ReactantRNG, ::Type{$T}) = _normal_value(rng, $T)
         @inline function IR.randn_next(rng::_ReactantRNG, ::Type{$T})
@@ -603,21 +628,34 @@ for (draw, draw_next, bits, finish, types) in (
         :(IR.rand_next),
         :(IR._draw_bits),
         T -> :(raw -> _convert_result($T, raw)),
-        (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64),
+        (
+            Bool,
+            UInt8,
+            Int8,
+            UInt16,
+            Int16,
+            UInt32,
+            UInt64,
+            Int32,
+            Int64,
+            Float16,
+            Float32,
+            Float64,
+        ),
     ),
     (
         :(Random.randn),
         :(IR.randn_next),
         :(IR._normal_bits),
         T -> :(raw -> _normal_from_raw(raw, $T)),
-        (Float32, Float64),
+        (Float16, Float32, Float64),
     ),
     (
         :(Random.randexp),
         :(IR.randexp_next),
         :(IR._exponential_bits),
         T -> :(raw -> _exponential_from_raw(raw, $T)),
-        (Float32, Float64),
+        (Float16, Float32, Float64),
     ),
 )
     for T in types
@@ -798,10 +836,28 @@ for (at, fill_next, bits, types) in (
         :(IR.rand_at),
         :(IR.rand_next),
         :(IR._draw_bits),
-        (Bool, UInt32, UInt64, Int32, Int64, Float32, Float64),
+        (
+            Bool,
+            UInt8,
+            Int8,
+            UInt16,
+            Int16,
+            UInt32,
+            UInt64,
+            Int32,
+            Int64,
+            Float16,
+            Float32,
+            Float64,
+        ),
     ),
-    (:(IR.randn_at), :(IR.randn_next), :(IR._normal_bits), (Float32, Float64)),
-    (:(IR.randexp_at), :(IR.randexp_next), :(IR._exponential_bits), (Float32, Float64)),
+    (:(IR.randn_at), :(IR.randn_next), :(IR._normal_bits), (Float16, Float32, Float64)),
+    (
+        :(IR.randexp_at),
+        :(IR.randexp_next),
+        :(IR._exponential_bits),
+        (Float16, Float32, Float64),
+    ),
 )
     for T in types
         @eval @inline function $at(
@@ -826,14 +882,32 @@ for (fill, fill_next, draw_next, T) in (
         :(Random.rand!),
         :(IR.rand_next!),
         :(IR.rand_next),
-        :(Union{Bool,UInt32,UInt64,Int32,Int64,Float32,Float64}),
+        :(Union{
+            Bool,
+            UInt8,
+            Int8,
+            UInt16,
+            Int16,
+            UInt32,
+            UInt64,
+            Int32,
+            Int64,
+            Float16,
+            Float32,
+            Float64,
+        }),
     ),
-    (:(Random.randn!), :(IR.randn_next!), :(IR.randn_next), :(Union{Float32,Float64})),
+    (
+        :(Random.randn!),
+        :(IR.randn_next!),
+        :(IR.randn_next),
+        :(Union{Float16,Float32,Float64}),
+    ),
     (
         :(Random.randexp!),
         :(IR.randexp_next!),
         :(IR.randexp_next),
-        :(Union{Float32,Float64}),
+        :(Union{Float16,Float32,Float64}),
     ),
 )
     @eval begin

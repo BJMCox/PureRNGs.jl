@@ -139,8 +139,9 @@ Continuation advances a bit position. It does not split keys or silently wrap.
 Package-owned operations check capacity before writing their destination. Exhaustion throws an error.
 Choose a new key explicitly when a stream ends.
 
-Uniform draws consume one bit for `Bool`, 24 for `Float32`, and 53 for `Float64`.
-Integer draws consume their type's width. Normal draws consume 23 or 52 bits.
-Exponential draws consume 23 or 52 bits.
+Uniform draws consume one bit for `Bool`, 11 for `Float16`, 24 for `Float32`, and 53 for `Float64`.
+Integer draws consume their type's width, from 8 to 128 bits. A complex draw consumes a real draw and then an imaginary draw.
+Normal and exponential draws consume 23 bits for `Float16` and `Float32` and 52 for `Float64`; a `Float16` value is the `Float32` value on the same bits, rounded once.
+Integer ranges consume 64, 128, or 192 bits, depending on the span.
 
 Mixed result types share one cursor without alignment padding. Chunk large workloads to limit memory, not to reset the stream.

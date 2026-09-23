@@ -17,6 +17,17 @@ end
 end
 
 @inline _check_serviceability(rng, ::Type) = nothing
+
+@noinline function _host_only_type(::Type{T}) where {T}
+    throw(ArgumentError("$T draws run on the CPU only; move the generator to the CPU"))
+end
+
+# Device kernels hold no 128-bit integers, and complex values have no device
+# fill plan, so these types stay on the host.
+@inline _check_serviceability(
+    ::_BackendGenerators{<:Union{_CUDABackend,_AMDGPUBackend}},
+    ::Type{T},
+) where {T<:Union{_WideInteger,_ComplexResult}} = _host_only_type(T)
 @inline _check_serviceability(rng, range::AbstractRange) =
     _check_serviceability(rng, eltype(range))
 

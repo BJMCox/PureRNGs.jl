@@ -294,7 +294,20 @@ end
 
 if Metal.functional()
     @testset "Metal served primitive smoke" begin
-        for F in METAL_32_GENERATORS, T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
+        served = (
+            Bool,
+            UInt8,
+            Int8,
+            UInt16,
+            Int16,
+            UInt32,
+            Int32,
+            UInt64,
+            Int64,
+            Float16,
+            Float32,
+        )
+        for F in METAL_32_GENERATORS, T in served
             cpu_rng = F(0x81b)
             rng = MetalDevice()(cpu_rng)
             values, next_rng = IR.rand_next(rng, T, 17)
@@ -304,13 +317,13 @@ if Metal.functional()
             @test next_rng.position == expected_next.position
         end
 
-        for F in METAL_32_GENERATORS
+        for F in METAL_32_GENERATORS, T in (Float16, Float32)
             cpu_rng = F(0x81c)
             rng = MetalDevice()(cpu_rng)
-            values, next_rng = IR.randn_next(rng, Float32, 17)
-            repeated, repeat_next = IR.randn_next(rng, Float32, 17)
-            _, expected_next = IR.randn_next(cpu_rng, Float32, 17)
-            @test values isa Metal.MtlArray{Float32,1}
+            values, next_rng = IR.randn_next(rng, T, 17)
+            repeated, repeat_next = IR.randn_next(rng, T, 17)
+            _, expected_next = IR.randn_next(cpu_rng, T, 17)
+            @test values isa Metal.MtlArray{T,1}
             @test Array(values) == Array(repeated)
             @test next_rng.position == repeat_next.position == expected_next.position
         end

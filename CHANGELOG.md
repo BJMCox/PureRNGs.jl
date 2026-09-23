@@ -8,6 +8,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Draws of every signed and unsigned integer type from 8 to 128 bits, `Float16`, and `Complex` values, with normal draws for `Float16` and complex types and exponential draws for `Float16`. Integer ranges accept 128-bit element types; a range with more than 2^64 values reduces a 192-bit candidate. The 128-bit and complex types run on the CPU only.
+- `StatefulRNG` serves every `Random` element type, `Random.seed!(rng)` without a seed, `copy!`, `==`, and `hash`.
 - `Threefry2x64R13`, the thirteen-round `Threefry2x64` that Salmon, Moraes, Dror, and Shaw (2011, Table 2) report as the smallest passing BigCrush. It has no BigCrush run of its own in the evidence release yet.
 
 ### Changed

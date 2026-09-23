@@ -11,11 +11,22 @@
     return _reduce_range_candidate(lo, hi, span), cursor
 end
 
+@inline function _take_range_offset(rng, cursor, span::UInt128)
+    if _narrow_span(span)
+        offset, cursor = _take_range_offset(rng, cursor, span % UInt64)
+        return UInt128(offset), cursor
+    end
+    w2, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+    w1, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+    w0, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+    return _reduce_range_candidate(w2, w1, w0, span), cursor
+end
+
 # The range codec draws a candidate of its own width and maps the reduced offset
 # through the range, so the transformed scaffold serves range fills unchanged.
-struct _RangeCodec{R}
+struct _RangeCodec{R,S<:Union{UInt64,UInt128}}
     range::R
-    span::UInt64
+    span::S
 end
 
 @inline _fill_width(codec::_RangeCodec, ::Type) = _range_bits(codec.span)

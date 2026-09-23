@@ -12,7 +12,8 @@ descending, rng = rand_next(rng, 10:-1:1, 5)
 evens
 ```
 
-Ranges support signed and unsigned integer element types from 8 through 64 bits.
+Ranges support signed and unsigned integer element types from 8 through 128 bits.
+A range with more than 2^64 values reduces a 192-bit candidate; the 128-bit element types run on the CPU only.
 
 Range sampling uses a fixed-width multiply-high mapping, not rejection sampling.
 Arbitrary range lengths can have a small finite mapping bias. Preimage counts differ by at most one.

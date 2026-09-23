@@ -81,6 +81,10 @@ end
 @inline _fill_store_elements(::Type{UInt64}) = 1
 @inline _fill_store_elements(::Type{Int64}) = 1
 @inline _fill_store_elements(::Type{Float64}) = 1
+@inline _fill_store_elements(::Type{<:Union{Int8,UInt8}}) = 8
+@inline _fill_store_elements(::Type{<:Union{Int16,UInt16}}) = 4
+@inline _fill_store_elements(::Type{Float16}) = 1
+@inline _fill_store_elements(::Type{<:Union{_WideInteger,_ComplexResult}}) = 1
 
 @inline _val_count(::Val{N}) where {N} = N
 
@@ -341,8 +345,15 @@ end
 # Fixed-width draws narrower than a word stream through a left-aligned bit
 # buffer: `acc` holds `have` unread bits in its high end, and one block word is
 # pulled whenever a draw needs more. This replaces a per-element lane search.
-@inline function _fill_f64_bitbuffer!(rng, destination, index::Int, count::Int, cursor)
-    width = Int(_draw_bits(Float64))
+@inline function _fill_bitbuffer!(
+    rng,
+    destination,
+    index::Int,
+    count::Int,
+    cursor,
+    ::Type{T},
+) where {T}
+    width = Int(_draw_bits(T))
     last_index = index + count - 1
     cursor = _ensure_dense_cursor(rng, cursor)
     acc = _select_tuple_value(cursor.block_words, cursor.lane) << cursor.bit
@@ -362,7 +373,7 @@ end
             acc = word << short
             have = 64 - short
         end
-        destination[index] = _from_bits(Float64, raw)
+        destination[index] = _from_bits(T, raw)
         index += 1
     end
     # The cursor names the next unread word and bit. A drained word hands over
@@ -397,6 +408,84 @@ end
     return cursor
 end
 
+# One word yields 64 / width narrow integers, read MSB-first.
+@inline function _fill_cursor!(
+    rng,
+    cursor,
+    destination::AbstractArray{T},
+    ::Type{T},
+    index::Int,
+    count::Int,
+    ::Val{:uniform},
+) where {T<:_NarrowInteger}
+    width = Int(_draw_bits(T))
+    lanes = 64 ÷ width
+    last_index = index + count - 1
+    @inbounds while index + lanes - 1 <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+        for lane = 1:lanes
+            destination[index+lane-1] = _from_bits(T, raw >> (64 - width * lane))
+        end
+        index += lanes
+    end
+    @inbounds while index <= last_index
+        raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(Int(_draw_bits(T))))
+        destination[index] = _from_bits(T, raw)
+        index += 1
+    end
+    return cursor
+end
+
+@inline _fill_cursor!(
+    rng,
+    cursor,
+    destination::AbstractArray{Float16},
+    ::Type{Float16},
+    index::Int,
+    count::Int,
+    ::Val{:uniform},
+) = _fill_bitbuffer!(rng, destination, index, count, cursor, Float16)
+
+@inline function _fill_cursor!(
+    rng,
+    cursor,
+    destination::AbstractArray{T},
+    ::Type{T},
+    index::Int,
+    count::Int,
+    ::Val{:uniform},
+) where {T<:_WideInteger}
+    last_index = index + count - 1
+    @inbounds while index <= last_index
+        hi, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+        lo, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+        destination[index] = _wide_from_words(T, hi, lo)
+        index += 1
+    end
+    return cursor
+end
+
+@inline function _fill_cursor!(
+    rng,
+    cursor,
+    destination::AbstractArray{Complex{T}},
+    ::Type{Complex{T}},
+    index::Int,
+    count::Int,
+    ::Val{:uniform},
+) where {T<:_TransformFloat}
+    width = Val(Int(_draw_bits(T)))
+    last_index = index + count - 1
+    @inbounds while index <= last_index
+        real_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
+        imaginary_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
+        destination[index] =
+            Complex{T}(_from_bits(T, real_raw), _from_bits(T, imaginary_raw))
+        index += 1
+    end
+    return cursor
+end
+
 # Four words and up: the lane search is worth removing and the buffer wins.
 @inline _fill_cursor!(
     rng::Union{_Position128Generators,ChaCha},
@@ -406,7 +495,7 @@ end
     index::Int,
     count::Int,
     ::Val{:uniform},
-) = _fill_f64_bitbuffer!(rng, destination, index, count, cursor)
+) = _fill_bitbuffer!(rng, destination, index, count, cursor, Float64)
 
 # 53 Philox4x32 blocks hold exactly 128 Float64 draws (53 * 128 = 128 * 53 bits),
 # so an aligned group extracts every value with compile-time shifts.
@@ -462,7 +551,7 @@ end
     offset = 64 * Int(cursor.lane) + Int(cursor.bit)
     prefix = min(((128 - offset) * 29) & 127, count)
     if prefix > 0
-        cursor = _fill_f64_bitbuffer!(rng, destination, index, prefix, cursor)
+        cursor = _fill_bitbuffer!(rng, destination, index, prefix, cursor, Float64)
         index += prefix
         cursor = _ensure_dense_cursor(rng, cursor)
     end
@@ -474,7 +563,14 @@ end
     end
     block == cursor.block || (cursor = _dense_cursor(rng, block, UInt16(0)))
     index > last_index && return cursor
-    return _fill_f64_bitbuffer!(rng, destination, index, last_index - index + 1, cursor)
+    return _fill_bitbuffer!(
+        rng,
+        destination,
+        index,
+        last_index - index + 1,
+        cursor,
+        Float64,
+    )
 end
 
 # The dense cursors walk `destination` by linear index, so the fast paths hold
@@ -495,7 +591,7 @@ end
     destination::AbstractArray{T},
     ::Type{T},
     indices,
-) where {T<:Union{Bool,_UniformInteger,Float32,Float64}}
+) where {T<:_UniformResult}
     isempty(indices) && return nothing
     # One range check covers every store below, so the inner loops skip the
     # per-element checks. Those cost Bool fills 3-7x and the other types up to 1.4x

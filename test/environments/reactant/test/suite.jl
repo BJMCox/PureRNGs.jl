@@ -1045,3 +1045,30 @@ end
         @test following == first(rand_next(eager, Float64))
     end
 end
+
+function _narrow_type_snapshot(carrier)
+    byte, carrier = rand_next(carrier, UInt8)
+    halves, carrier = rand_next(carrier, Int16, 5)
+    halfs, carrier = rand_next(carrier, Float16, 7)
+    normals, carrier = randn_next(carrier, Float16, 3)
+    exponential, carrier = randexp_next(carrier, Float16)
+    return byte, halves, halfs, normals, exponential
+end
+
+@testset "compiled narrow integer and Float16 draws match the eager stream" begin
+    eager = Philox4x32(0x9a3, 5)
+    byte, eager = rand_next(eager, UInt8)
+    halves, eager = rand_next(eager, Int16, 5)
+    halfs, eager = rand_next(eager, Float16, 7)
+    normals, eager = randn_next(eager, Float16, 3)
+    exponential, _ = randexp_next(eager, Float16)
+    carrier = Reactant.to_rarray(Philox4x32(0x9a3, 5))
+    got = (Reactant.@compile sync = true _narrow_type_snapshot(carrier))(carrier)
+    @test got[1] == byte
+    @test Array(got[2]) == halves
+    @test Array(got[3]) == halfs
+    # The Float32 transform may differ by one ulp under XLA; rounding to Float16
+    # keeps the value within one Float16 ulp.
+    @test all(abs.(Array(got[4]) .- normals) .<= eps.(normals))
+    @test abs(got[5] - exponential) <= eps(exponential)
+end

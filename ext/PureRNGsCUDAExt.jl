@@ -116,6 +116,17 @@ const _CUDAUniformLikeCodec =
     Val(8)
 @inline _fill_group_elements(::IR._NormalCodec{IR._CUDABackend}, rng, ::Type{Float64}) =
     Val(4)
+# The narrow types read through the grouped cursor path, which takes any width
+# up to a word; a work item covers one 64-bit word of 8- or 16-bit draws.
+@inline _fill_group_elements(::_CUDAUniformLikeCodec, rng, ::Type{<:Union{Int8,UInt8}}) =
+    Val(8)
+@inline _fill_group_elements(
+    ::_CUDAUniformLikeCodec,
+    rng,
+    ::Type{<:Union{Int16,UInt16,Float16}},
+) = Val(4)
+@inline _fill_group_elements(::IR._NormalCodec{IR._CUDABackend}, rng, ::Type{Float16}) =
+    Val(8)
 
 # A100 trials picked these output tiles and workgroup sizes.
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))

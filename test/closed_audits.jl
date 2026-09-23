@@ -52,8 +52,9 @@ end
         randsample!,
         randsample_next!,
     )
-    # showerror is the StreamExhausted display and show the generator display,
-    # both dispatched on package types.
+    # showerror is the StreamExhausted display, show the generator display, and
+    # copy!, ==, hash, and rng_native_52 the StatefulRNG interface, all dispatched
+    # on package types.
     @test foreign_functions == Set((
         rand,
         rand!,
@@ -66,6 +67,10 @@ end
         parent,
         show,
         showerror,
+        copy!,
+        ==,
+        hash,
+        Random.rng_native_52,
     ))
 
     required = Dict(function_ => Set{Method}() for function_ in owned_functions)
@@ -321,15 +326,15 @@ end
         ),
     )
     method_errors = (
-        (:uniform_result_type, () -> rand(rng, Float16)),
-        (:uniform_continuation_result_type, () -> rand_next(rng, Float16)),
-        (:uniform_destination_type, () -> rand!(rng, Vector{Float16}(undef, 1))),
-        (:normal_result_type, () -> randn(rng, Float16)),
-        (:normal_continuation_result_type, () -> randn_next(rng, Float16)),
-        (:normal_destination_type, () -> randn!(rng, Vector{Float16}(undef, 1))),
-        (:exponential_result_type, () -> randexp(rng, Float16)),
-        (:exponential_continuation_result_type, () -> randexp_next(rng, Float16)),
-        (:exponential_destination_type, () -> randexp!(rng, Vector{Float16}(undef, 1))),
+        (:uniform_result_type, () -> rand(rng, BigFloat)),
+        (:uniform_continuation_result_type, () -> rand_next(rng, BigFloat)),
+        (:uniform_destination_type, () -> rand!(rng, Vector{BigFloat}(undef, 1))),
+        (:normal_result_type, () -> randn(rng, BigFloat)),
+        (:normal_continuation_result_type, () -> randn_next(rng, BigFloat)),
+        (:normal_destination_type, () -> randn!(rng, Vector{BigFloat}(undef, 1))),
+        (:exponential_result_type, () -> randexp(rng, ComplexF64)),
+        (:exponential_continuation_result_type, () -> randexp_next(rng, ComplexF64)),
+        (:exponential_destination_type, () -> randexp!(rng, Vector{ComplexF64}(undef, 1))),
     )
 
     for (expected, cases) in (

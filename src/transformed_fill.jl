@@ -405,6 +405,17 @@ end
     return _cooperative_value(codec, T, raw), next_rng
 end
 
+# A complex normal spans two draws, wider than one word, so it reserves its whole
+# span and reads it at the held position.
+@inline function _draw_next(
+    rng::_ScalarUniformGenerators,
+    codec::_NormalCodec,
+    ::Type{T},
+) where {T<:_ComplexResult}
+    next_rng = _reserve_scalar(rng, _fill_width(codec, T))
+    return _transformed_draw_unchecked(codec, rng, rng.position, T), next_rng
+end
+
 # An addressed draw is the held-position draw of the generator moved to that
 # address, so it leaves the caller's generator alone.
 @inline function _draw_at(

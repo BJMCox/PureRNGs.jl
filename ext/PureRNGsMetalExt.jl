@@ -15,7 +15,7 @@ const _MetalGenerators = IR._BackendGenerators{IR._MetalBackend}
     )
 end
 
-for T in (Bool, UInt32, Int32, UInt64, Int64, Float32)
+for T in (Bool, UInt8, Int8, UInt16, Int16, UInt32, Int32, UInt64, Int64, Float16, Float32)
     @eval @inline IR._check_serviceability(::_Metal32Generators, ::Type{$T}) = nothing
 end
 @inline IR._check_serviceability(::_MetalGenerators, ::Type) = _metal_device_error()

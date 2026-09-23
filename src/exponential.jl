@@ -1,4 +1,5 @@
 
+@inline _exponential_bits(::Type{Float16}) = UInt16(23)
 @inline _exponential_bits(::Type{Float32}) = UInt16(23)
 @inline _exponential_bits(::Type{Float64}) = UInt16(52)
 
@@ -114,17 +115,18 @@ end
     return _exponential_transform(device, T, v)
 end
 
+# The Float32 exponential on the same bits, rounded once, as for the normal.
+@inline _exponential_from_bits(device, ::Type{Float16}, value::UInt64) =
+    Float16(_exponential_from_bits(device, Float32, value))
+
 @inline function _draw_exponential_unchecked(
     rng::_ScalarUniformGenerators,
     position,
     ::Type{T},
 ) where {T}
     block = _position_block(position)
-    value = if T === Float32
-        _extract_bits_unchecked(rng, block, position.bit, Val(23))
-    else
-        _extract_bits_unchecked(rng, block, position.bit, Val(52))
-    end
+    value =
+        _extract_bits_unchecked(rng, block, position.bit, Val(Int(_exponential_bits(T))))
     return _exponential_from_bits(rng.device, T, value)
 end
 
@@ -137,21 +139,23 @@ Random.randexp(::AbstractPureRNG, ::Dims) =
 
 @inline randexp_next(rng::_ScalarUniformGenerators) = randexp_next(rng, Float64)
 
-@inline Random.randexp(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
-    first(_draw_next(rng, _ExponentialCodec(rng.device), T))
-@inline randexp_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
+@inline Random.randexp(
+    rng::_ScalarUniformGenerators,
+    ::Type{T},
+) where {T<:_TransformFloat} = first(_draw_next(rng, _ExponentialCodec(rng.device), T))
+@inline randexp_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_TransformFloat} =
     _draw_next(rng, _ExponentialCodec(rng.device), T)
 @inline randexp_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     i::Integer,
-) where {T<:_UniformFloat} = _draw_at(rng, _ExponentialCodec(rng.device), T, i)
+) where {T<:_TransformFloat} = _draw_at(rng, _ExponentialCodec(rng.device), T, i)
 @inline randexp_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     indices::AbstractUnitRange{<:Integer};
     threaded::Bool = false,
-) where {T<:_UniformFloat} =
+) where {T<:_TransformFloat} =
     _addressed_array(rng, T, indices, _exponential_bits(T), randexp_next, threaded)
 
 @doc """
@@ -159,8 +163,8 @@ Random.randexp(::AbstractPureRNG, ::Dims) =
     randexp_next(rng[, T], dims...) -> (values, next_rng)
 
 Draw standard exponential values from `rng` and return the advanced immutable
-generator with the result. Omitting `T` selects `Float64`; `T` may be `Float32`
-or `Float64`.
+generator with the result. Omitting `T` selects `Float64`; `T` may be `Float16`,
+`Float32`, or `Float64`.
 
 The allocating form creates an array on the generator's device. The input
 generator never changes.
@@ -172,7 +176,7 @@ generator never changes.
 
 Return the `i`th standard exponential draw at or after the current position of
 `rng`, where `i` is one-based, or the vector of draws `i` through `j`. `T` is
-`Float32` or `Float64`.
+`Float16`, `Float32`, or `Float64`.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
@@ -186,7 +190,7 @@ positive or the addressed draw exceeds the generator's counter capacity.
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_TransformFloat}
     result, _ = _rand_transformed_next_fill!(
         rng,
         destination,
@@ -200,7 +204,7 @@ end
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_TransformFloat}
     return _rand_transformed_next_fill!(
         rng,
         destination,
@@ -212,7 +216,7 @@ end
 @doc """
     randexp_next!(rng, destination; threaded=false) -> (destination, next_rng)
 
-Fill a `Float32` or `Float64` destination with standard exponential values and
+Fill a `Float16`, `Float32`, or `Float64` destination with standard exponential values and
 return the advanced immutable generator with the same destination. The
 destination's device must match the generator.
 
@@ -250,7 +254,7 @@ end
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_TransformFloat}
     destination, _ = _rand_transformed_next_array(
         rng,
         T,
@@ -265,7 +269,7 @@ end
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_UniformFloat} = first(
+) where {T<:_TransformFloat} = first(
     _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device), threaded),
 )
 @inline randexp_next(
@@ -273,7 +277,7 @@ end
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_UniformFloat} =
+) where {T<:_TransformFloat} =
     _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device), threaded)
 
 @inline function randexp_next(
@@ -282,7 +286,7 @@ end
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_TransformFloat}
     return _rand_transformed_next_array(
         rng,
         T,

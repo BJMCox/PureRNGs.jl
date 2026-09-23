@@ -50,10 +50,11 @@ Always specify the type for primitive `rand`, `randn`, and `randexp` calls on an
 
 ## Choose a result type
 
-Uniform draws support `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, `Float32`, and `Float64`.
+Uniform draws support `Bool`, every signed and unsigned integer type from 8 to 128 bits, `Float16`, `Float32`, `Float64`, and `Complex` values of the float types.
 Integer draws cover the entire type. Uniform floating-point draws lie in `[0, 1)`.
 
-Normal and exponential draws support `Float32` and `Float64`.
+Normal draws support `Float16`, `Float32`, `Float64`, and their `Complex` types. Exponential draws support the three float types.
+The 128-bit integers and complex values run on the CPU only.
 
 ```@example start
 bits, rng = rand_next(rng, Bool, 8)

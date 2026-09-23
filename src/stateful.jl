@@ -72,8 +72,11 @@ end
 @inline Random.rand(
     mutable_rng::StatefulRNG,
     ::Random.SamplerType{T},
-) where {T<:Union{Bool,_UniformInteger}} =
+) where {T<:Union{Bool,Base.BitInteger}} =
     _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), T))
+
+# `Random` builds wide range and collection samplers from 64-bit words.
+Random.rng_native_52(::StatefulRNG) = UInt64
 
 # Random's own float methods name Float32 and Float64 concretely in the second
 # slot, so a `T<:_UniformFloat` bound here would be ambiguous with them.
@@ -85,6 +88,10 @@ end
     mutable_rng::StatefulRNG,
     ::Random.SamplerTrivial{Random.CloseOpen01{Float64}},
 ) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float64))
+@inline Random.rand(
+    mutable_rng::StatefulRNG,
+    ::Random.SamplerTrivial{Random.CloseOpen01{Float16}},
+) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float16))
 @inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float32}) =
     _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), Float32))
 @inline Random.randn(mutable_rng::StatefulRNG, ::Type{Float64}) =
@@ -101,17 +108,23 @@ struct _StatefulRangeSampler{T,R<:AbstractRange{T}} <: Random.Sampler{T}
     range::R
 end
 
-@inline Random.Sampler(
-    ::Type{<:StatefulRNG},
-    range::AbstractRange{T},
-    ::Random.Repetition,
-) where {T<:_RangeInteger} = _StatefulRangeSampler(range)
+# `Random` splits its range samplers into 64-bit and 128-bit element types, so
+# each bound here matches one of those unions exactly and stays more specific.
+for Integers in (:_RangeInteger64, :_WideInteger)
+    @eval begin
+        @inline Random.Sampler(
+            ::Type{<:StatefulRNG},
+            range::AbstractRange{T},
+            ::Random.Repetition,
+        ) where {T<:$Integers} = _StatefulRangeSampler(range)
 
-@inline Random.Sampler(
-    ::Type{<:StatefulRNG},
-    range::AbstractUnitRange{T},
-    ::Random.Repetition,
-) where {T<:_RangeInteger} = _StatefulRangeSampler(range)
+        @inline Random.Sampler(
+            ::Type{<:StatefulRNG},
+            range::AbstractUnitRange{T},
+            ::Random.Repetition,
+        ) where {T<:$Integers} = _StatefulRangeSampler(range)
+    end
+end
 
 @inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulRangeSampler) =
     _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), sampler.range))
@@ -176,7 +189,7 @@ end
     mutable_rng::StatefulRNG,
     destination::Array{T},
     ::Random.SamplerTrivial{Random.CloseOpen01{T}},
-) where {T<:Union{Float32,Float64}} =
+) where {T<:_TransformFloat} =
     _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
 
 @inline Random.rand!(mutable_rng::StatefulRNG, destination::BitArray) =
@@ -214,4 +227,24 @@ end
     return mutable_rng
 end
 
+# An unseeded reseed draws a full-width key from the operating system, as
+# `Random.seed!(rng)` does for the built-in generators.
+function Random.seed!(mutable_rng::StatefulRNG, device::Random.RandomDevice)
+    held = mutable_rng.rng
+    R = typeof(held)
+    key = map(word -> rand(device, typeof(word)), held.key)
+    mutable_rng.rng = R(_CONSTRUCTION_TOKEN, key, _zero_position(R), _CPU_BACKEND)
+    return mutable_rng
+end
+Random.seed!(mutable_rng::StatefulRNG, ::Nothing) =
+    Random.seed!(mutable_rng, Random.RandomDevice())
+
 @inline Base.copy(mutable_rng::StatefulRNG) = _stateful_rng(mutable_rng.rng)
+
+function Base.copy!(destination::StatefulRNG{R}, source::StatefulRNG{R}) where {R}
+    destination.rng = source.rng
+    return destination
+end
+
+Base.:(==)(a::StatefulRNG, b::StatefulRNG) = a.rng == b.rng
+Base.hash(mutable_rng::StatefulRNG, h::UInt) = hash(mutable_rng.rng, hash(StatefulRNG, h))

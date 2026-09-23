@@ -185,6 +185,8 @@ end
 @inline _normal_log(::_CUDABackend, x::Float32) = Base.FastMath.log_fast(x)
 @inline _normal_sqrt(::_CUDABackend, x::Float32) = Base.FastMath.sqrt_fast(x)
 
+const _NormalResult = Union{_TransformFloat,_ComplexResult}
+
 @inline function _as241_central(q::T) where {T<:_UniformFloat}
     A, B = _as241_coefficients(T)
     r = T(0.180625) - q * q
@@ -274,8 +276,12 @@ end
     return Float64((k64 << UInt64(1)) | UInt64(1)) * Float64(0x1p-53)
 end
 
+# A Float16 normal is the Float32 normal on the same bits, rounded once. A
+# lattice as coarse as Float16's significand would stop the tails at 3.3 sigma.
+@inline _normal_bits(::Type{Float16}) = UInt16(23)
 @inline _normal_bits(::Type{Float32}) = UInt16(23)
 @inline _normal_bits(::Type{Float64}) = UInt16(52)
+@inline _normal_bits(::Type{Complex{T}}) where {T} = UInt16(2) * _normal_bits(T)
 
 function _midpoint_value end
 
@@ -285,12 +291,24 @@ function _midpoint_value end
     ::Type{T},
 ) where {T}
     block = _position_block(position)
-    value = if T === Float32
-        _extract_bits_unchecked(rng, block, position.bit, Val(23))
-    else
-        _extract_bits_unchecked(rng, block, position.bit, Val(52))
-    end
+    value = _extract_bits_unchecked(rng, block, position.bit, Val(Int(_normal_bits(T))))
     return _normal_from_bits(rng.device, T, value)
+end
+
+# A complex normal is two consecutive normal draws scaled by 1/sqrt(2), as in
+# `Random`, so its real and imaginary parts each have variance 1/2.
+@inline function _draw_normal_unchecked(
+    rng::_ScalarUniformGenerators,
+    position,
+    ::Type{Complex{T}},
+) where {T}
+    width = UInt64(_normal_bits(T))
+    imaginary = _advance_position_unchecked(position, width, UInt64(0), _block_shift(rng))
+    scale = T(sqrt(0.5))
+    return Complex{T}(
+        scale * _draw_normal_unchecked(rng, position, T),
+        scale * _draw_normal_unchecked(rng, imaginary, T),
+    )
 end
 
 Random.randn(::AbstractPureRNG) = _untyped_draw_error("randn(rng, T)", "randn_next(rng, T)")
@@ -301,21 +319,21 @@ Random.randn(::AbstractPureRNG, ::Dims) =
 
 @inline randn_next(rng::_ScalarUniformGenerators) = randn_next(rng, Float64)
 
-@inline Random.randn(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
+@inline Random.randn(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_NormalResult} =
     first(_draw_next(rng, _NormalCodec(rng.device), T))
-@inline randn_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformFloat} =
+@inline randn_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_NormalResult} =
     _draw_next(rng, _NormalCodec(rng.device), T)
 @inline randn_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     i::Integer,
-) where {T<:_UniformFloat} = _draw_at(rng, _NormalCodec(rng.device), T, i)
+) where {T<:_NormalResult} = _draw_at(rng, _NormalCodec(rng.device), T, i)
 @inline randn_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     indices::AbstractUnitRange{<:Integer};
     threaded::Bool = false,
-) where {T<:_UniformFloat} =
+) where {T<:_NormalResult} =
     _addressed_array(rng, T, indices, _normal_bits(T), randn_next, threaded)
 
 @doc """
@@ -324,7 +342,8 @@ Random.randn(::AbstractPureRNG, ::Dims) =
 
 Draw standard normal values from `rng` and return the advanced immutable
 generator with the result. Omitting `T` selects `Float64`; `T` may be
-`Float32` or `Float64`.
+`Float16`, `Float32`, `Float64`, or a `Complex` of one of them. A `Float16`
+normal is the `Float32` normal on the same bits, rounded once.
 
 The allocating form creates an array on the generator's device. The input
 generator never changes.
@@ -335,8 +354,8 @@ generator never changes.
     randn_at(rng, T, i:j)
 
 Return the `i`th standard normal draw at or after the current position of `rng`,
-where `i` is one-based, or the vector of draws `i` through `j`. `T` is
-`Float32` or `Float64`.
+where `i` is one-based, or the vector of draws `i` through `j`. `T` is any type
+[`randn_next`](@ref) accepts.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
@@ -344,16 +363,30 @@ positive or the addressed draw exceeds the generator's counter capacity.
 
 @inline _normal_from_bits(device, ::Type{T}, value::UInt64) where {T} =
     _normal_transform(device, _open_midpoint(T, value))
+@inline _normal_from_bits(device, ::Type{Float16}, value::UInt64) =
+    Float16(_normal_from_bits(device, Float32, value))
 @inline _cooperative_value(codec::_NormalCodec, ::Type{T}, raw) where {T} =
     _normal_from_bits(codec.backend, T, raw)
 
 @inline _fill_width(::_NormalCodec, ::Type{T}) where {T} = _normal_bits(T)
 
+@inline function _codec_take(codec::_NormalCodec, rng, cursor, ::Type{Complex{T}}) where {T}
+    width = Val(Int(_normal_bits(T)))
+    real_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
+    imaginary_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
+    scale = T(sqrt(0.5))
+    value = Complex{T}(
+        scale * _normal_from_bits(codec.backend, T, real_raw),
+        scale * _normal_from_bits(codec.backend, T, imaginary_raw),
+    )
+    return value, cursor
+end
+
 @inline function Random.randn!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_NormalResult}
     result, _ =
         _rand_transformed_next_fill!(rng, destination, threaded, _NormalCodec(rng.device))
     return result
@@ -363,7 +396,7 @@ end
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_NormalResult}
     return _rand_transformed_next_fill!(
         rng,
         destination,
@@ -375,7 +408,7 @@ end
 @doc """
     randn_next!(rng, destination; threaded=false) -> (destination, next_rng)
 
-Fill a `Float32` or `Float64` destination with standard normal values and return
+Fill a floating-point or complex destination with standard normal values and return
 the advanced immutable generator with the same destination. The destination's
 device must match the generator.
 
@@ -407,7 +440,7 @@ end
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_NormalResult}
     destination, _ = _rand_transformed_next_array(
         rng,
         T,
@@ -422,14 +455,14 @@ end
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_UniformFloat} =
+) where {T<:_NormalResult} =
     first(_rand_transformed_next_array(rng, T, dims, _NormalCodec(rng.device), threaded))
 @inline randn_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_UniformFloat} =
+) where {T<:_NormalResult} =
     _rand_transformed_next_array(rng, T, dims, _NormalCodec(rng.device), threaded)
 
 @inline function randn_next(
@@ -438,7 +471,7 @@ end
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
-) where {T<:_UniformFloat}
+) where {T<:_NormalResult}
     return _rand_transformed_next_array(
         rng,
         T,

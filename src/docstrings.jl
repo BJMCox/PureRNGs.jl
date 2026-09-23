@@ -12,11 +12,12 @@ Draw uniform values at the held position of `rng` without advancing it. Two
 calls on the same generator return the same values. Use [`rand_next`](@ref) to
 continue the stream.
 
-`T` is required: `rand(rng)` throws. Supported result types are `Bool`,
-`UInt32`, `Int32`, `UInt64`, `Int64`, `Float32`, and `Float64`. Integer draws
-cover the whole type and floating-point draws lie in `[0, 1)`. A `range`
-argument draws from an integer range with signed or unsigned element type
-through 64 bits. The array forms allocate on the generator's device.
+`T` is required: `rand(rng)` throws. Supported result types are `Bool`, the 8- to 128-bit signed and unsigned integers,
+`Float16`, `Float32`, `Float64`, and `Complex` values of those three.
+Integer draws cover the whole type, floating-point draws lie in `[0, 1)`, and a
+complex draw is a real draw followed by an imaginary one. A `range` argument
+draws from an integer range with signed or unsigned element type through 128
+bits. The array forms allocate on the generator's device.
 
 # Examples
 
@@ -44,9 +45,9 @@ Fill `dest` with uniform values from the held position of `rng` without
 advancing it. Two calls on the same generator write the same values. Use
 [`rand_next!`](@ref) to continue the stream.
 
-The destination element type must be `Bool`, `UInt32`, `Int32`, `UInt64`,
-`Int64`, `Float32`, or `Float64`, or with `range` the integer element type of
-that range. The destination device must match the generator device.
+The destination element type must be a supported result type of [`rand`](@ref),
+or with `range` the integer element type of that range. The destination device
+must match the generator device.
 
 Fills run serially by default. `threaded = true` splits a CPU fill across threads.
 The keyword picks how the work is scheduled and never changes the values written.
@@ -60,14 +61,16 @@ Draw standard normal values at the held position of `rng` without advancing it.
 Two calls on the same generator return the same values. Use
 [`randn_next`](@ref) to continue the stream.
 
-`T` is required and is `Float32` or `Float64`: `randn(rng)` throws. The array
+`T` is required and is `Float16`, `Float32`, `Float64`, or a `Complex` of one of
+them: `randn(rng)` throws. A complex normal has variance 1/2 in each part, as in
+`Random`. The array
 forms allocate on the generator's device.
 """ Random.randn(::AbstractPureRNG, ::Any...)
 
 @doc """
     randn!(rng::AbstractPureRNG, dest; threaded = false) -> dest
 
-Fill a `Float32` or `Float64` destination with standard normal values from the
+Fill a `Float16`, `Float32`, `Float64`, or complex destination with standard normal values from the
 held position of `rng` without advancing it. Two calls on the same generator
 write the same values. Use [`randn_next!`](@ref) to continue the stream.
 
@@ -84,14 +87,14 @@ Draw standard exponential values at the held position of `rng` without
 advancing it. Two calls on the same generator return the same values. Use
 [`randexp_next`](@ref) to continue the stream.
 
-`T` is required and is `Float32` or `Float64`: `randexp(rng)` throws. The array
+`T` is required and is `Float16`, `Float32`, or `Float64`: `randexp(rng)` throws. The array
 forms allocate on the generator's device.
 """ Random.randexp(::AbstractPureRNG, ::Any...)
 
 @doc """
     randexp!(rng::AbstractPureRNG, dest; threaded = false) -> dest
 
-Fill a `Float32` or `Float64` destination with standard exponential values from
+Fill a `Float16`, `Float32`, or `Float64` destination with standard exponential values from
 the held position of `rng` without advancing it. Two calls on the same
 generator write the same values. Use [`randexp_next!`](@ref) to continue the
 stream.

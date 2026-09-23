@@ -13,7 +13,7 @@ _device_rng(rng) = IR._rebuild(rng, rng.position, IR._AMDGPU_BACKEND)
 @testset "device fill plans write every element of an offset-axis destination" begin
     n = 1001
     for F in (Philox4x32, Threefry2x32, ChaCha, Philox4x64),
-        T in (Float32, Float64, UInt32, Bool),
+        T in (Float32, Float64, UInt32, Bool, UInt8, Int16, Float16),
         plan in (nothing, (Val(:grouped), Val(4)))
 
         rng = F(7, 3)

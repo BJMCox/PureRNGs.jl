@@ -55,8 +55,10 @@ AMDGPU is a backend extension, not a required release gate. It has no tuned
 fill plan, so fills run the portable kernel path. See [Sampling](@ref) for
 weighted preparation and device rules.
 
-Metal device execution supports 32-bit generators with `Bool`, `UInt32`, `Int32`, `UInt64`, `Int64`, and `Float32` results.
-Normal and exponential results must be `Float32`.
+CUDA and AMDGPU fills reject the 128-bit integer and complex element types, which run on the CPU only.
+
+Metal device execution supports 32-bit generators with `Bool`, 8- to 64-bit integer, `Float16`, and `Float32` results.
+Normal and exponential results must be `Float16` or `Float32`.
 
 Metal excludes allocating integer-range draws, population sampling, and every
 fixed-distribution and `Categorical` form that executes on the device,

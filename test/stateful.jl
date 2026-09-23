@@ -347,6 +347,7 @@ end
         Random.SamplerType{UInt64},
         Random.SamplerType{Int32},
         Random.SamplerType{Int64},
+        Random.SamplerTrivial{Random.CloseOpen01{Float16}},
         Random.SamplerTrivial{Random.CloseOpen01{Float32}},
         Random.SamplerTrivial{Random.CloseOpen01{Float64}},
     )
@@ -380,6 +381,8 @@ end
         require(Random.randexp!, Tuple{M,Vector{T}})
     end
     require(Random.seed!, Tuple{M,Int})
+    require(Random.seed!, Tuple{M,Nothing})
+    require(Random.seed!, Tuple{M,Random.RandomDevice})
     require(copy, Tuple{M})
     require(parent, Tuple{M})
 
@@ -389,9 +392,13 @@ end
 
     unit = UInt16(1):UInt16(2)
     stepped = UInt16(1):UInt16(2):UInt16(5)
+    wide_unit = Int128(1):Int128(2)
+    wide_stepped = Int128(1):Int128(2):Int128(5)
     required_samplers = Set((
         which(Random.Sampler, Tuple{Type{M},typeof(unit),Val{1}}),
         which(Random.Sampler, Tuple{Type{M},typeof(stepped),Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},typeof(wide_unit),Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},typeof(wide_stepped),Val{1}}),
     ))
     @test Set(
         method for method in methods(Random.Sampler) if method.module === StatefulIR
@@ -436,4 +443,68 @@ end
         m2 = StatefulRNG(Philox4x32(0x9772))
         @test rand(m2, T, 10, 100) == reshape(expected, 10, 100)
     end
+end
+
+# Code written for `Random` calls these on any AbstractRNG; the bridge serves each
+# one from the pure stream, in the same order a chain of `rand_next` calls reads it.
+@testset "StatefulRNG serves the Random interface" begin
+    bridge_types = (
+        Bool,
+        Int8,
+        UInt8,
+        Int16,
+        UInt16,
+        Int32,
+        UInt32,
+        Int64,
+        UInt64,
+        Int128,
+        UInt128,
+        Float16,
+        Float32,
+        Float64,
+        ComplexF16,
+        ComplexF32,
+        ComplexF64,
+    )
+    for T in bridge_types
+        bridge = StatefulRNG(Philox4x32(0x5a1))
+        state = Philox4x32(0x5a1)
+        expected = Vector{T}(undef, 4)
+        for index = 1:4
+            expected[index], state = rand_next(state, T)
+        end
+        @test [rand(bridge, T), rand(bridge, T)] == expected[1:2]
+        @test rand!(bridge, Vector{T}(undef, 2)) == expected[3:4]
+        @test parent(bridge) === state
+    end
+    bridge = StatefulRNG(Philox4x32(0x5a2))
+    @test rand(bridge, Int128(1):Int128(6)) in 1:6
+    @test rand(bridge, (1, 2, 3)) in (1, 2, 3)
+    @test rand(bridge, Char) isa Char
+    @test randn(bridge, Float16) isa Float16
+    @test sort(shuffle(bridge, 1:5)) == 1:5
+    @test length(randstring(bridge)) == 8
+
+    # Mismatched destination and range types convert on store, as in `Random`.
+    converted = StatefulRNG(Philox4x32(0x5a3))
+    @test rand!(converted, zeros(4), 1:6) ==
+          Float64.(first(rand_next(Philox4x32(0x5a3), 1:6, 4)))
+    @test_throws InexactError rand!(
+        StatefulRNG(Philox4x32(0x5a3)),
+        zeros(Int8, 5),
+        -200:200,
+    )
+
+    reseeded = Random.seed!(StatefulRNG(Philox4x32(0x5a4)))
+    @test reseeded isa StatefulRNG{typeof(Philox4x32(0))}
+    @test rngposition(parent(reseeded)) == 0
+
+    source = StatefulRNG(Philox4x32(0x5a5, 96))
+    destination = StatefulRNG(Philox4x32(0x5a6))
+    @test copy!(destination, source) === destination
+    @test destination == source
+    @test hash(destination) == hash(source)
+    rand(destination, UInt32)
+    @test destination != source
 end
