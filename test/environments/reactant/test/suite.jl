@@ -1026,3 +1026,17 @@ end
         end
     end
 end
+
+_empty_uniform(carrier) = rand_next(carrier, Float64, 0)
+_empty_matrix(carrier) = rand_next(carrier, Float32, 0, 3)
+_empty_range(carrier) = rand_next(carrier, Int32(1):Int32(6), 0)
+
+@testset "empty traced draws compile and consume no bits" begin
+    carrier = Reactant.to_rarray(Philox4x32(0x9a2))
+    for (probe, expected_size) in
+        ((_empty_uniform, (0,)), (_empty_matrix, (0, 3)), (_empty_range, (0,)))
+        values, next_carrier = (Reactant.@compile sync = true probe(carrier))(carrier)
+        @test size(values) == expected_size
+        @test Array(next_carrier.state) == Array(carrier.state)
+    end
+end

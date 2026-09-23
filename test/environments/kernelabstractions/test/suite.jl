@@ -30,3 +30,38 @@ _device_rng(rng) = IR._rebuild(rng, rng.position, IR._AMDGPU_BACKEND)
         @test destination.data == expected
     end
 end
+
+# Device-token generators allocate their scratch through the backend extension,
+# which is not loaded here; host arrays stand in for device memory.
+IR._allocate_array(::IR._AMDGPUBackend, ::Type{T}, dims::Tuple) where {T} =
+    Array{T}(undef, dims)
+
+@testset "device weighted scan matches the CPU fold and samples" begin
+    rng = Philox4x32(5, 17)
+    device_rng = _device_rng(rng)
+    # One weight vector fits in one fold pass; the other needs two (1024 lanes).
+    for count in (3, 1025)
+        weights = [mod(7index, 11) + 0.5 for index = 1:count]
+        weights[2] = 0.0
+        population = collect(1:count)
+        expected, _ = randsample_next(rng, population, weights, 777)
+        _, cpu_total, cpu_cumulative = IR._prepare_weight_scan(rng, weights, false)
+        for agnostic in (true, false)
+            _, total, cumulative = IR._prepare_weight_scan(device_rng, weights, agnostic)
+            @test cumulative == cpu_cumulative
+            @test only(total) == cpu_total
+            destination = Vector{Int}(undef, 777)
+            IR._fill_weighted_samples!(
+                KernelAbstractions.CPU(),
+                device_rng,
+                population,
+                nothing,
+                total,
+                cumulative,
+                destination,
+            )
+            @test destination == expected
+        end
+    end
+    @test_throws ArgumentError IR._prepare_weight_scan(device_rng, [1.0, -1.0], false)
+end

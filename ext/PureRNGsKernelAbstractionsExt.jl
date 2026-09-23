@@ -3,7 +3,7 @@ module PureRNGsKernelAbstractionsExt
 import Adapt
 import KernelAbstractions
 import PureRNGs
-using KernelAbstractions: @index, @localmem, @synchronize
+using KernelAbstractions: @index, @localmem, @private, @synchronize, @uniform
 
 const IR = PureRNGs
 
@@ -84,13 +84,15 @@ end
 Adapt.adapt_structure(to, codec::IR._PopulationCodec) =
     IR._PopulationCodec(Adapt.adapt(to, codec.population), codec.cardinality)
 
-# One workgroup folds the whole weight vector. A backend whose workgroups cannot
-# hold this many workitems overrides the hook.
+# One workgroup folds the whole weight vector. Weighted sampling runs on CUDA and
+# AMDGPU, whose workgroups hold 1024 workitems; Metal does not serve sampling.
 @inline _weight_fold_lanes(_backend) = Val(1024)
 @inline _weight_fold_lane_count(::Val{lanes}) where {lanes} = lanes
 
-# [R59] the cumulative table is a strict Float64 left fold in ordinal order, so
-# lane 1 alone accumulates while the other lanes only stage and store.
+# The cumulative table is a strict Float64 left fold in ordinal order, as on the
+# CPU, so lane 1 alone accumulates while the other lanes only stage and store.
+# State that lives across `@synchronize` is `@private` or `@uniform`, and the loop
+# runs over a uniform range, as the CPU backend requires.
 KernelAbstractions.@kernel function _weighted_fold_kernel!(
     source,
     total_result,
@@ -101,39 +103,42 @@ KernelAbstractions.@kernel function _weighted_fold_kernel!(
 ) where {lanes,validate_elements}
     lane = @index(Local, Linear)
     staged = @localmem Float64 (lanes,)
-    total = zero(Float64)
-    invalid = false
-    first = 1
-    while first <= length(source)
-        ordinal = first + lane - 1
-        if ordinal <= length(source)
-            @inbounds staged[lane] = Float64(IR._population_value(source, UInt64(ordinal)))
+    @uniform count = length(source)
+    total = @private Float64 (1,)
+    invalid = @private Bool (1,)
+    ordinal = @private Int (1,)
+    total[1] = zero(Float64)
+    invalid[1] = false
+    for start = 1:lanes:count
+        ordinal[1] = start + lane - 1
+        if ordinal[1] <= count
+            @inbounds staged[lane] =
+                Float64(IR._population_value(source, UInt64(ordinal[1])))
         end
         @synchronize
 
         if lane == 1
-            last = min(lanes, length(source) - first + 1)
+            last = min(lanes, count - start + 1)
             @inbounds for slot = 1:last
                 weight = staged[slot]
-                invalid |=
+                invalid[1] |=
                     validate_elements && (!isfinite(weight) || weight < zero(Float64))
-                total += weight
-                staged[slot] = total
+                total[1] += weight
+                staged[slot] = total[1]
             end
         end
         @synchronize
 
-        if ordinal <= length(source)
-            @inbounds cumulative[ordinal] = staged[lane]
+        if ordinal[1] <= count
+            @inbounds cumulative[ordinal[1]] = staged[lane]
         end
         @synchronize
-        first += lanes
     end
     if lane == 1
-        invalid |= !isfinite(total) || total <= zero(Float64)
         @inbounds begin
-            total_result[1] = total
-            invalid_result[1] = invalid
+            total_result[1] = total[1]
+            invalid_result[1] =
+                invalid[1] | (!isfinite(total[1]) || total[1] <= zero(Float64))
         end
     end
 end

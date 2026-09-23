@@ -20,7 +20,7 @@ Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
 
 [extensions]
 PureRNGsAMDGPUExt = "AMDGPU"
-PureRNGsCUDAExt = ["CUDA", "KernelAbstractions"]
+PureRNGsCUDAExt = ["Adapt", "CUDA", "KernelAbstractions"]
 PureRNGsDistributionsExt = "Distributions"
 PureRNGsEnzymeCoreExt = "EnzymeCore"
 PureRNGsKernelAbstractionsExt = ["KernelAbstractions", "Adapt"]

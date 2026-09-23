@@ -623,6 +623,8 @@ for (draw, draw_next, bits, finish, types) in (
     for T in types
         @eval begin
             @inline function $draw_next(rng::_ReactantRNG, ::Type{$T}, dims::Dims)
+                # An empty draw consumes no bits, as in the eager fill.
+                iszero(prod(dims)) && return Ops.constant(zeros($T, dims)), rng
                 return _fill_next(rng, Val($bits($T)), dims, $(finish(T)))
             end
             @inline function $draw_next(
@@ -741,6 +743,7 @@ function _fill_range_next(rng::_ReactantRNG, range, dims::Dims)
     isempty(range) && throw(ArgumentError("range must be non-empty"))
     span = length(range) % UInt64
     n = prod(dims)
+    iszero(n) && return Ops.constant(zeros(eltype(range), dims)), rng
     values = _range_element(range, _fill_offsets(rng, span, n)).data
     advanced = _advance(rng, _address_offset(n + 1, UInt64(IR._range_bits(span)))...)
     return _shaped(values, dims), advanced

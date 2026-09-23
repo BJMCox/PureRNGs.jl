@@ -10,7 +10,7 @@ using TOML
 
     @test project["extensions"] == Dict(
         "PureRNGsAMDGPUExt" => "AMDGPU",
-        "PureRNGsCUDAExt" => ["CUDA", "KernelAbstractions"],
+        "PureRNGsCUDAExt" => ["Adapt", "CUDA", "KernelAbstractions"],
         "PureRNGsDistributionsExt" => "Distributions",
         "PureRNGsEnzymeCoreExt" => "EnzymeCore",
         "PureRNGsKernelAbstractionsExt" => ["KernelAbstractions", "Adapt"],
