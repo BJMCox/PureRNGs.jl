@@ -85,6 +85,9 @@ Carriers support scalar primitive, range, and supported distribution draws, scal
 Destination fills into traced arrays replace the destination's value.
 These forms trace but are outside the release conformance gate.
 
+A zero-length array draw consumes no bits and continues the generator unchanged.
+XLA cannot return a zero-size array from a compiled function, so consume an empty draw inside the function rather than returning it.
+
 Scalar, continuation, and addressed Reactant forms cover every fixed
 distribution listed in [Distributions](@ref), using native compiled math.
 `Categorical` is not a carrier operation. These additions do not extend

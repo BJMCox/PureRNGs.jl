@@ -1027,16 +1027,21 @@ end
     end
 end
 
-_empty_uniform(carrier) = rand_next(carrier, Float64, 0)
-_empty_matrix(carrier) = rand_next(carrier, Float32, 0, 3)
-_empty_range(carrier) = rand_next(carrier, Int32(1):Int32(6), 0)
+# XLA cannot return a zero-size array from a compiled function, so each probe
+# consumes its empty draw and returns the sum and the continued generator.
+_empty_uniform(carrier) = _consume_empty(rand_next(carrier, Float64, 0))
+_empty_matrix(carrier) = _consume_empty(rand_next(carrier, Float32, 0, 3))
+_empty_range(carrier) = _consume_empty(rand_next(carrier, Int32(1):Int32(6), 0))
+function _consume_empty((values, next_carrier))
+    return sum(values), first(rand_next(next_carrier, Float64))
+end
 
 @testset "empty traced draws compile and consume no bits" begin
-    carrier = Reactant.to_rarray(Philox4x32(0x9a2))
-    for (probe, expected_size) in
-        ((_empty_uniform, (0,)), (_empty_matrix, (0, 3)), (_empty_range, (0,)))
-        values, next_carrier = (Reactant.@compile sync = true probe(carrier))(carrier)
-        @test size(values) == expected_size
-        @test Array(next_carrier.state) == Array(carrier.state)
+    eager = Philox4x32(0x9a2)
+    carrier = Reactant.to_rarray(eager)
+    for probe in (_empty_uniform, _empty_matrix, _empty_range)
+        total, following = (Reactant.@compile sync = true probe(carrier))(carrier)
+        @test iszero(total)
+        @test following == first(rand_next(eager, Float64))
     end
 end
