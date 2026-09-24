@@ -74,17 +74,17 @@ end
 @doc """
     rand_at(rng, T, i)
     rand_at(rng, T, i:j)
-    rand_at(rng, range, i)
+    rand_at(rng, collection, i)
 
 Return the `i`th uniform draw at or after the current position of `rng`, where
 `i` is one-based, or the vector of draws `i` through `j`. Supported result
-types are those of [`rand_next`](@ref). Passing an integer range in place of `T`
-returns the `i`th draw from that range.
+types are those of [`rand_next`](@ref). Passing a collection in place of `T`
+returns the `i`th pick from that collection.
 
 Addressed draws do not advance or change `rng`. They throw when `i` is not
 positive or the addressed draw exceeds the generator's counter capacity.
 
-The range and distribution forms of `rand_at` take a single index.
+The collection and distribution forms of `rand_at` take a single index.
 
 # Examples
 

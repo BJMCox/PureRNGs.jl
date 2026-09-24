@@ -1,6 +1,7 @@
 using PureRNGs
 using InteractiveUtils: code_llvm
 using Random: rand!, randn, randn!, randexp, randexp!
+using Random: randperm, randperm!, randcycle, randcycle!, shuffle, shuffle!
 
 # Test helpers used by more than one test file. Every other test file may be
 # included alone once this file is included.

@@ -109,7 +109,9 @@ end
 Random.rand(::AbstractPureRNG) = _untyped_draw_error("rand(rng, T)", "rand_next(rng, T)")
 Random.rand(::AbstractPureRNG, ::Integer, ::Integer...) =
     _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
-Random.rand(::AbstractPureRNG, ::Dims) =
+# The collection picks take tuples, so this guard names the same generator union
+# they do and stays more specific for a tuple of `Int`, which is a shape.
+Random.rand(::_ScalarUniformGenerators, ::Dims) =
     _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
 
 @inline function _rand_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
@@ -139,16 +141,22 @@ end
 
 @doc """
     rand_next(rng[, T]) -> (value, next_rng)
-    rand_next(rng, range) -> (value, next_rng)
+    rand_next(rng, collection) -> (value, next_rng)
     rand_next(rng[, T], dims...) -> (values, next_rng)
-    rand_next(rng, range, dims...) -> (values, next_rng)
+    rand_next(rng, collection, dims...) -> (values, next_rng)
 
 Draw from `rng` and return the advanced immutable generator with the result.
 Omitting `T` selects `Float64`. Supported scalar types are `Bool`, the 8- to 128-bit signed and unsigned integers,
-`Float16`, `Float32`, `Float64`, and `Complex` values of those three.
+`Float16`, `Float32`, `Float64`, `Complex` values of those three, and `Char`, which is
+uniform over the Unicode scalar values as in `Random`.
 Integer ranges support signed and unsigned integer element types through 128
 bits. Dimensions may also be one tuple, as in `Random`. The 128-bit and complex
 types run on the CPU only.
+
+A collection is an integer range, any other array or range, a tuple, a string, a
+dict, or a set. A pick from it consumes and returns what one
+[`randsample_next`](@ref) draw does. A tuple of `Int` is a shape, not a
+collection. Strings, dicts, and sets reach the drawn position by iteration.
 
 The allocating forms create an array on the generator's device. The input
 generator never changes.

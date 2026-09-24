@@ -329,6 +329,40 @@ if Metal.functional()
         end
     end
 
+    @testset "Metal Char draws equal the CPU draws" begin
+        for F in METAL_32_GENERATORS
+            cpu_rng = F(0x81d, 5)
+            rng = MetalDevice()(cpu_rng)
+            values, next_rng = IR.rand_next(rng, Char, 37)
+            expected, expected_next = IR.rand_next(cpu_rng, Char, 37)
+            @test Array(values) == expected
+            @test next_rng.position == expected_next.position
+        end
+    end
+
+    @testset "Metal permutations equal the CPU permutations" begin
+        for F in (Philox4x32, ChaCha), n in (0, 1, 1000)
+            cpu_rng = F(0x81e, 3)
+            rng = MetalDevice()(cpu_rng)
+            permutation, next_rng = randperm_next(rng, n)
+            expected, expected_next = randperm_next(cpu_rng, n)
+            @test permutation isa Metal.MtlArray{Int,1}
+            @test Array(permutation) == expected
+            @test next_rng.position == expected_next.position
+            @test Array(first(randcycle_next(rng, n))) == first(randcycle_next(cpu_rng, n))
+            values = Float32.(1:n)
+            @test Array(first(shuffle_next(rng, Metal.MtlArray(values)))) ==
+                  first(shuffle_next(cpu_rng, values))
+        end
+        # Equal keys are found on the device and resolved as on the CPU.
+        keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
+        host = sortperm(keys)
+        IR._resolve_key_ties!(host, keys, Philox4x32(0x81f))
+        device = Metal.MtlArray(sortperm(keys))
+        IR._resolve_key_ties!(device, Metal.MtlArray(keys), Philox4x32(0x81f))
+        @test Array(device) == host
+    end
+
     @testset "Metal Float32 exponential" begin
         for (F, key, raw) in METAL_EXPONENTIAL_GOLDEN_CASES
             rng = _metal_exponential_golden_rng(F, key)

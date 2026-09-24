@@ -331,6 +331,9 @@ end
             Random.randexp,
             Random.randexp!,
             Random.seed!,
+            Random.shuffle!,
+            Random.randperm!,
+            Random.randcycle!,
             copy,
             parent,
         )
@@ -357,6 +360,11 @@ end
         Random.rand,
         Tuple{M,StatefulIR._StatefulRangeSampler{UInt16,typeof(UInt16(1):UInt16(2))}},
     )
+    require(Random.rand, Tuple{M,StatefulIR._StatefulPickSampler{Int,Tuple{Int,Int}}})
+    require(Random.shuffle!, Tuple{M,Vector{Symbol}})
+    require(Random.shuffle!, Tuple{M,BitVector})
+    require(Random.randperm!, Tuple{M,Vector{Int}})
+    require(Random.randcycle!, Tuple{M,Vector{Int}})
     require(Random.randn, Tuple{M})
     require(Random.randexp, Tuple{M})
     for T in (Float16, Float32, Float64)
@@ -400,6 +408,16 @@ end
         which(Random.Sampler, Tuple{Type{M},typeof(stepped),Val{1}}),
         which(Random.Sampler, Tuple{Type{M},typeof(wide_unit),Val{1}}),
         which(Random.Sampler, Tuple{Type{M},typeof(wide_stepped),Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},Tuple{Int},Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},Tuple{Int,Int},Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},Tuple{Int,Int,Int},Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},NTuple{4,Int},Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},String,Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},String,Val{Inf}}),
+        which(Random.Sampler, Tuple{Type{M},Set{Int},Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},Dict{Int,Int},Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},BitSet,Val{1}}),
+        which(Random.Sampler, Tuple{Type{M},Base.ImmutableDict{Int,Int},Val{1}}),
     ))
     @test Set(
         method for method in methods(Random.Sampler) if method.module === StatefulIR

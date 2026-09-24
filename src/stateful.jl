@@ -131,6 +131,49 @@ end
 @inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulRangeSampler) =
     _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), sampler.range))
 
+# The bridge shuffles owned arrays by the pure law, so a wrapped generator and
+# its immutable state give the same permutation. `randperm`, `randcycle`, and
+# `shuffle` reach these through Random's own allocating methods.
+@inline Random.shuffle!(mutable_rng::StatefulRNG, values::Union{Array,BitArray}) =
+    _commit_bridge!(mutable_rng, shuffle_next!(_held(mutable_rng), values))
+@inline Random.randperm!(mutable_rng::StatefulRNG, destination::Array{<:Integer}) =
+    _commit_bridge!(mutable_rng, randperm_next!(_held(mutable_rng), destination))
+@inline Random.randcycle!(mutable_rng::StatefulRNG, destination::Array{<:Integer}) =
+    _commit_bridge!(mutable_rng, randcycle_next!(_held(mutable_rng), destination))
+
+# Random picks from arrays through a range draw, which already matches the pure
+# pick. It samples tuples, strings, dicts, and sets with its own rejection loops,
+# so the bridge takes the pure pick for those. Each bound matches one of
+# Random's own methods exactly and stays more specific.
+struct _StatefulPickSampler{T,P} <: Random.Sampler{T}
+    population::P
+end
+_StatefulPickSampler(population) =
+    _StatefulPickSampler{eltype(population),typeof(population)}(population)
+
+for (Population, Repetition) in (
+    (:(Tuple{Any}), :(Random.Repetition)),
+    (:(Tuple{Any,Any}), :(Random.Repetition)),
+    (:(Tuple{Any,Any,Any}), :(Random.Repetition)),
+    (:Tuple, :(Random.Repetition)),
+    (:AbstractString, :(Val{1})),
+    (:AbstractString, :(Val{Inf})),
+    (:Set, :(Random.Repetition)),
+    (:Dict, :(Random.Repetition)),
+    (:BitSet, :(Random.Repetition)),
+    (:(Union{AbstractDict,AbstractSet}), :(Random.Repetition)),
+)
+    @eval @inline Random.Sampler(
+        ::Type{<:StatefulRNG},
+        population::$Population,
+        ::$Repetition,
+    ) = _StatefulPickSampler(population)
+end
+
+# The internal pick keeps a tuple of `Int` a collection; `rand_next` reads it as a shape.
+@inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulPickSampler) =
+    _commit_bridge!(mutable_rng, _rand_next_pick(_held(mutable_rng), sampler.population))
+
 @inline function Random.rand!(
     mutable_rng::StatefulRNG,
     destination::Array{T},

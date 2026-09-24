@@ -159,7 +159,13 @@ end
     return _population_value(codec.population, ordinal)
 end
 
-function _randsample_next_unweighted!(rng, population, destination, threaded::Bool)
+function _randsample_next_unweighted!(
+    rng,
+    population,
+    destination,
+    replace::Bool,
+    threaded::Bool,
+)
     _check_sampling_fill_device(rng, destination)
     _check_sampling_serviceability(rng)
     agnostic = _check_population_device(rng, population)
@@ -170,15 +176,39 @@ function _randsample_next_unweighted!(rng, population, destination, threaded::Bo
     _check_sampling_destination_eltype(destination, indexed)
     !isempty(destination) && iszero(cardinality) && _empty_sampling_population()
 
+    if !replace
+        values, next_rng =
+            _unique_sample(rng, indexed, cardinality, length(destination), threaded)
+        copyto!(destination, values)
+        return destination, next_rng
+    end
     codec = _PopulationCodec(indexed, cardinality)
     return _fill_prevalidated!(rng, destination, threaded, codec)
+end
+
+@noinline function _unique_count_error()
+    throw(ArgumentError("a sample without replacement cannot exceed the population"))
+end
+
+# A sample without replacement is the leading `count` elements of the shuffled
+# population, so it consumes 64 bits per population element for every `count`.
+function _unique_sample(rng, indexed, cardinality::UInt64, count::Int, threaded::Bool)
+    count <= cardinality || _unique_count_error()
+    order, next_rng = _randperm_next(rng, Int(cardinality), threaded)
+    return vec(indexed)[order[1:count]], next_rng
 end
 
 @noinline function _empty_sampling_population()
     throw(ArgumentError("population must be non-empty when k is positive"))
 end
 
-function _randsample_next_unweighted(rng, population, requested_count, threaded::Bool)
+function _randsample_next_unweighted(
+    rng,
+    population,
+    requested_count,
+    replace::Bool,
+    threaded::Bool,
+)
     agnostic = _check_population_device(rng, population)
     _check_sampling_serviceability(rng)
     count = requested_count === nothing ? nothing : _sampling_count(requested_count)
@@ -187,6 +217,7 @@ function _randsample_next_unweighted(rng, population, requested_count, threaded:
     cardinality = _sampling_cardinality(indexed)
     count === nothing && (count = _sampling_count(cardinality, nothing))
     count > 0 && iszero(cardinality) && _empty_sampling_population()
+    replace || return _unique_sample(rng, indexed, cardinality, count, threaded)
 
     destination = _allocate_sampling_result(rng, indexed, count)
     codec = _PopulationCodec(indexed, cardinality)
@@ -194,12 +225,17 @@ function _randsample_next_unweighted(rng, population, requested_count, threaded:
 end
 
 """
-    randsample(rng, population[, count]; threaded=false)
+    randsample(rng, population[, count]; replace=true, threaded=false)
     randsample(rng, population, weights[, count]; threaded=false)
 
-Sample with replacement from `population`. Without `count`, return as many
-draws as the population has elements. With `weights`, use non-negative finite
-weights proportional to the desired probabilities.
+Sample from `population`. Without `count`, return as many draws as the
+population has elements. With `weights`, use non-negative finite weights
+proportional to the desired probabilities.
+
+Sampling is with replacement by default. With `replace=false`, the sample is the
+first `count` elements of `shuffle_next(rng, collect(population))`: it consumes
+64 bits per population element for every `count`, and `count` may not exceed
+the population. Weighted sampling is always with replacement.
 
 The no-count form returns `length(pop)` samples, unlike `StatsBase.sample(rng, a)`,
 which returns one element. `randsample(rng, pop, 1)` returns a one-element vector.
@@ -227,48 +263,60 @@ julia> randsample(rng, pop, 1)
  10
 ```
 """
-@inline function randsample(rng::AbstractPureRNG, population; threaded::Bool = false)
-    return first(_randsample_next_unweighted(rng, population, nothing, threaded))
+@inline function randsample(
+    rng::AbstractPureRNG,
+    population;
+    replace::Bool = true,
+    threaded::Bool = false,
+)
+    return first(_randsample_next_unweighted(rng, population, nothing, replace, threaded))
 end
 
 @inline function randsample(
     rng::AbstractPureRNG,
     population,
     count::Integer;
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return first(_randsample_next_unweighted(rng, population, count, threaded))
+    return first(_randsample_next_unweighted(rng, population, count, replace, threaded))
 end
 
 """
-    randsample_next(rng, population[, count]; threaded=false) -> (values, next_rng)
+    randsample_next(rng, population[, count]; replace=true, threaded=false) -> (values, next_rng)
     randsample_next(rng, population, weights[, count]; threaded=false) -> (values, next_rng)
 
-Sample with replacement from `population` and return the advanced immutable
-generator with the result. Without `count`, return as many draws as the
-population has elements. With `weights`, use non-negative finite weights
-proportional to the desired probabilities.
+Sample from `population` and return the advanced immutable generator with the
+result. Without `count`, return as many draws as the population has elements.
+With `weights`, use non-negative finite weights proportional to the desired
+probabilities. `replace` is as for [`randsample`](@ref).
 
 The result is a vector on the generator's device. The input generator never
 changes.
 """
-@inline function randsample_next(rng::AbstractPureRNG, population; threaded::Bool = false)
-    return _randsample_next_unweighted(rng, population, nothing, threaded)
+@inline function randsample_next(
+    rng::AbstractPureRNG,
+    population;
+    replace::Bool = true,
+    threaded::Bool = false,
+)
+    return _randsample_next_unweighted(rng, population, nothing, replace, threaded)
 end
 
 @inline function randsample_next(
     rng::AbstractPureRNG,
     population,
     count::Integer;
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return _randsample_next_unweighted(rng, population, count, threaded)
+    return _randsample_next_unweighted(rng, population, count, replace, threaded)
 end
 
 """
-    randsample!(rng, population[, weights], destination; threaded=false) -> destination
+    randsample!(rng, population[, weights], destination; replace=true, threaded=false) -> destination
 
-Sample with replacement into `destination`. Its length determines the number of
+Sample into `destination`, with replacement unless `replace=false` (see [`randsample`](@ref)). Its length determines the number of
 draws, and it must have exactly the prepared population element type. Return the
 identical destination. Fills run on the calling task by default; `threaded=true`
 splits a CPU fill across threads without changing the values.
@@ -298,15 +346,18 @@ julia> randsample!(rng, [10, 20, 30, 40], destination)
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return first(_randsample_next_unweighted!(rng, population, destination, threaded))
+    return first(
+        _randsample_next_unweighted!(rng, population, destination, replace, threaded),
+    )
 end
 
 """
-    randsample_next!(rng, population[, weights], destination; threaded=false) -> (destination, next_rng)
+    randsample_next!(rng, population[, weights], destination; replace=true, threaded=false) -> (destination, next_rng)
 
-Sample with replacement into `destination` and return the advanced immutable
+Sample into `destination` and return the advanced immutable
 generator. The fill and validation rules are the same as for [`randsample!`](@ref).
 The input generator is not changed.
 """
@@ -314,7 +365,8 @@ The input generator is not changed.
     rng::AbstractPureRNG,
     population,
     destination::AbstractArray;
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return _randsample_next_unweighted!(rng, population, destination, threaded)
+    return _randsample_next_unweighted!(rng, population, destination, replace, threaded)
 end

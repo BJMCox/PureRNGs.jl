@@ -51,6 +51,18 @@ end
         randsample_next,
         randsample!,
         randsample_next!,
+        randperm,
+        randperm!,
+        randcycle,
+        randcycle!,
+        shuffle,
+        shuffle!,
+        randperm_next,
+        randperm_next!,
+        randcycle_next,
+        randcycle_next!,
+        shuffle_next,
+        shuffle_next!,
     )
     # showerror is the StreamExhausted display, show the generator display, and
     # copy!, ==, hash, and rng_native_52 the StatefulRNG interface, all dispatched
@@ -58,6 +70,12 @@ end
     @test foreign_functions == Set((
         rand,
         rand!,
+        randperm,
+        randperm!,
+        randcycle,
+        randcycle!,
+        shuffle,
+        shuffle!,
         randn,
         randn!,
         randexp,
@@ -171,11 +189,54 @@ end
             require(function_, Tuple{R,typeof(population),W,Vector{Int32}})
         end
     end
+    # Every collection reaches the same pick methods, so one of each kind pins them.
+    for Population in (Vector{Int}, Tuple{Int,Symbol}, String, Dict{Int,Int}, Set{Int})
+        require(rand, Tuple{R,Population})
+        require(rand, Tuple{R,Population,Int})
+        require(rand, Tuple{R,Population,Tuple{Int}})
+        require(rand!, Tuple{R,Vector{Int},Population})
+        require(rand_next, Tuple{R,Population})
+        require(rand_next, Tuple{R,Population,Int})
+        require(rand_next, Tuple{R,Population,Tuple{Int}})
+        require(rand_next!, Tuple{R,Vector{Int},Population})
+        require(rand_at, Tuple{R,Population,Int})
+    end
+    require(rand, Tuple{R,Type{Char}})
+    require(rand, Tuple{R,Type{Char},Int})
+    require(rand, Tuple{R,Type{Char},Tuple{Int}})
+    require(rand!, Tuple{R,Vector{Char}})
+    require(rand_next, Tuple{R,Type{Char}})
+    require(rand_next, Tuple{R,Type{Char},Int})
+    require(rand_next, Tuple{R,Type{Char},Tuple{Int}})
+    require(rand_next!, Tuple{R,Vector{Char}})
+    require(rand_at, Tuple{R,Type{Char},Int})
+    require(rand_at, Tuple{R,Type{Char},UnitRange{Int}})
+    for function_ in (randperm, randcycle, randperm_next, randcycle_next)
+        require(function_, Tuple{R,Int})
+    end
+    for function_ in (randperm!, randcycle!, randperm_next!, randcycle_next!)
+        require(function_, Tuple{R,Vector{Int}})
+    end
+    for function_ in (shuffle, shuffle!, shuffle_next, shuffle_next!)
+        require(function_, Tuple{R,Vector{Symbol}})
+    end
 
     for function_ in owned_functions
         methods_ =
-            function_ in (rand, rand!, randn, randn!, randexp, randexp!) ?
-            _pure_audit_methods(function_) : _audit_methods(function_)
+            function_ in (
+                rand,
+                rand!,
+                randn,
+                randn!,
+                randexp,
+                randexp!,
+                randperm,
+                randperm!,
+                randcycle,
+                randcycle!,
+                shuffle,
+                shuffle!,
+            ) ? _pure_audit_methods(function_) : _audit_methods(function_)
         @test Set(methods_) == required[function_]
     end
     @test all(
@@ -204,17 +265,41 @@ end
             randn_at,
             randexp_at,
             subrng,
-            randsample,
-            randsample_next,
+            randperm,
+            randperm!,
+            randcycle,
+            randcycle!,
+            shuffle,
+            shuffle!,
+            randperm_next,
+            randperm_next!,
+            randcycle_next,
+            randcycle_next!,
+            shuffle_next,
+            shuffle_next!,
         ) for method in (
-            function_ in (rand, randn, randexp) ? _pure_audit_methods(function_) :
-            _audit_methods(function_)
+            function_ in (
+                rand,
+                randn,
+                randexp,
+                randperm,
+                randperm!,
+                randcycle,
+                randcycle!,
+                shuffle,
+                shuffle!,
+            ) ? _pure_audit_methods(function_) : _audit_methods(function_)
         )
     )
-    @test all(
-        Base.kwarg_decl(method) == [:threaded] for
-        function_ in (randsample!, randsample_next!) for method in _audit_methods(function_)
-    )
+    # Unweighted sampling also takes `replace`; weighted sampling is always with
+    # replacement and takes only `threaded`.
+    for function_ in (randsample, randsample_next, randsample!, randsample_next!)
+        for method in _audit_methods(function_)
+            weighted = endswith(string(method.file), "weighted_sampling.jl")
+            @test Base.kwarg_decl(method) ==
+                  (weighted ? [:threaded] : [:replace, :threaded])
+        end
+    end
     # The dynamic split takes the fill keyword. The other two forms take none.
     dynamic_split = which(splitrng, Tuple{R,Int})
     @test Base.kwarg_decl(dynamic_split) == [:threaded]

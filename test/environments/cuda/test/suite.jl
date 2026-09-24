@@ -1884,5 +1884,50 @@ end
     @test weighted_next.position == weighted_after.position
 end
 
+@testset "CUDA collection picks and Char draws equal the CPU draws" begin
+    for F in GENERATOR_TYPES
+        cpu_rng = F(0x78d, 3)
+        gpu_rng = device(cpu_rng)
+        values, next_rng = rand_next(gpu_rng, Char, 4099)
+        expected, expected_next = rand_next(cpu_rng, Char, 4099)
+        @test values isa CuArray{Char,1}
+        @test Array(values) == expected
+        @test next_rng.position == expected_next.position
+
+        host_population = Float32.(1:24) ./ 4
+        picks, picks_next = rand_next(gpu_rng, CuArray(host_population), 3, 5)
+        expected_picks, expected_picks_next = rand_next(cpu_rng, host_population, 3, 5)
+        @test picks isa CuArray{Float32,2}
+        @test Array(picks) == expected_picks
+        @test picks_next.position == expected_picks_next.position
+    end
+end
+
+@testset "CUDA permutations equal the CPU permutations" begin
+    for F in GENERATOR_TYPES, n in (0, 1, 1000, 70_000)
+        cpu_rng = F(0x78e, 1)
+        gpu_rng = device(cpu_rng)
+        permutation, next_rng = randperm_next(gpu_rng, n)
+        expected, expected_next = randperm_next(cpu_rng, n)
+        @test permutation isa CuArray{Int,1}
+        @test Array(permutation) == expected
+        @test next_rng.position == expected_next.position
+        @test Array(first(randcycle_next(gpu_rng, n))) == first(randcycle_next(cpu_rng, n))
+        values = Float32.(1:n)
+        @test Array(first(shuffle_next(gpu_rng, CuArray(values)))) ==
+              first(shuffle_next(cpu_rng, values))
+        count = min(n, 17)
+        @test Array(randsample(gpu_rng, CuArray(values), count; replace = false)) ==
+              randsample(cpu_rng, values, count; replace = false)
+    end
+    # Equal keys are found on the device and resolved as on the CPU.
+    keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
+    host = sortperm(keys)
+    IR._resolve_key_ties!(host, keys, Philox4x32(0x78f))
+    gpu_permutation = CuArray(sortperm(keys))
+    IR._resolve_key_ties!(gpu_permutation, CuArray(keys), Philox4x32(0x78f))
+    @test Array(gpu_permutation) == host
+end
+
 include("fixed_distributions.jl")
 include("enzyme.jl")

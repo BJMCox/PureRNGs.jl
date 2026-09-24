@@ -33,7 +33,24 @@ dice
 
 The range follows the destination.
 
-`rand_at(rng, range, i)` returns the `i`th range draw without advancing `rng`.
+`rand_at(rng, range, i)` returns the `i`th range draw without advancing `rng`, and `rand_at(rng, collection, i)` the `i`th pick.
+
+## Pick from a collection
+
+```@example sampling
+color, rng = rand_next(rng, [:red, :green, :blue])
+letters, rng = rand_next(rng, "abc", 4)
+half_steps, rng = rand_next(rng, 0.0:0.5:2.0, 3)
+letters
+```
+
+A pick accepts any array or range, a tuple, a string, a dict, or a set, as `rand` does in `Random`.
+It consumes and returns exactly what `randsample_next(rng, collection, 1)` does, and the array forms equal `randsample_next`.
+Strings, dicts, and sets reach the drawn position by iteration, so one pick costs time linear in their length.
+A tuple of `Int` passed to `rand_next` is a shape, not a collection.
+
+`rand_next(rng, Char)` is uniform over the 1,112,064 Unicode scalar values, as in `Random`.
+It draws the offset `k` from `0:0x10f7ff` and skips the surrogates: `k < 0xd800 ? Char(k) : Char(k + 0x800)`.
 
 ## Sample a population
 
@@ -45,8 +62,8 @@ same_length = randsample(rng, population)
 draws
 ```
 
-Sampling is always **with replacement**. Omitting the count draws as many values as the population contains.
-It does not shuffle the population. The allocating forms return a vector.
+Sampling is **with replacement** unless you pass `replace = false`. Omitting the count draws as many values as the population contains.
+The allocating forms return a vector.
 
 Integer ranges have a direct allocating path without materializing the population.
 
@@ -59,6 +76,28 @@ Arrays use the order of `CartesianIndices(axes(population))`.
 This matches ordinary column-major order and also defines positions for custom axes.
 
 Finite non-array iterators are materialized. Do not pass infinite iterators.
+
+## Shuffle and sample without replacement
+
+```@example sampling
+order, rng = randperm_next(rng, 6)
+deck, rng = shuffle_next(rng, collect(1:10))
+hand, rng = randsample_next(rng, 1:52, 5; replace = false)
+hand
+```
+
+A permutation draws one uniform `UInt64` key per element at the held position and orders the elements by key, ties by index.
+It consumes 64 bits per element, and it gives the same result on the CPU and on a GPU.
+Equal keys have probability about `n^2 / 2^65`. They are shuffled within their run with draws from `subrng(rng, key)`, so the permutation stays exactly uniform and the consumption stays fixed.
+
+`shuffle_next` moves elements in linear order by that permutation.
+`randcycle_next` sends `p[i]` to `p[i + 1]`, which gives a uniform cyclic permutation.
+`randsample(...; replace = false)` returns the leading elements of the shuffled population, so it consumes 64 bits per population element whatever the count.
+`Random.randperm`, `randcycle`, `shuffle`, and their in-place forms accept a generator too, and `StatefulRNG` uses the same law.
+
+On the CPU the keys are ordered by a counting pass over their top bits, in expected linear time.
+On a GPU the backend's `sortperm!` orders them: CUDA.jl, AMDGPU through AcceleratedKernels, or Metal.jl.
+Weighted sampling is always with replacement.
 
 ## Supply weights
 

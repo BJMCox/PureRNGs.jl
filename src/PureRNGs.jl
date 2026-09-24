@@ -39,6 +39,12 @@ export Philox2x32,
     randsample_next,
     randsample!,
     randsample_next!,
+    randperm_next,
+    randperm_next!,
+    randcycle_next,
+    randcycle_next!,
+    shuffle_next,
+    shuffle_next!,
     WeightTable,
     StatefulRNG,
     StreamExhausted
@@ -69,6 +75,8 @@ include("exponential.jl")
 include("integers.jl")
 include("range_fill.jl")
 include("sampling.jl")
+include("collections.jl")
+include("permutations.jl")
 include("weighted_sampling.jl")
 include("stateful.jl")
 include("docstrings.jl")

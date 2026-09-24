@@ -92,6 +92,17 @@ randsample_next!
 WeightTable
 ```
 
+## Permutations
+
+```@docs
+randperm_next
+randperm_next!
+randcycle_next
+randcycle_next!
+shuffle_next
+shuffle_next!
+```
+
 ## Mutable interoperability
 
 ```@docs
