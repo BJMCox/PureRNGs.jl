@@ -39,9 +39,14 @@ const _CUDA_I64X2 = NTuple{2,VecElement{Int64}}
 const _CUDA_F32X4 = NTuple{4,VecElement{Float32}}
 const _CUDA_F64X2 = NTuple{2,VecElement{Float64}}
 const _CUDA_B8X16 = NTuple{16,VecElement{Bool}}
+const _CUDA_U8X16 = NTuple{16,VecElement{UInt8}}
+const _CUDA_I8X16 = NTuple{16,VecElement{Int8}}
+const _CUDA_U16X8 = NTuple{8,VecElement{UInt16}}
+const _CUDA_I16X8 = NTuple{8,VecElement{Int16}}
+const _CUDA_F16X8 = NTuple{8,VecElement{Float16}}
 const _CUDA_FILL_ALIGNMENT = sizeof(_CUDA_U32X4)
 # Mapped codecs using this path must share the uniform-width fallback contract.
-const _CUDAPackedValue = Union{IR._UniformInteger,Float32,Float64}
+const _CUDAPackedValue = Union{IR._UniformInteger,IR._NarrowInteger,Float16,Float32,Float64}
 const _CUDAPackedCodec = Union{
     Val{:uniform},
     IR._NormalCodec{IR._CUDABackend},
@@ -167,6 +172,22 @@ const _CUDAUniformLikeCodec =
     (Val(2048), Val(32), Val(4))
 @inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt64,Int64,Float64}} =
     (Val(2048), Val(64), Val(2))
+# A100 sweep over 1024 to 8192 outputs and 32 to 128 lanes: these tiles are within
+# 3% of the best for every generator measured. A 4096-output Float16 tile gains 8%
+# on ChaCha only, and the tile is shared with the Float16 transforms, so it stays.
+@inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt8,Int8}} =
+    (Val(4096), Val(32), Val(16))
+@inline _packed_16byte_plan(::Type{T}) where {T<:Union{UInt16,Int16,Float16}} =
+    (Val(2048), Val(32), Val(8))
+
+# The narrow types store 16 bytes per work item through the same kernel.
+@inline IR._device_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAGenerators,
+    ::Val{:uniform},
+    ::Type{T},
+) where {T<:Union{IR._NarrowInteger,Float16}} =
+    (Val(:cooperative), _packed_16byte_plan(T)...)
 @inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
@@ -206,6 +227,11 @@ end
 @inline _packed_type(::Type{Int32}) = _CUDA_I32X4
 @inline _packed_type(::Type{UInt64}) = _CUDA_U64X2
 @inline _packed_type(::Type{Int64}) = _CUDA_I64X2
+@inline _packed_type(::Type{UInt8}) = _CUDA_U8X16
+@inline _packed_type(::Type{Int8}) = _CUDA_I8X16
+@inline _packed_type(::Type{UInt16}) = _CUDA_U16X8
+@inline _packed_type(::Type{Int16}) = _CUDA_I16X8
+@inline _packed_type(::Type{Float16}) = _CUDA_F16X8
 
 @inline _packed_integer_min_length(::_CUDAPhilox2x64, ::Type{<:IR._UniformInteger}) =
     1 << 20
@@ -629,12 +655,19 @@ end
     ::Type{T},
 ) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
+@inline IR._device_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAGenerators,
+    ::IR._NormalCodec{IR._CUDABackend},
+    ::Type{Float16},
+) = (Val(:cooperative), _packed_16byte_plan(Float16)...)
+
 @inline function IR._device_fill_plan(
     backend::CUDA.CUDABackend,
     rng::_CUDAGenerators,
     ::IR._ExponentialCodec{IR._CUDABackend},
     ::Type{T},
-) where {T<:Union{Float32,Float64}}
+) where {T<:Union{Float16,Float32,Float64}}
     return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 

@@ -1884,6 +1884,71 @@ end
     @test weighted_next.position == weighted_after.position
 end
 
+const NARROW_PACKED_TYPES = (UInt8, Int8, UInt16, Int16, Float16)
+
+@testset "CUDA narrow and Float16 packed fills preserve every generator stream" begin
+    for F in GENERATOR_TYPES, T in NARROW_PACKED_TYPES
+        rng = device(F(0x78b))
+        outputs = sizeof(T) == 1 ? 4096 : 2048
+        outputs_per_store = 16 ÷ sizeof(T)
+        # A whole tile, a partial last tile, one store, and a short tail.
+        for count in (outputs, outputs + 8outputs_per_store, outputs_per_store, 37)
+            _check_public_packed_fill(rng, T, count, rand_next, rand_next!)
+        end
+        for bit in (UInt16(1), UInt16(31), IR._block_bits(rng) - UInt16(3))
+            offset = _positioned_at_bit(rng, UInt64(9), bit)
+            _check_public_packed_fill(offset, T, 8outputs_per_store, rand_next, rand_next!)
+        end
+
+        # An unaligned view and a strided view take the grouped fallback.
+        count = 8outputs_per_store
+        expected_next, expected = _chain(rng, current -> rand_next(current, T), count, T)
+        storage = CUDA.CuArray{T}(undef, 2count)
+        for view in (@view(storage[2:(count+1)]), @view(storage[1:2:(2count)]))
+            returned, filled_next = rand_next!(rng, view)
+            @test returned === view
+            @test Array(view) == expected
+            @test filled_next.position == expected_next.position
+        end
+
+        terminal_rng = _last_draw_rng(rng, UInt16(outputs_per_store) * IR._draw_bits(T))
+        terminal = _check_public_packed_fill(
+            terminal_rng,
+            T,
+            outputs_per_store,
+            rand_next,
+            rand_next!,
+        )
+        @test terminal.position == _terminal(rng)
+    end
+end
+
+@testset "CUDA Float16 normal and exponential packed fills match the fallbacks" begin
+    for F in GENERATOR_TYPES
+        base = device(F(0x78c))
+        _check_public_packed_fill(
+            base,
+            Float16,
+            2048,
+            randn_next,
+            randn_next!;
+            addressed_normal = true,
+        )
+        count = 64
+        for rng in (base, _positioned_at_bit(base, UInt64(9), UInt16(5)))
+            for fill_next in (randn_next!, randexp_next!)
+                packed = CUDA.CuArray{Float16}(undef, count)
+                storage = CUDA.CuArray{Float16}(undef, count + 1)
+                grouped = @view storage[2:end]
+                _, packed_next = fill_next(rng, packed)
+                _, grouped_next = fill_next(rng, grouped)
+                @test isequal(Array(packed), Array(grouped))
+                @test packed_next.position == grouped_next.position
+            end
+        end
+    end
+end
+
 @testset "CUDA collection picks and Char draws equal the CPU draws" begin
     for F in GENERATOR_TYPES
         cpu_rng = F(0x78d, 3)

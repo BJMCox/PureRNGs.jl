@@ -14,6 +14,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Char` draws, uniform over the Unicode scalar values as in `Random`.
 - Permutations: `randperm_next`, `randcycle_next`, `shuffle_next`, their in-place forms, and `Random.randperm`, `randcycle`, `shuffle` and their in-place forms for pure generators. A permutation orders one uniform `UInt64` key per element, so it is the same on the CPU and on a GPU. `StatefulRNG` uses the same law.
 - `randsample(...; replace = false)` samples without replacement: the leading elements of the shuffled population.
+- CUDA fills of 8- and 16-bit integers and `Float16`, and `Float16` normal and exponential fills, store 16 bytes per work item. On an A100 a 2^26 `UInt8` fill runs at 1015 GiB/s instead of 183, `UInt16` at 1176 instead of 292, and `Float16` at 715 instead of 145.
 - `Threefry2x64R13`, the thirteen-round `Threefry2x64` that Salmon, Moraes, Dror, and Shaw (2011, Table 2) report as the smallest passing BigCrush. It has no BigCrush run of its own in the evidence release yet.
 
 ### Changed
