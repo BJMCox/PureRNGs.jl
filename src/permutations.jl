@@ -63,8 +63,14 @@ function _order_keys!(permutation::AbstractVector{<:Integer}, keys::Vector{UInt6
     return permutation
 end
 
-_order_keys!(permutation::AbstractVector, keys::AbstractVector) =
-    sortperm!(permutation, keys)
+# A device orders its keys through its backend. The KernelAbstractions extension
+# gives GPU backends a counting sort with the same stable order.
+_order_keys!(rng, permutation::AbstractVector, keys::AbstractVector) =
+    _order_device_keys!(_fill_backend(rng.device, keys), permutation, keys)
+_order_keys!(rng, permutation::AbstractVector{<:Integer}, keys::Vector{UInt64}) =
+    _order_keys!(permutation, keys)
+
+_order_device_keys!(backend, permutation, keys) = sortperm!(permutation, keys)
 
 function _resolve_key_ties!(permutation::Array, keys::Array, rng)
     n = length(permutation)
@@ -100,7 +106,7 @@ function _randperm_next!(rng::AbstractPureRNG, destination::AbstractArray, threa
     _check_permutation_serviceability(rng)
     keys, next_rng = _permutation_keys(rng, length(destination), threaded)
     permutation = reshape(destination, :)
-    _order_keys!(permutation, keys)
+    _order_keys!(rng, permutation, keys)
     _resolve_key_ties!(permutation, keys, rng)
     return destination, next_rng
 end
