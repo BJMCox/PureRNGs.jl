@@ -48,6 +48,7 @@ derivatives = only(autodiff(
 
 Loading Mooncake marks the decoding of stream bits into standard uniform, normal, and exponential variates as having zero derivative.
 Mooncake differentiates everything else directly, so typed draws, fills, and every fixed distribution draw give the pathwise gradient, as Enzyme does.
+Gamma draws and their family take the implicit shape derivative from a rule, as with Enzyme; see [Gamma and its family](@ref).
 
 ```julia
 using PureRNGs, Distributions, Mooncake, DifferentiationInterface
@@ -61,6 +62,7 @@ ForwardDiff differentiates typed draws and fills without help, because their val
 Loading ForwardDiff with Distributions also accepts fixed distributions with `Dual` parameters, such as `Normal(μ, σ)` with a dual `μ`.
 A dual draw decodes the base variates of the primal distribution and maps them with the dual parameters, so its value equals the primal draw and its partials are the pathwise derivatives.
 The scalar, continuation, and addressed forms run anywhere. The allocating and in-place fills run on the CPU.
+Gamma, `Chisq`, `InverseGamma`, `Beta`, and `TDist` accept dual parameters too: a dual shape carries the implicit shape derivative of its Gamma draws. Nested duals, as in second derivatives, find no method.
 
 ```julia
 using PureRNGs, Distributions, ForwardDiff

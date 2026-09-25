@@ -138,13 +138,37 @@ Any `PDMats` covariance works, including `Diagonal` and scalar covariances.
 The covariance lives in host memory, so MvNormal draws run on the CPU.
 Gradients with respect to `μ` and the covariance are pathwise with Enzyme, Mooncake, and ForwardDiff.
 
+## Gamma and its family
+
+`Gamma`, `Chisq`, `InverseGamma`, `Beta`, `TDist`, and `Dirichlet` draws use the rejection sampler of Marsaglia and Tsang (2000) with a fixed stream span.
+Each Gamma draw reserves one boost uniform and eight candidates, each a normal and an open uniform, and takes the first candidate the test accepts.
+If all eight reject, which happens about once in 3·10¹⁰ draws at shape 1 and far less often at larger shapes, the draw continues the same test on a child stream keyed by its position.
+The law stays exactly Gamma, and the stream advances by the same 17 normal widths either way.
+Shapes below one draw `Gamma(shape + 1)` and multiply by `u^(1/shape)` from the boost uniform.
+
+```julia
+rng = Philox4x32(123456)
+waits, rng = rand_next(rng, Gamma(2.5, 2.0), 1024)
+proportion = rand_at(rng, Beta(0.3, 0.4), 7)
+mixture, rng = rand_next(rng, Dirichlet([0.3, 1.0, 2.5]))
+```
+
+`Chisq(ν)` is `Gamma(ν/2, 2)`, and `InverseGamma(α, θ)` is `θ` over a `Gamma(α)` draw.
+`Beta` and `Dirichlet` normalize the logarithms of Gamma draws in consecutive spans, so shapes as small as 0.01 give finite draws that sum to one.
+`TDist(ν)` divides a normal by the square root of a following chi-square over `ν`.
+The scalar members run on the CPU and on CUDA, where a 2^26 `Gamma` fill takes about 6.7 ms on an A100. `Dirichlet` returns vectors and runs on the CPU.
+
+Shape gradients use the implicit derivative of the Gamma CDF, `dx/dα = -∂F(x; α)/∂α ÷ f(x; α)` (Figurnov, Mohamed, and Mnih 2018), with Enzyme, Mooncake, and ForwardDiff alike.
+Differentiating through the rejection test would bias the gradient, so the sampler is a primitive with that rule.
+The derivative evaluates the incomplete gamma function on the CPU.
+
 ## Other distributions
 
 Use the mutable bridge for Distributions' wider API:
 
 ```julia
 rng = StatefulRNG(Philox4x32(123456))
-values = rand(rng, Gamma(2.0), 1024)
+values = rand(rng, Poisson(3.0), 1024)
 ```
 
 This uses Distributions' algorithms, not the package's fixed-work mappings.

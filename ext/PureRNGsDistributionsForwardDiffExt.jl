@@ -11,8 +11,42 @@ import Random
 
 const IR = PureRNGs
 include("distributions_common.jl")
+include("distributions_gamma.jl")
 
 const _DualMapped = _FloatMapped{<:ForwardDiff.Dual}
+const _DualGammaFamily = _GammaFamily{<:ForwardDiff.Dual}
+const _DualDistribution = Union{_DualMapped,_DualGammaFamily}
+
+IR._primal_float(::Type{<:ForwardDiff.Dual{<:Any,V}}) where {V} = IR._primal_float(V)
+
+# A dual shape draws the primal Gamma and carries the implicit shape derivative
+# into the partials; the family maps carry every other parameter. Nested duals
+# find no method rather than a wrong second derivative.
+for (draw, slope) in (
+    (:_gamma_value, :_gamma_shape_derivative),
+    (:_gamma_log_value, :_gamma_log_shape_derivative),
+)
+    @eval function IR.$draw(
+        shape::ForwardDiff.Dual{Tag,V},
+        codec::IR._GammaCodec,
+        rng,
+        position,
+        cursor,
+    ) where {Tag,V<:AbstractFloat}
+        s = ForwardDiff.value(shape)
+        primal = IR._GammaCodec(
+            s,
+            ForwardDiff.value(codec.scale),
+            codec.device,
+            codec.candidates,
+        )
+        value = IR.$draw(s, primal, rng, position, cursor)
+        return ForwardDiff.Dual{Tag}(
+            value,
+            IR.$slope(s, value) * ForwardDiff.partials(shape),
+        )
+    end
+end
 
 # The shared mapping shifts `u` in the parameter type, and ForwardDiff has no
 # dual `tanpi`; the shift carries no parameter, so it stays in `u`'s type.
@@ -37,23 +71,30 @@ end
     _base_variates(codec.primal, codec.device, raw)...,
 )
 
-function _dual_codec(rng, d)
+function _dual_codec(rng, d::_DualMapped)
     primal = _primal(d)
     _validate_distribution(primal)
     return _DualCodec(d, primal, rng.device)
 end
+function _dual_codec(rng, d::_DualGammaFamily)
+    _validate_distribution(_primal(d))
+    return _family_codec(d, rng.device)
+end
 
-function IR.rand_next(rng::IR._ScalarUniformGenerators, d::_DualMapped)
+function IR.rand_next(rng::IR._ScalarUniformGenerators, d::_DualDistribution)
     codec = _dual_codec(rng, d)
-    next_rng = IR._reserve(rng, UInt64(_distribution_span(codec.primal)), UInt64(0))
+    width = IR._fill_width(codec, Distributions.partype(d))
+    next_rng = IR._reserve(rng, UInt64(width), UInt64(0))
     value =
         IR._transformed_draw_unchecked(codec, rng, rng.position, Distributions.partype(d))
     return value, next_rng
 end
-Random.rand(rng::IR._ScalarUniformGenerators, d::_DualMapped) = first(IR.rand_next(rng, d))
-function IR.rand_at(rng::IR._ScalarUniformGenerators, d::_DualMapped, index::Integer)
+Random.rand(rng::IR._ScalarUniformGenerators, d::_DualDistribution) =
+    first(IR.rand_next(rng, d))
+function IR.rand_at(rng::IR._ScalarUniformGenerators, d::_DualDistribution, index::Integer)
     codec = _dual_codec(rng, d)
-    addressed = IR._addressed_rng(rng, _distribution_span(codec.primal), index)
+    width = IR._fill_width(codec, Distributions.partype(d))
+    addressed = IR._addressed_rng(rng, width, index)
     return IR._transformed_draw_unchecked(
         codec,
         addressed,
@@ -65,7 +106,7 @@ end
 # Fills run on the CPU, where the dual element type is an ordinary array element.
 function IR.rand_next!(
     rng::IR._CPUGenerators,
-    d::_DualMapped,
+    d::_DualDistribution,
     destination::AbstractArray{<:ForwardDiff.Dual};
     threaded::Bool = false,
 )
@@ -74,25 +115,33 @@ function IR.rand_next!(
 end
 Random.rand!(
     rng::IR._CPUGenerators,
-    d::_DualMapped,
+    d::_DualDistribution,
     destination::AbstractArray{<:ForwardDiff.Dual};
     threaded::Bool = false,
 ) = first(IR.rand_next!(rng, d, destination; threaded))
 
-IR.rand_next(rng::IR._CPUGenerators, d::_DualMapped, dims::Dims; threaded::Bool = false) =
-    IR.rand_next!(rng, d, Array{Distributions.partype(d)}(undef, dims); threaded)
 IR.rand_next(
     rng::IR._CPUGenerators,
-    d::_DualMapped,
+    d::_DualDistribution,
+    dims::Dims;
+    threaded::Bool = false,
+) = IR.rand_next!(rng, d, Array{Distributions.partype(d)}(undef, dims); threaded)
+IR.rand_next(
+    rng::IR._CPUGenerators,
+    d::_DualDistribution,
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
 ) = IR.rand_next(rng, d, (dim1, dims...); threaded)
-Random.rand(rng::IR._CPUGenerators, d::_DualMapped, dims::Dims; threaded::Bool = false) =
-    first(IR.rand_next(rng, d, dims; threaded))
 Random.rand(
     rng::IR._CPUGenerators,
-    d::_DualMapped,
+    d::_DualDistribution,
+    dims::Dims;
+    threaded::Bool = false,
+) = first(IR.rand_next(rng, d, dims; threaded))
+Random.rand(
+    rng::IR._CPUGenerators,
+    d::_DualDistribution,
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,

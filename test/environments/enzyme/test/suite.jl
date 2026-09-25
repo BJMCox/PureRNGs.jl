@@ -41,6 +41,8 @@ end
     # rand! carries the immutable, StatefulRNG, and range fills; rand_next!
     # carries all but the StatefulRNG one. Distribution and population fills have
     # no rule, and the scheduler rule stops threaded fills under differentiation.
+    # The two Gamma primitives carry the implicit shape derivative, with a second
+    # reverse method for a constant result.
     expected_counts = (
         (Random.rand!, 3),
         (Random.randn!, 2),
@@ -49,16 +51,20 @@ end
         (randn_next!, 1),
         (randexp_next!, 1),
         (PureRNGs._run_chunks, 1),
+        (PureRNGs._gamma_value, 1),
+        (PureRNGs._gamma_log_value, 1),
     )
+    constant_reverse = (PureRNGs._gamma_value, PureRNGs._gamma_log_value)
     for rule in (ER.forward, ER.augmented_primal, ER.reverse)
         owned = filter(method -> method.module === extension, methods(rule))
-        @test length(owned) == sum(last, expected_counts)
+        extra(fill_function) = rule === ER.reverse && fill_function in constant_reverse
+        @test length(owned) == sum(((f, n),) -> n + extra(f), expected_counts)
         for (fill_function, expected) in expected_counts
             annotation = Enzyme.Const{typeof(fill_function)}
             @test count(
                 method -> Base.unwrap_unionall(method.sig).parameters[3] === annotation,
                 owned,
-            ) == expected
+            ) == expected + extra(fill_function)
         end
     end
     @test count(method -> method.module === extension, methods(ER.inactive_type)) == 1
@@ -508,4 +514,29 @@ end
         @test iszero(shadow.data)
         @test shadow.writes[] == shadow_writes
     end
+end
+
+# A Gamma draw moves with its shape along the inverse CDF at the draw's
+# probability, so Enzyme's rule gives -dF/dshape / f instead of differentiating
+# the rejection test; Beta composes it through its two Gamma draws.
+@testset "Gamma shape gradients follow the implicit shape derivative" begin
+    rng = Philox4x32(0xb01, 3)
+    oracle(shape, x; h = 1e-6) = begin
+        u = cdf(Gamma(shape), x)
+        (quantile(Gamma(shape + h), u) - quantile(Gamma(shape - h), u)) / 2h
+    end
+    gamma_draw(q) = rand(rng, Gamma(q, 2.0))
+    expected = 2 * oracle(2.5, rand(rng, Gamma(2.5)))
+    @test only(only(autodiff(Reverse, gamma_draw, Active, Active(2.5)))) ≈ expected rtol =
+        1e-6
+    @test only(autodiff(Forward, gamma_draw, Duplicated(2.5, 1.0))) ≈ expected rtol = 1e-6
+    second = PureRNGs._rebuild(
+        rng,
+        PureRNGs._advance_position_unchecked(rng, UInt64(17 * 52), UInt64(0)),
+        rng.device,
+    )
+    x, y = rand(rng, Gamma(0.3)), rand(second, Gamma(0.4))
+    beta_draw(q) = rand(rng, Beta(q, 0.4))
+    @test only(only(autodiff(Reverse, beta_draw, Active, Active(0.3)))) ≈
+          oracle(0.3, x) * y / (x + y)^2 rtol = 1e-6
 end

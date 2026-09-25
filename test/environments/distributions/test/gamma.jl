@@ -1,4 +1,3 @@
-const GAMMA_EXTENSION = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
 
 # The Marsaglia-Tsang test on one candidate, as the law states it.
 function gamma_reference_candidate(x::T, u::T, d::T, c::T) where {T}
@@ -93,7 +92,7 @@ end
 # the child stream, so the distribution checks the fallback, and a draw whose
 # candidate rejects equals the child continuation.
 @testset "rejected candidates continue on a child stream" begin
-    codec(shape) = GAMMA_EXTENSION._GammaCodec(shape, 1.0, IR._CPU_BACKEND, 1)
+    codec(shape) = IR._GammaCodec(shape, 1.0, IR._CPU_BACKEND, 1)
     rng = Philox4x32(0x9c5)
     for shape in (0.3, 1.0, 3.0)
         values = zeros(100_000)
@@ -113,10 +112,7 @@ end
     addressed = IR._addressed_rng(rng, UInt16(156), position)
     child = subrng(
         addressed,
-        xor(
-            GAMMA_EXTENSION._position_index(addressed, addressed.position),
-            GAMMA_EXTENSION._GAMMA_TAG,
-        ),
+        xor(IR._position_index(addressed, addressed.position), IR._GAMMA_TAG),
     )
     d, c = 1.0 - 1 / 3, inv(sqrt(9 * (1.0 - 1 / 3)))
     expected = nothing

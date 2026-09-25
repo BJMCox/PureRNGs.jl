@@ -526,7 +526,6 @@ end
 # from CPU normals in the last ulp, which moves values by rounding and flips an
 # acceptance decision only at the boundary, so nearly all values match the CPU.
 @testset "CUDA Gamma fills equal device draws and track the CPU" begin
-    gamma = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
     for F in GENERATOR_TYPES, d in (Gamma(2.5, 2.0), Gamma(0.3f0, 1.0f0))
         T = partype(d)
         cpu_rng = F(0x792, 1)
@@ -540,7 +539,7 @@ end
         host = rand(cpu_rng, d, 1000)
         @test count(isapprox.(Array(values), host; rtol = 100eps(T))) >= 998
         # One candidate sends about 5% of shape-one draws down the child stream.
-        codec = gamma._GammaCodec(T(1), T(1), gpu_rng.device, 1)
+        codec = IR._GammaCodec(T(1), T(1), gpu_rng.device, 1)
         forced = CuArray{T}(undef, 10_000)
         IR._fill_prevalidated!(gpu_rng, forced, false, codec)
         host_forced = zeros(T, 10_000)
@@ -548,7 +547,7 @@ end
             cpu_rng,
             host_forced,
             false,
-            gamma._GammaCodec(T(1), T(1), cpu_rng.device, 1),
+            IR._GammaCodec(T(1), T(1), cpu_rng.device, 1),
         )
         @test count(isapprox.(Array(forced), host_forced; rtol = 100eps(T))) >= 9_980
     end

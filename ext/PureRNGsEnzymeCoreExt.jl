@@ -285,4 +285,97 @@ end
     ::EnzymeCore.Annotation{Int},
 ) = _threaded_fill_not_differentiable()
 
+# The rejection test picks which candidate a Gamma draw takes, so
+# differentiating through it would bias the shape gradient. These rules give
+# the draw the implicit shape derivative of the Gamma CDF instead; only the
+# shape carries a derivative.
+@inline _scaled(config, direction, derivative) =
+    ER.width(config) == 1 ? direction * derivative : map(d -> d * derivative, direction)
+@inline _zero_tangent(config, value) =
+    ER.width(config) == 1 ? EnzymeCore.make_zero(value) :
+    ntuple(_ -> EnzymeCore.make_zero(value), Val(ER.width(config)))
+
+for (draw, slope) in (
+    (IR._gamma_value, IR._gamma_shape_derivative),
+    (IR._gamma_log_value, IR._gamma_log_shape_derivative),
+)
+    @eval begin
+        function ER.forward(
+            config::ER.FwdConfig,
+            ::EnzymeCore.Const{typeof($draw)},
+            ::Type,
+            shape::EnzymeCore.Annotation{F},
+            codec::EnzymeCore.Annotation,
+            rng::EnzymeCore.Annotation,
+            position::EnzymeCore.Annotation,
+            cursor::EnzymeCore.Annotation,
+        ) where {F<:AbstractFloat}
+            s = shape.val
+            value = $draw(s, codec.val, rng.val, position.val, cursor.val)
+            ER.needs_shadow(config) || return ER.needs_primal(config) ? value : nothing
+            shadow =
+                shape isa EnzymeCore.Const ? _zero_tangent(config, value) :
+                _scaled(config, shape.dval, $slope(s, value))
+            ER.needs_primal(config) || return shadow
+            return ER.width(config) == 1 ? EnzymeCore.Duplicated(value, shadow) :
+                   EnzymeCore.BatchDuplicated(value, shadow)
+        end
+
+        function ER.augmented_primal(
+            config::ER.RevConfig,
+            ::EnzymeCore.Const{typeof($draw)},
+            ::Type,
+            shape::EnzymeCore.Annotation{F},
+            codec::EnzymeCore.Annotation,
+            rng::EnzymeCore.Annotation,
+            position::EnzymeCore.Annotation,
+            cursor::EnzymeCore.Annotation,
+        ) where {F<:AbstractFloat}
+            s = shape.val
+            value = $draw(s, codec.val, rng.val, position.val, cursor.val)
+            primal = ER.needs_primal(config) ? value : nothing
+            return ER.AugmentedReturn(primal, nothing, $slope(s, value))
+        end
+
+        function ER.reverse(
+            config::ER.RevConfig,
+            ::EnzymeCore.Const{typeof($draw)},
+            dvalue::EnzymeCore.Active,
+            derivative,
+            shape::EnzymeCore.Annotation{F},
+            codec::EnzymeCore.Annotation,
+            rng::EnzymeCore.Annotation,
+            position::EnzymeCore.Annotation,
+            cursor::EnzymeCore.Annotation,
+        ) where {F<:AbstractFloat}
+            dshape =
+                shape isa EnzymeCore.Active ? _scaled(config, dvalue.val, derivative) :
+                nothing
+            dcodec =
+                codec isa EnzymeCore.Active ? _zero_tangent(config, codec.val) : nothing
+            return (dshape, dcodec, nothing, nothing, nothing)
+        end
+
+        # A constant result, as for Beta's second draw at a fixed shape,
+        # passes no derivative back.
+        function ER.reverse(
+            config::ER.RevConfig,
+            ::EnzymeCore.Const{typeof($draw)},
+            ::Type,
+            derivative,
+            shape::EnzymeCore.Annotation{F},
+            codec::EnzymeCore.Annotation,
+            rng::EnzymeCore.Annotation,
+            position::EnzymeCore.Annotation,
+            cursor::EnzymeCore.Annotation,
+        ) where {F<:AbstractFloat}
+            dshape =
+                shape isa EnzymeCore.Active ? _zero_tangent(config, shape.val) : nothing
+            dcodec =
+                codec isa EnzymeCore.Active ? _zero_tangent(config, codec.val) : nothing
+            return (dshape, dcodec, nothing, nothing, nothing)
+        end
+    end
+end
+
 end
