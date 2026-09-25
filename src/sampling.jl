@@ -187,7 +187,6 @@ function _randsample_next_unweighted!(
     threaded::Bool,
 )
     _check_sampling_fill_device(rng, destination)
-    _check_sampling_serviceability(rng)
     agnostic = _check_population_device(rng, population)
     _check_sampling_population_overlap(destination, population)
     _prevalidate_sampling_cardinality(population, length(destination))
@@ -236,7 +235,6 @@ function _randsample_next_unweighted(
     threaded::Bool,
 )
     agnostic = _check_population_device(rng, population)
-    _check_sampling_serviceability(rng)
     count = requested_count === nothing ? nothing : _sampling_count(requested_count)
     _prevalidate_sampling_cardinality(population, count)
     indexed = _prepare_population(rng.device, population, agnostic)

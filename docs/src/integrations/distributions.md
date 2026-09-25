@@ -91,8 +91,8 @@ AMDGPU serves the same direct methods as CUDA.
 Reactant supports scalar, continuation, and addressed forms for these
 continuous distributions, using its native compiled arithmetic. This does not
 add parameter-gradient support or a general distribution AD guarantee.
-Metal supports host scalar use, but rejects device-executing distribution
-allocation and fills.
+Metal serves every distribution with `Float32` parameters; `Float64`
+parameters need Float64 arithmetic, which Metal lacks.
 
 ## Categorical
 
@@ -118,8 +118,8 @@ destination-fill calls prepare once per call: CPU accepts CPU-backed or
 device-agnostic probabilities, while a GPU requires probabilities on the
 matching device. A mismatch throws `ArgumentError` rather than copying data.
 The scalar preparation can allocate its cumulative distribution. Categorical is
-not a Reactant carrier operation and adds no AD support. As with the other
-methods, Metal rejects device-executing allocation and fills.
+not a Reactant carrier operation and adds no AD support. Metal rejects
+device-executing allocation and fills, since the cumulative table is Float64.
 
 ## MvNormal
 
@@ -156,7 +156,7 @@ mixture, rng = rand_next(rng, Dirichlet([0.3, 1.0, 2.5]))
 `Chisq(ν)` is `Gamma(ν/2, 2)`, and `InverseGamma(α, θ)` is `θ` over a `Gamma(α)` draw.
 `Beta` and `Dirichlet` normalize the logarithms of Gamma draws in consecutive spans, so shapes as small as 0.01 give finite draws that sum to one.
 `TDist(ν)` divides a normal by the square root of a following chi-square over `ν`.
-Every member runs on the CPU, CUDA, and AMDGPU; a 2^26 `Gamma` fill takes about 6.7 ms on an A100. A device `Dirichlet` fill runs one work item per draw.
+Every member runs on the CPU, CUDA, AMDGPU, and, with `Float32` parameters, Metal; a 2^26 `Gamma` fill takes about 6.7 ms on an A100. A device `Dirichlet` fill runs one work item per draw.
 
 Shape gradients use the implicit derivative of the Gamma CDF, `dx/dα = -∂F(x; α)/∂α ÷ f(x; α)` (Figurnov, Mohamed, and Mnih 2018), with Enzyme, Mooncake, and ForwardDiff alike.
 Differentiating through the rejection test would bias the gradient, so the sampler is a primitive with that rule.

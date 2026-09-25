@@ -4,29 +4,42 @@ import PureRNGs
 import Metal
 
 const IR = PureRNGs
-const _Metal32Generators = IR._Backend32Generators{IR._MetalBackend}
 const _MetalGenerators = IR._BackendGenerators{IR._MetalBackend}
 
-@noinline function _metal_device_error()
+# Metal has no Float64 or 128-bit integer arithmetic. Every other draw runs on
+# the device; weighted sampling stays off it, since its cumulative sums are
+# Float64.
+@noinline function _metal_type_error(::Type{T}) where {T}
     throw(
         ArgumentError(
-            "device execution is not supported on Metal for this result type or generator",
+            "$T draws need Float64 or 128-bit integer arithmetic, which Metal lacks; " *
+            "move the generator to the CPU",
         ),
     )
 end
 
-for T in
-    (Bool, UInt8, Int8, UInt16, Int16, UInt32, Int32, UInt64, Int64, Float16, Float32, Char)
-    @eval @inline IR._check_serviceability(::_Metal32Generators, ::Type{$T}) = nothing
+@noinline function _metal_weighted_error()
+    throw(
+        ArgumentError(
+            "weighted sampling folds Float64 weights, which Metal lacks; move the " *
+            "generator to the CPU",
+        ),
+    )
 end
-@inline IR._check_serviceability(::_MetalGenerators, ::Type) = _metal_device_error()
-@inline IR._check_serviceability(::_MetalGenerators, ::AbstractRange) =
-    _metal_device_error()
-@inline IR._check_sampling_serviceability(::_MetalGenerators) = _metal_device_error()
+
+@inline IR._check_serviceability(
+    ::_MetalGenerators,
+    ::Type{T},
+) where {T<:Union{Float64,Complex{Float64},IR._WideInteger}} = _metal_type_error(T)
+@inline IR._check_weighted_serviceability(::_MetalGenerators) = _metal_weighted_error()
+IR._fold_device_weights(::IR._MetalBackend, weights, ::Bool) = _metal_weighted_error()
 
 @inline function IR._allocate_array(::IR._MetalBackend, ::Type{T}, dims::Tuple) where {T}
     return Metal.MtlArray{T}(undef, dims)
 end
+
+@inline IR._materialize_population(::IR._MetalBackend, population) =
+    Metal.MtlArray(IR._collect_population(population))
 
 # Cache host wrappers without creating a device context or compiling a kernel.
 let rng_type = IR.Philox4x32{IR._MetalBackend,10},

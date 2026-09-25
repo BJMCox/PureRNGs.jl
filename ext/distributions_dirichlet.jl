@@ -58,6 +58,7 @@ function IR.rand_next!(
     threaded::Bool = false,
 ) where {T<:_FloatType}
     _validate_dirichlet(d)
+    IR._check_serviceability(rng, T)
     IR._check_fill_device(rng, destination)
     size(destination, 1) == length(d) || throw(
         DimensionMismatch(
@@ -75,11 +76,15 @@ Random.rand!(
     threaded::Bool = false,
 ) where {T<:_FloatType} = first(IR.rand_next!(rng, d, destination; threaded))
 
-IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FloatDirichlet) = IR.rand_next!(
-    rng,
-    d,
-    IR._allocate_array(rng.device, Distributions.partype(d), (length(d),)),
-)
+# The type check comes first, since a device may not hold the result type at all.
+function _dirichlet_array(rng, d, dims)
+    T = Distributions.partype(d)
+    IR._check_serviceability(rng, T)
+    return IR._allocate_draw_array(rng.device, T, dims)
+end
+
+IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FloatDirichlet) =
+    IR.rand_next!(rng, d, _dirichlet_array(rng, d, (length(d),)))
 Random.rand(rng::IR._ScalarUniformGenerators, d::_FloatDirichlet) =
     first(IR.rand_next(rng, d))
 function IR.rand_next(
@@ -88,9 +93,7 @@ function IR.rand_next(
     n::Integer;
     threaded::Bool = false,
 )
-    destination =
-        IR._allocate_draw_array(rng.device, Distributions.partype(d), (length(d), n))
-    return IR.rand_next!(rng, d, destination; threaded)
+    return IR.rand_next!(rng, d, _dirichlet_array(rng, d, (length(d), n)); threaded)
 end
 Random.rand(
     rng::IR._ScalarUniformGenerators,
@@ -106,7 +109,7 @@ function IR.rand_at(rng::IR._ScalarUniformGenerators, d::_FloatDirichlet, index:
     span = IR._gamma_span(T, IR._GAMMA_CANDIDATES)
     addressed = IR._addressed_rng(rng, span, (index - 1) * length(d) + 1)
     _reserve_dirichlet(addressed, d, 1, T)
-    destination = IR._allocate_array(rng.device, T, (length(d),))
+    destination = _dirichlet_array(rng, d, (length(d),))
     _fill_dirichlet!(addressed, d, destination, false)
     return destination
 end

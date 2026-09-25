@@ -7,9 +7,17 @@ using Random
 using Test
 
 const IR = PureRNGs
-const METAL_32_GENERATORS = (Philox2x32, Philox4x32, Threefry2x32, Threefry4x32, ChaCha)
-const METAL_64_GENERATORS = (Philox2x64, Philox4x64, Threefry2x64, Threefry4x64)
-const METAL_GENERATORS = (METAL_32_GENERATORS..., METAL_64_GENERATORS...)
+const METAL_GENERATORS = (
+    Philox2x32,
+    Philox4x32,
+    Threefry2x32,
+    Threefry4x32,
+    ChaCha,
+    Philox2x64,
+    Philox4x64,
+    Threefry2x64,
+    Threefry4x64,
+)
 const METAL_FIXED_DISTRIBUTIONS = (
     (Normal{Float32}(0.5f0, 1.25f0), Float32),
     (Normal{Float64}(0.5, 1.25), Float64),
@@ -139,111 +147,46 @@ end
     end
 end
 
-@testset "Metal allocating exclusions" begin
-    for F in METAL_32_GENERATORS
+# Metal has no Float64 or 128-bit integer arithmetic, so those results and the
+# samplers that fold Float64 weights throw before touching the device.
+@testset "Metal rejects Float64, 128-bit, and weighted draws" begin
+    for F in METAL_GENERATORS
         rng = MetalDevice()(F(0x817))
-        for count in (0, 1)
-            _check_metal_error(() -> rand(rng, Float64, count))
-            _check_metal_error(() -> IR.rand_next(rng, Float64, count))
-            _check_metal_error(() -> randn(rng, Float64, count))
-            _check_metal_error(() -> IR.randn_next(rng, Float64, count))
-            _check_metal_error(() -> randexp(rng, Float64, count))
-            _check_metal_error(() -> IR.randexp_next(rng, Float64, count))
-        end
-        _check_metal_error(() -> IR.rand_next(rng, 0))
-        _check_metal_error(() -> IR.randn_next(rng, 0))
-        _check_metal_error(() -> IR.randexp_next(rng, 0))
-        _check_metal_error(() -> rand(rng, Float64, -1))
-        _check_metal_error(() -> IR.rand_next(rng, Float64, -1))
-    end
-
-    for F in METAL_64_GENERATORS
-        rng = MetalDevice()(F(0x818))
-        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64), count in (0, 1)
+        for T in (Float64, ComplexF64, UInt128, Int128), count in (0, 1)
             _check_metal_error(() -> rand(rng, T, count))
             _check_metal_error(() -> IR.rand_next(rng, T, count))
+            _check_metal_error(() -> rand!(rng, MetalDeviceArrayProbe(Vector{T}())))
         end
-        for T in (Float32, Float64), count in (0, 1)
+        for T in (Float64, ComplexF64), count in (0, 1)
             _check_metal_error(() -> randn(rng, T, count))
             _check_metal_error(() -> IR.randn_next(rng, T, count))
-            _check_metal_error(() -> randexp(rng, T, count))
-            _check_metal_error(() -> IR.randexp_next(rng, T, count))
         end
-    end
-
-    for F in METAL_GENERATORS,
-        T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64),
-        count in (0, 1)
-
-        rng = MetalDevice()(F(0x819))
-        range = T(1):T(3)
-        _check_metal_error(() -> rand(rng, range, count))
-        _check_metal_error(() -> IR.rand_next(rng, range, count))
+        _check_metal_error(() -> randexp(rng, Float64, 1))
+        _check_metal_error(() -> IR.randexp_next!(rng, MetalDeviceArrayProbe(Float64[])))
+        _check_metal_error(() -> IR.rand_next(rng, 0))
+        _check_metal_error(() -> rand(rng, Int128(1):Int128(3), 1))
+        _check_metal_error(() -> rand(rng, Float64, -1))
     end
 
     rng = MetalDevice()(Philox4x32(0x81a))
     _check_metal_error(() -> rand(rng, UInt32(2):UInt32(1), 1))
-    _check_metal_error(() -> IR.rand_next(rng, UInt32(2):UInt32(1), 1))
     _check_metal_error(() -> rand(rng, UInt32(1):UInt32(3), -1))
-    _check_metal_error(() -> IR.rand_next(rng, UInt32(1):UInt32(3), -1))
     @test_throws ArgumentError rand!(rng, UInt32[])
-    @test_throws ArgumentError IR.rand_next!(rng, UInt32[])
     @test_throws ArgumentError randn!(rng, Float32[])
-    @test_throws ArgumentError IR.randn_next!(rng, Float32[])
-    @test_throws ArgumentError randexp!(rng, Float32[])
-    @test_throws ArgumentError IR.randexp_next!(rng, Float32[])
+    @test_throws ArgumentError IR.randsample(rng, UInt32[1, 2, 3], -1)
 
     population = MetalDeviceArrayProbe(Int32[1, 2, 3])
-    weights = MetalDeviceArrayProbe(Float64[1, 2, 3])
-    for count in (0, 1)
-        _check_metal_error(() -> randsample(rng, population, weights, count))
-        _check_metal_error(() -> randsample_next(rng, population, weights, count))
+    weights = MetalDeviceArrayProbe(Float32[1, 2, 3])
+    for count in (0, 1), replace in (true, false)
+        _check_metal_error(() -> randsample(rng, population, weights, count; replace))
+        _check_metal_error(() -> randsample_next(rng, population, weights, count; replace))
     end
     _check_metal_error(() -> randsample(rng, population, weights))
-    _check_metal_error(() -> randsample_next(rng, population, weights))
-    table = WeightTable(Float64[1, 2, 3])
-    _check_metal_error(() -> randsample(rng, population, table, 1))
-    _check_metal_error(() -> randsample_next(rng, population, table, 1))
-
-    for F in METAL_32_GENERATORS
-        rng = MetalDevice()(F(0x81b))
-        destination = MetalDeviceArrayProbe(Float64[])
-        _check_metal_error(() -> rand!(rng, destination))
-        _check_metal_error(() -> IR.rand_next!(rng, destination))
-        _check_metal_error(() -> randn!(rng, destination))
-        _check_metal_error(() -> IR.randn_next!(rng, destination))
-        _check_metal_error(() -> randexp!(rng, destination))
-        _check_metal_error(() -> IR.randexp_next!(rng, destination))
-    end
-
-    for F in METAL_64_GENERATORS
-        rng = MetalDevice()(F(0x81c))
-        for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-            destination = MetalDeviceArrayProbe(Vector{T}())
-            _check_metal_error(() -> rand!(rng, destination))
-            _check_metal_error(() -> IR.rand_next!(rng, destination))
-        end
-        for T in (Float32, Float64)
-            destination = MetalDeviceArrayProbe(Vector{T}())
-            _check_metal_error(() -> randn!(rng, destination))
-            _check_metal_error(() -> IR.randn_next!(rng, destination))
-            _check_metal_error(() -> randexp!(rng, destination))
-            _check_metal_error(() -> IR.randexp_next!(rng, destination))
-        end
-    end
-
-    for F in METAL_GENERATORS
-        rng = MetalDevice()(F(0x91c))
-        range = UInt32(1):UInt32(7)
-        for operation in (IR.randsample, IR.randsample_next)
-            _check_metal_error(() -> operation(rng, range))
-            _check_metal_error(() -> operation(rng, range, 0))
-            _check_metal_error(() -> operation(rng, range, 1))
-        end
-    end
-
-    metal_rng = MetalDevice()(Philox4x32(0x91d))
-    @test_throws ArgumentError IR.randsample(metal_rng, UInt32[1, 2, 3], -1)
+    _check_metal_error(
+        () -> randsample_next!(rng, 1:3, ones(3), MetalDeviceArrayProbe(Int[])),
+    )
+    _check_metal_error(() -> randsample(rng, population, WeightTable(Float64[1, 2, 3]), 1))
+    _check_metal_error(() -> WeightTable(MetalDeviceArrayProbe(Float32[1, 2, 3])))
 end
 
 @testset "Metal fixed-distribution surface" begin
@@ -255,41 +198,18 @@ end
         @test isequal(next_value, value)
         @test isequal(IR.rand_at(rng, distribution, 1), value)
         @test next_rng.device === IR._METAL_BACKEND
-
+        result_type === Float64 || continue
         for count in (0, 1)
             _check_metal_error(() -> rand(rng, distribution, count))
             _check_metal_error(() -> IR.rand_next(rng, distribution, count))
         end
-
         destination = MetalDeviceArrayProbe(Vector{result_type}())
-        _check_metal_error(() -> rand!(rng, distribution, destination))
         _check_metal_error(() -> IR.rand_next!(rng, distribution, destination))
     end
-end
-
-@testset "Metal excludes added device-executing samplers" begin
     rng = MetalDevice()(Philox4x32(0x91f))
-    for distribution in (
-        LogNormal(0.0f0, 1.0f0),
-        Weibull(2.0f0, 1.0f0),
-        Rayleigh(1.0f0),
-        Laplace(0.0f0, 1.0f0),
-        Logistic(0.0f0, 1.0f0),
-        Gumbel(0.0f0, 1.0f0),
-        Pareto(2.0f0, 1.0f0),
-        Frechet(2.0f0, 1.0f0),
-        Cauchy(0.0f0, 1.0f0),
-        TriangularDist(0.0f0, 1.0f0, 0.5f0),
-        Categorical([0.25, 0.75]),
-    )
-        T = typeof(rand(rng, distribution))
-        destination = MetalDeviceArrayProbe(T[])
-        _check_metal_error(() -> rand(rng, distribution, 0))
-        _check_metal_error(() -> rand_next!(rng, distribution, destination))
+    for distribution in (Categorical([0.25, 0.75]), Gamma(2.0, 1.0), Dirichlet([0.5, 2.0]))
+        _check_metal_error(() -> rand(rng, distribution, 1))
     end
-    destination = MetalDeviceArrayProbe(Int[])
-    _check_metal_error(() -> randsample!(rng, 1:3, destination))
-    _check_metal_error(() -> randsample_next!(rng, 1:3, ones(3), destination))
 end
 
 if Metal.functional()
@@ -306,8 +226,11 @@ if Metal.functional()
             Int64,
             Float16,
             Float32,
+            ComplexF16,
+            ComplexF32,
+            Char,
         )
-        for F in METAL_32_GENERATORS, T in served
+        for F in METAL_GENERATORS, T in served
             cpu_rng = F(0x81b)
             rng = MetalDevice()(cpu_rng)
             values, next_rng = IR.rand_next(rng, T, 17)
@@ -317,7 +240,7 @@ if Metal.functional()
             @test next_rng.position == expected_next.position
         end
 
-        for F in METAL_32_GENERATORS, T in (Float16, Float32)
+        for F in METAL_GENERATORS, T in (Float16, Float32, ComplexF32)
             cpu_rng = F(0x81c)
             rng = MetalDevice()(cpu_rng)
             values, next_rng = IR.randn_next(rng, T, 17)
@@ -329,14 +252,54 @@ if Metal.functional()
         end
     end
 
-    @testset "Metal Char draws equal the CPU draws" begin
-        for F in METAL_32_GENERATORS
+    # Uniform-based draws equal the CPU draws. Transforms evaluate Metal's own
+    # log and erfinv, and a Gamma acceptance can flip where they round, so
+    # nearly all transformed values match.
+    @testset "Metal ranges, sampling, and distributions track the CPU" begin
+        near(x, y) = isapprox(x, y; rtol = 1.0f-4, atol = 1.0f-6)
+        for F in (Philox4x32, Threefry2x64, ChaCha)
             cpu_rng = F(0x81d, 5)
             rng = MetalDevice()(cpu_rng)
-            values, next_rng = IR.rand_next(rng, Char, 37)
-            expected, expected_next = IR.rand_next(cpu_rng, Char, 37)
-            @test Array(values) == expected
-            @test next_rng.position == expected_next.position
+            for range in (Int32(-3):Int32(9), UInt64(1):(UInt64(10)^12))
+                values, next_rng = IR.rand_next(rng, range, 1000)
+                expected, expected_next = IR.rand_next(cpu_rng, range, 1000)
+                @test values isa Metal.MtlArray
+                @test Array(values) == expected
+                @test next_rng.position == expected_next.position
+            end
+            population = Float32.(1:100)
+            for replace in (true, false)
+                @test Array(randsample(rng, Metal.MtlArray(population), 50; replace)) ==
+                      randsample(cpu_rng, population, 50; replace)
+            end
+            @test Array(randsample(rng, 1:100, 50)) == randsample(cpu_rng, 1:100, 50)
+            for d in (
+                Normal(1.0f0, 2.0f0),
+                Logistic(0.0f0, 1.0f0),
+                Laplace(0.0f0, 1.0f0),
+                Bernoulli(0.3f0),
+                DiscreteUniform(1, 6),
+                Gamma(2.5f0, 1.0f0),
+                Gamma(0.3f0, 2.0f0),
+                Beta(0.5f0, 0.7f0),
+                TDist(3.0f0),
+            )
+                values, next_rng = IR.rand_next(rng, d, 1000)
+                expected, expected_next = IR.rand_next(cpu_rng, d, 1000)
+                @test values isa Metal.MtlArray
+                @test count(near.(Array(values), expected)) >= 998
+                @test next_rng.position == expected_next.position
+            end
+            for d in (
+                Dirichlet(Float32[0.3, 2, 5]),
+                MvNormal(Float32[1, 2], Float32[2 0.5; 0.5 1]),
+            )
+                values, next_rng = IR.rand_next(rng, d, 100)
+                expected, expected_next = IR.rand_next(cpu_rng, d, 100)
+                @test values isa Metal.MtlArray{Float32,2}
+                @test count(near.(Array(values), expected)) >= 0.998 * length(expected)
+                @test next_rng.position == expected_next.position
+            end
         end
     end
 
@@ -354,12 +317,17 @@ if Metal.functional()
             @test Array(first(shuffle_next(rng, Metal.MtlArray(values)))) ==
                   first(shuffle_next(cpu_rng, values))
         end
-        # Equal keys are found on the device and resolved as on the CPU.
-        keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
+        # Equal keys are resolved on the device as on the CPU, whatever order
+        # the device sort leaves them in.
+        keys = first(rand_next(Philox4x32(0x81f), UInt64(1):UInt64(300), 20_000))
         host = sortperm(keys)
         IR._resolve_key_ties!(host, keys, Philox4x32(0x81f))
-        device = Metal.MtlArray(sortperm(keys))
-        IR._resolve_key_ties!(device, Metal.MtlArray(keys), Philox4x32(0x81f))
+        device = Metal.MtlArray(sortperm(collect(zip(keys, length(keys):-1:1))))
+        IR._resolve_key_ties!(
+            device,
+            Metal.MtlArray(keys),
+            MetalDevice()(Philox4x32(0x81f)),
+        )
         @test Array(device) == host
     end
 

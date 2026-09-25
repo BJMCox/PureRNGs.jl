@@ -338,7 +338,7 @@ function _randsample_next_weighted(
 )
     population_agnostic = _check_population_device(rng, population)
     weights_agnostic = _check_sampling_device(rng, weights, "weights")
-    _check_sampling_serviceability(rng)
+    _check_weighted_serviceability(rng)
 
     count = requested_count === nothing ? nothing : _sampling_count(requested_count)
     _prevalidate_sampling_cardinality(population, count)
@@ -396,7 +396,7 @@ function _randsample_next_weighted!(
     threaded::Bool,
 )
     _check_sampling_fill_device(rng, destination)
-    _check_sampling_serviceability(rng)
+    _check_weighted_serviceability(rng)
     population_agnostic = _check_population_device(rng, population)
     weights_agnostic = _check_sampling_device(rng, weights, "weights")
     _check_sampling_population_overlap(destination, population)

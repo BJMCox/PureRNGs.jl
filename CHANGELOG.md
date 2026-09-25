@@ -19,6 +19,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Device permutations, shuffles, and samples without replacement stay on the device: runs of equal keys are ordered by a kernel instead of on the host. Device weighted sampling reads back only its validation results.
 - A `WeightTable` of device weights folds on their device and serves generators there.
 - ForwardDiff `Dual` parameters fill device arrays, and the Gamma shape derivative runs in device kernels.
+- Metal serves every generator, integer ranges, unweighted sampling, and `Float32` distributions, including the Gamma family, `Dirichlet`, and `MvNormal`. Only `Float64`, `ComplexF64`, 128-bit integers, weighted sampling, and `Categorical` stay off it.
 - Mooncake and ForwardDiff extensions. Mooncake gives pathwise gradients through typed draws, fills, and every fixed distribution. Fixed distributions accept ForwardDiff `Dual` parameters, and a dual draw's value equals the primal draw.
 - A StaticArrays extension: `rand`, `randn`, `randexp`, their `_next` and `_at` forms, and the fills accept static array types. A static array is the next `N` scalar draws, with no allocation, so GPU kernels can draw one per thread.
 - A StatsBase extension: `sample`, `sample!`, `wsample`, and `wsample!` accept pure generators and draw what `randsample` does, and `samplepair` makes two range draws.

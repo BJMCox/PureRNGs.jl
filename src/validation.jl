@@ -47,7 +47,8 @@ end
     return agnostic
 end
 
-@inline _check_sampling_serviceability(rng) = nothing
+# Weighted sampling folds Float64 weights; a backend without Float64 rejects it.
+@inline _check_weighted_serviceability(rng) = nothing
 
 @inline function _check_sampling_fill_device(rng, destination::Array)
     rng.device isa _CPUBackend || _fill_device_mismatch(

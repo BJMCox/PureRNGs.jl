@@ -154,23 +154,13 @@ end
     return IR._device_fill_plan(backend, rng, Val(:uniform), T)
 end
 
-@noinline function _metal_distribution_error()
-    throw(ArgumentError("fixed-distribution draws are not supported on Metal"))
-end
-
-@inline IR._check_serviceability(
-    rng,
-    d::Union{_NativeDistribution,Distributions.Categorical},
-) = IR._check_serviceability(rng, _result_type(d))
-
-# Metal serves no distribution draw. The result type is checked first so a
-# type Metal does not serve keeps reporting the device error.
-@inline function IR._check_serviceability(
-    rng::IR._BackendGenerators{IR._MetalBackend},
-    d::Union{_NativeDistribution,Distributions.Categorical},
-)
+@inline IR._check_serviceability(rng, d::_NativeDistribution) =
     IR._check_serviceability(rng, _result_type(d))
-    return _metal_distribution_error()
+
+# Categorical labels come from a Float64 cumulative table, as weighted samples do.
+@inline function IR._check_serviceability(rng, d::Distributions.Categorical)
+    IR._check_weighted_serviceability(rng)
+    return IR._check_serviceability(rng, _result_type(d))
 end
 
 @inline function _fill_distribution_prevalidated!(rng, d, destination, threaded)

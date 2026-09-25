@@ -49,7 +49,7 @@ Use allocating draws, fills, or [GPU kernels](@ref) to generate values on the de
 | CPU | Required release gate | Full eager API |
 | CUDA | Required local release gate | Primitive draws, ranges, sampling, supported distributions |
 | AMDGPU | Preview | Every operation CUDA serves, through the portable kernel path |
-| Metal | Experimental | Restricted primitive draws and fills |
+| Metal | Experimental | Every operation without Float64 or 128-bit arithmetic |
 
 AMDGPU is a backend extension, not a required release gate. It has no tuned
 fill plan, so fills run the portable kernel path. See [Sampling](@ref) for
@@ -57,12 +57,9 @@ weighted preparation and device rules.
 
 CUDA and AMDGPU fills reject the 128-bit integer element types, which run on the CPU only.
 
-Metal device execution supports 32-bit generators with `Bool`, 8- to 64-bit integer, `Float16`, and `Float32` results.
-Normal and exponential results must be `Float16` or `Float32`.
-
-Metal excludes allocating integer-range draws, population sampling, and every
-fixed-distribution and `Categorical` form that executes on the device,
-allocating draws and fills alike.
+Metal has no Float64 or 128-bit integer arithmetic.
+Its device execution serves every generator and every result type except `Float64`, `ComplexF64`, and the 128-bit integers, including ranges, unweighted sampling, permutations, and `Float32` distributions.
+Weighted sampling, `WeightTable`, and `Categorical` fold Float64 weights, so a Metal generator rejects them.
 Host scalar operations are not restricted by the Metal token.
 Unsupported host-called operations throw even for empty outputs.
 
