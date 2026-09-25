@@ -17,6 +17,7 @@ using TOML
         "PureRNGsMetalExt" => "Metal",
         "PureRNGsReactantDistributionsExt" => ["Distributions", "Reactant"],
         "PureRNGsReactantExt" => "Reactant",
+        "PureRNGsStatsBaseExt" => "StatsBase",
     )
     declared = union(
         keys(project["deps"]),

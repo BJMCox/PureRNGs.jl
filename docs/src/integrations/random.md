@@ -42,3 +42,20 @@ Those methods may choose different scalar hooks or partially write before exhaus
 The wrapper still retains a valid state after each completed scalar draw.
 
 Use immutable destination-fill methods when you need their stronger whole-operation contract.
+
+## StatsBase
+
+Loading StatsBase adds `sample`, `sample!`, `wsample`, `wsample!`, and `samplepair` methods for pure generators.
+Each form is the [`randsample`](@ref) draw at the held position, with the same `replace` keyword, and it does not advance the generator.
+
+```julia
+using StatsBase
+rng = Philox4x32(7)
+sample(rng, 1:10, 3; replace = false) == randsample(rng, 1:10, 3; replace = false)
+sample(rng, [:a, :b, :c], Weights([1.0, 2.0, 3.0]), 5)
+```
+
+`ordered = true` draws positions the same way and lists them in population order.
+`UnitWeights` take the unweighted law, as in StatsBase.
+`sample!` draws the sample, then copies it into the destination, which may have any element type.
+`samplepair(rng, n)` makes two range draws: `i` from `1:n`, then `j` from `1:n-1`, with `j == i` standing for `n`.
