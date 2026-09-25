@@ -205,6 +205,11 @@ end
     return slope + fraction * (log_x - _digamma(a))
 end
 
+# A standard Gamma(shape) draw, or its logarithm, at a traced generator's held
+# position, with `candidates` as in `_GammaCodec`. The Reactant extension owns
+# the method.
+function _traced_gamma end
+
 @inline _gamma_cursor(rng, position) =
     _dense_cursor(rng, _position_block(position), position.bit)
 @inline _gamma_offset(rng, position, bits) =

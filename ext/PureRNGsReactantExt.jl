@@ -570,6 +570,60 @@ for T in (Float16, Float32, Float64)
     end
 end
 
+# The Gamma sampler of src/gamma.jl without data-dependent branches: every
+# candidate is evaluated and the first accepted one selected, and a traced loop
+# continues on the child stream in the rare case that all reject. The squeeze
+# and the logarithm test accept the same candidates as the eager short circuit.
+@inline function _gamma_candidate(x, u, d::T, c::T) where {T}
+    v = one(T) + c * x
+    positive = v > zero(T)
+    cube = ifelse(positive, v * v * v, one(T))
+    squared = x * x
+    squeeze = u < one(T) - T(0.0331) * squared * squared
+    exact = log(u) < squared / 2 + d * (one(T) - cube + log(cube))
+    return positive & (squeeze | exact), d * cube
+end
+
+@inline function _position_index(rng::_ReactantRNG{R}) where {R}
+    position = _position(rng)
+    return _shl(position[1], trailing_zeros(_block_bits(R))) + position[end]
+end
+
+function IR._traced_gamma(
+    rng::_ReactantRNG{R},
+    shape::T,
+    ::Val{logarithm},
+    candidates::Int,
+) where {R,T,logarithm}
+    n = Int(IR._normal_bits(T))
+    d = (shape < one(T) ? shape + one(T) : shape) - one(T) / T(3)
+    c = inv(sqrt(T(9) * d))
+    found, value = false, zero(T)
+    for k = 1:candidates
+        x = _normal_value(_advance(rng, UInt64((2k - 1) * n)), T)
+        u = _open_midpoint(_raw(_advance(rng, UInt64(2k * n)), Val(n)), T)
+        accepted, g = _gamma_candidate(x, u, d, c)
+        value = ifelse(found, value, g)
+        found = found | accepted
+    end
+    purpose = xor(_position_index(rng), IR._GAMMA_TAG)
+    child = _purpose_child(rng, purpose, Val(_lane_barriers(R)))
+    # The traced loop rebinds every name its body reads, so the body reads the
+    # float type and the shift through locals rather than static parameters.
+    float_type, shift = T, UInt64(64 - n)
+    Reactant.@trace while !found
+        x, child = IR.randn_next(child, float_type)
+        raw, child = IR.rand_next(child, UInt64)
+        u = _open_midpoint(_shr(raw, shift), float_type)
+        accepted, g = _gamma_candidate(x, u, d, c)
+        value = ifelse(accepted, g, value)
+        found = accepted
+    end
+    shape < one(T) || return logarithm ? log(value) : value
+    boost = log(_open_midpoint(_raw(rng, Val(n)), T)) / shape
+    return logarithm ? log(value) + boost : value * exp(boost)
+end
+
 # Array fills. The core runs once over every block the fill spans, one lane
 # per block, and a gather reads the two words of each draw. The stream layout
 # matches the CPU fill: draw `i` occupies the `W` bits after `i - 1` draws.
@@ -995,7 +1049,7 @@ end
 @inline IR.subrng(rng::_ReactantRNG{R}, purpose::Integer) where {R} =
     _purpose_child(rng, purpose % UInt64, Val(_lane_barriers(R)))
 
-@inline _purpose_child(rng::_ReactantRNG{R}, purpose::UInt64, barriers::Val) where {R} =
+@inline _purpose_child(rng::_ReactantRNG{R}, purpose, barriers::Val) where {R} =
     _child(rng, IR._subrng_key(R, _key(rng, barriers), purpose))
 
 end

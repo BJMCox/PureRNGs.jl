@@ -63,3 +63,51 @@ end
         @test d.a <= middle <= d.b
     end
 end
+
+# A compiled Gamma-family draw reads the eager draw's span and advances as far.
+# XLA evaluates its own log and exp, so values agree to rounding.
+_gamma_snapshot(rng, d) = (rand(rng, d), rand_next(rng, d), rand_at(rng, d, 3))
+
+@testset "compiled Gamma family draws track the eager draws" begin
+    for d in (
+        Gamma(2.5, 2.0),
+        Gamma(0.3f0, 1.0f0),
+        Chisq(3.0),
+        InverseGamma(2.5f0, 1.5f0),
+        Beta(0.3, 0.4),
+        TDist(3.0f0),
+    )
+        T = partype(d)
+        eager = last(rand_next(Philox4x32(0x654), Bool))
+        carrier = Reactant.to_rarray(eager)
+        compiled = Reactant.@compile sync = true _gamma_snapshot(carrier, d)
+        got = compiled(carrier, d)
+        value, next_rng = rand_next(eager, d)
+        @test T(got[1]) ≈ value rtol = 100eps(T)
+        @test T(got[2][1]) ≈ value rtol = 100eps(T)
+        @test _same_value(got[2][2], next_rng)
+        @test T(got[3]) ≈ rand_at(eager, d, 3) rtol = 100eps(T)
+    end
+end
+
+# One candidate sends about 5% of shape-one draws through the traced loop on
+# the child stream, which must reach the eager fallback's value.
+_forced_gamma(rng, shape) = PureRNGs._traced_gamma(rng, shape, Val(false), 1)
+
+@testset "the compiled Gamma fallback loop reaches the eager value" begin
+    base = Philox4x32(0x777)
+    compiled = Reactant.@compile sync = true _forced_gamma(Reactant.to_rarray(base), 1.0)
+    span = PureRNGs._gamma_span(Float64, 1)
+    eager(rng, candidates) = PureRNGs._gamma_value(
+        1.0,
+        PureRNGs._GammaCodec(1.0, 1.0, rng.device, candidates),
+        rng,
+        rng.position,
+        PureRNGs._gamma_cursor(rng, rng.position),
+    )
+    rngs = [PureRNGs._addressed_rng(base, span, j) for j = 1:200]
+    @test count(rng -> eager(rng, 1) != eager(rng, 8), rngs) >= 3
+    for rng in rngs
+        @test Float64(compiled(Reactant.to_rarray(rng), 1.0)) ≈ eager(rng, 1) rtol = 1e-12
+    end
+end

@@ -9,6 +9,7 @@ const IR = PureRNGs
 const _ReactantRNG = IR._ReactantRNG
 
 include("distributions_common.jl")
+include("distributions_gamma.jl")
 
 # The Reactant extension declares the same ops for the core generators. Julia
 # extensions cannot share a name, so the singleton is declared again here.
@@ -174,6 +175,47 @@ end
 @inline function IR.rand_at(rng::_ReactantRNG, d::_FixedDistribution, index::Integer)
     _validate_distribution(d)
     return _map_primitive(d, _primitive_at(rng, d, index))
+end
+
+
+# The Gamma family maps traced standard Gamma draws in the spans the eager draw
+# reads, so compiled and eager draws consume the same bits.
+@inline _traced_gamma(rng, shape) =
+    IR._traced_gamma(rng, shape, Val(false), IR._GAMMA_CANDIDATES)
+@inline _traced_log_gamma(rng, shape) =
+    IR._traced_gamma(rng, shape, Val(true), IR._GAMMA_CANDIDATES)
+
+@inline _gamma_family_value(rng, d::Distributions.Gamma) = d.θ * _traced_gamma(rng, d.α)
+@inline _gamma_family_value(rng, d::Distributions.Chisq{T}) where {T} =
+    T(2) * _traced_gamma(rng, d.ν / 2)
+@inline _gamma_family_value(rng, d::Distributions.InverseGamma) =
+    d.θ / _traced_gamma(rng, d.invd.α)
+@inline function _gamma_family_value(rng, d::Distributions.Beta{T}) where {T}
+    width = IR._gamma_span(T, IR._GAMMA_CANDIDATES)
+    log_x = _traced_log_gamma(rng, d.α)
+    log_y = _traced_log_gamma(IR._addressed_rng(rng, width, 2), d.β)
+    return inv(one(T) + exp(log_y - log_x))
+end
+@inline function _gamma_family_value(rng, d::Distributions.TDist{T}) where {T}
+    z = Random.randn(rng, T)
+    g = _traced_gamma(IR._addressed_rng(rng, IR._normal_bits(T), 2), d.ν / 2)
+    return z * sqrt(d.ν / (2 * g))
+end
+
+@inline function Random.rand(rng::_ReactantRNG, d::_GammaFamilyDistribution)
+    _validate_distribution(d)
+    return _gamma_family_value(rng, d)
+end
+
+@inline function IR.rand_next(rng::_ReactantRNG, d::_GammaFamilyDistribution)
+    _validate_distribution(d)
+    next_rng = IR._addressed_rng(rng, _distribution_span(d), 2)
+    return _gamma_family_value(rng, d), next_rng
+end
+
+@inline function IR.rand_at(rng::_ReactantRNG, d::_GammaFamilyDistribution, index::Integer)
+    _validate_distribution(d)
+    return _gamma_family_value(IR._addressed_rng(rng, _distribution_span(d), index), d)
 end
 
 end

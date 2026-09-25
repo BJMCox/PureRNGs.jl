@@ -157,6 +157,7 @@ mixture, rng = rand_next(rng, Dirichlet([0.3, 1.0, 2.5]))
 `Beta` and `Dirichlet` normalize the logarithms of Gamma draws in consecutive spans, so shapes as small as 0.01 give finite draws that sum to one.
 `TDist(ν)` divides a normal by the square root of a following chi-square over `ν`.
 Every member runs on the CPU, CUDA, AMDGPU, and, with `Float32` parameters, Metal; a 2^26 `Gamma` fill takes about 6.7 ms on an A100. A device `Dirichlet` fill runs one work item per draw.
+Under Reactant the scalar members have scalar, continuation, and addressed forms: a compiled draw evaluates all eight candidates, selects the first accepted one without branching, and runs the child stream as a traced loop.
 
 Shape gradients use the implicit derivative of the Gamma CDF, `dx/dα = -∂F(x; α)/∂α ÷ f(x; α)` (Figurnov, Mohamed, and Mnih 2018), with Enzyme, Mooncake, and ForwardDiff alike.
 Differentiating through the rejection test would bias the gradient, so the sampler is a primitive with that rule.
