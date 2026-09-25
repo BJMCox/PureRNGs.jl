@@ -205,6 +205,49 @@ end
 @inline _distribution_span(d::Distributions.DiscreteUniform) =
     IR._range_bits(_discrete_span(d))
 
+# The standard variates each mapping consumes, decoded from a draw's raw bits.
+# They depend only on the bits, so every parameter derivative lives in the
+# mapping.
+@inline _base_variates(
+    ::Union{Distributions.Normal{T},Distributions.LogNormal{T}},
+    device,
+    raw,
+) where {T} = (IR._normal_from_bits(device, T, raw),)
+@inline _base_variates(
+    ::Union{Distributions.Logistic{T},Distributions.Cauchy{T}},
+    device,
+    raw,
+) where {T} = (IR._open_midpoint(T, raw),)
+@inline function _base_variates(
+    ::Union{Distributions.Gumbel{T},Distributions.Frechet{T}},
+    device,
+    raw,
+) where {T}
+    u = IR._open_midpoint(T, raw)
+    return (IR._exponential_transform(device, T, one(T) - u),)
+end
+@inline _base_variates(
+    ::Union{
+        Distributions.Uniform{T},
+        Distributions.TriangularDist{T},
+        Distributions.Bernoulli{T},
+    },
+    device,
+    raw,
+) where {T} = (IR._from_bits(T, raw),)
+@inline _base_variates(
+    ::Union{
+        Distributions.Exponential{T},
+        Distributions.Weibull{T},
+        Distributions.Rayleigh{T},
+        Distributions.Pareto{T},
+    },
+    device,
+    raw,
+) where {T} = (IR._exponential_from_bits(device, T, raw),)
+@inline _base_variates(::Distributions.Laplace{T}, device, raw) where {T} =
+    (IR._exponential_from_bits(device, T, raw >> 1), isodd(raw))
+
 # Every mapping takes the core transform ops first, so a backend that must
 # avoid `fma` supplies its own ops object instead of a second protocol.
 @inline _map_distribution(ops, d::Distributions.Normal, z) =

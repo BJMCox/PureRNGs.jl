@@ -14,6 +14,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Char` draws, uniform over the Unicode scalar values as in `Random`.
 - Permutations: `randperm_next`, `randcycle_next`, `shuffle_next`, their in-place forms, and `Random.randperm`, `randcycle`, `shuffle` and their in-place forms for pure generators. A permutation orders one uniform `UInt64` key per element, so it is the same on the CPU and on a GPU. `StatefulRNG` uses the same law.
 - `randsample(...; replace = false)` samples without replacement: the leading elements of the shuffled population. With weights, it orders the population by `E / w` with one exponential draw `E` per element, which is successive sampling proportional to the remaining weights.
+- Mooncake and ForwardDiff extensions. Mooncake gives pathwise gradients through typed draws, fills, and every fixed distribution. Fixed distributions accept ForwardDiff `Dual` parameters, and a dual draw's value equals the primal draw.
 - A StaticArrays extension: `rand`, `randn`, `randexp`, their `_next` and `_at` forms, and the fills accept static array types. A static array is the next `N` scalar draws, with no allocation, so GPU kernels can draw one per thread.
 - A StatsBase extension: `sample`, `sample!`, `wsample`, and `wsample!` accept pure generators and draw what `randsample` does, and `samplepair` makes two range draws.
 - Sampling, permutation, and pick errors state the values that broke the rule, for example `cannot draw 5 elements without replacement from a population of 3`.

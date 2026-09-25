@@ -67,107 +67,11 @@ end
 @inline IR._fill_width(codec::_DistributionCodec, ::Type) =
     _distribution_span(codec.distribution)
 
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{<:Union{Distributions.Normal{T},Distributions.LogNormal{T}}},
-    ::Type,
-    raw,
-) where {T<:_FloatType}
-    return _map_distribution(
-        IR._NativeTransformOps(),
-        codec.distribution,
-        IR._normal_from_bits(codec.device, T, raw),
-    )
-end
-
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{<:Union{Distributions.Logistic{T},Distributions.Cauchy{T}}},
-    ::Type,
-    raw,
-) where {T<:_FloatType}
-    return _map_distribution(
-        IR._NativeTransformOps(),
-        codec.distribution,
-        IR._open_midpoint(T, raw),
-    )
-end
-
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{<:Union{Distributions.Gumbel{T},Distributions.Frechet{T}}},
-    ::Type,
-    raw,
-) where {T<:_FloatType}
-    u = IR._open_midpoint(T, raw)
-    e = IR._exponential_transform(codec.device, T, one(T) - u)
-    return _map_distribution(IR._NativeTransformOps(), codec.distribution, e)
-end
-
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{Distributions.Uniform{T}},
-    ::Type,
-    raw,
-) where {T<:_FloatType}
-    return _map_distribution(
-        IR._NativeTransformOps(),
-        codec.distribution,
-        IR._from_bits(T, raw),
-    )
-end
-
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{
-        <:Union{
-            Distributions.Exponential{T},
-            Distributions.Weibull{T},
-            Distributions.Rayleigh{T},
-            Distributions.Pareto{T},
-        },
-    },
-    ::Type,
-    raw,
-) where {T<:_FloatType}
-    return _map_distribution(
-        IR._NativeTransformOps(),
-        codec.distribution,
-        IR._exponential_from_bits(codec.device, T, raw),
-    )
-end
-
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{Distributions.TriangularDist{T}},
-    ::Type,
-    raw,
-) where {T<:_FloatType}
-    return _map_distribution(
-        IR._NativeTransformOps(),
-        codec.distribution,
-        IR._from_bits(T, raw),
-    )
-end
-
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{Distributions.Laplace{T}},
-    ::Type,
-    raw,
-) where {T<:_FloatType}
-    return _map_distribution(
-        IR._NativeTransformOps(),
-        codec.distribution,
-        IR._exponential_from_bits(codec.device, T, raw >> 1),
-        isodd(raw),
-    )
-end
-
-@inline function IR._cooperative_value(
-    codec::_DistributionCodec{Distributions.Bernoulli{T}},
-    ::Type{Bool},
-    raw,
-) where {T<:_FloatType}
-    return _map_distribution(
-        IR._NativeTransformOps(),
-        codec.distribution,
-        IR._from_bits(T, raw),
-    )
-end
+@inline IR._cooperative_value(codec::_DistributionCodec, ::Type, raw) = _map_distribution(
+    IR._NativeTransformOps(),
+    codec.distribution,
+    _base_variates(codec.distribution, codec.device, raw)...,
+)
 
 @inline _scalar_store_plan(plan) = plan
 @inline function _scalar_store_plan(

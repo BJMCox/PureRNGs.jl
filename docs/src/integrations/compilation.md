@@ -1,6 +1,6 @@
 # Differentiation and compilation
 
-Enzyme differentiates Julia code. Reactant compiles array programs.
+Enzyme, Mooncake, and ForwardDiff differentiate Julia code. Reactant compiles array programs.
 Their RNG integrations serve different purposes.
 
 ## Enzyme
@@ -42,6 +42,30 @@ derivatives = only(autodiff(
 ))
 @assert derivatives[3] ≈ sum(values)
 @assert all(iszero, shadow)
+```
+
+## Mooncake
+
+Loading Mooncake marks the decoding of stream bits into standard uniform, normal, and exponential variates as having zero derivative.
+Mooncake differentiates everything else directly, so typed draws, fills, and every fixed distribution draw give the pathwise gradient, as Enzyme does.
+
+```julia
+using PureRNGs, Distributions, Mooncake, DifferentiationInterface
+rng = Philox4x32(123456)
+gradient(x -> sum(rand(rng, Exponential(x[1]), 8)), AutoMooncake(), [2.0])
+```
+
+## ForwardDiff
+
+ForwardDiff differentiates typed draws and fills without help, because their values do not depend on the input.
+Loading ForwardDiff with Distributions also accepts fixed distributions with `Dual` parameters, such as `Normal(μ, σ)` with a dual `μ`.
+A dual draw decodes the base variates of the primal distribution and maps them with the dual parameters, so its value equals the primal draw and its partials are the pathwise derivatives.
+The scalar, continuation, and addressed forms run anywhere. The allocating and in-place fills run on the CPU.
+
+```julia
+using PureRNGs, Distributions, ForwardDiff
+rng = Philox4x32(123456)
+ForwardDiff.derivative(μ -> rand(rng, Normal(μ, 2.0)), 0.5) == 1.0
 ```
 
 ## Reactant: pass state as runtime data

@@ -120,6 +120,7 @@ jobs:
           - {suite: measurebase, args: ''}
           - {suite: statsbase, args: ''}
           - {suite: staticarrays, args: ''}
+          - {suite: autodiff, args: ''}
           - {suite: turing, args: ''}
           - {suite: kernelabstractions, args: ''}
     env:
