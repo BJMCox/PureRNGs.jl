@@ -98,4 +98,31 @@ Random.rand(
     threaded::Bool = false,
 ) = first(IR.rand_next(rng, d, (dim1, dims...); threaded))
 
+# A dual MvNormal whitens standard normal draws of the primal element type. Its
+# factor comes from a generic Cholesky of dual numbers, so its values match the
+# primal draw to rounding rather than exactly.
+const _DualMvNormal = Distributions.MvNormal{<:ForwardDiff.Dual}
+
+_primal_type(::Type{<:ForwardDiff.Dual{<:Any,V}}) where {V} = _primal_type(V)
+_primal_type(::Type{T}) where {T} = T
+
+_whitened_to_mvnormal(d, values) = d.μ .+ Distributions.PDMats.unwhiten(d.Σ, values)
+
+function IR.rand_next(rng::IR._CPUGenerators, d::_DualMvNormal)
+    values, next_rng = IR.randn_next(rng, _primal_type(eltype(d)), length(d))
+    return _whitened_to_mvnormal(d, values), next_rng
+end
+Random.rand(rng::IR._CPUGenerators, d::_DualMvNormal) = first(IR.rand_next(rng, d))
+function IR.rand_next(
+    rng::IR._CPUGenerators,
+    d::_DualMvNormal,
+    n::Integer;
+    threaded::Bool = false,
+)
+    values, next_rng = IR.randn_next(rng, _primal_type(eltype(d)), length(d), n; threaded)
+    return _whitened_to_mvnormal(d, values), next_rng
+end
+Random.rand(rng::IR._CPUGenerators, d::_DualMvNormal, n::Integer; threaded::Bool = false) =
+    first(IR.rand_next(rng, d, n; threaded))
+
 end

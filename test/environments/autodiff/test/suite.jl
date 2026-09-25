@@ -59,3 +59,13 @@ end
               rand(rng, primal, 2, 3)
     end
 end
+
+@testset "MvNormal gradients are pathwise derivatives" begin
+    rng = Philox4x32(0x6a3)
+    covariance(p) = [p[4]^2 0.3 0.1; 0.3 p[5]^2 0.2; 0.1 0.2 p[6]^2]
+    draws = p -> sum(rand(rng, MvNormal(p[1:3], covariance(p)), 4))
+    p = [1.0, -2.0, 0.5, 1.5, 0.7, 2.0]
+    for backend in (AutoMooncake(), AutoForwardDiff())
+        @test gradient(draws, backend, p) ≈ central_difference(draws, p) rtol = 1e-5
+    end
+end

@@ -121,6 +121,23 @@ The scalar preparation can allocate its cumulative distribution. Categorical is
 not a Reactant carrier operation and adds no AD support. As with the other
 methods, Metal rejects device-executing allocation and fills.
 
+## MvNormal
+
+An `MvNormal` draw applies Distributions' own map, `μ + L z`, to the next `length(d)` standard normal draws, where `L` is the covariance's lower factor.
+`n` draws are one normal fill, a column per draw, so a matrix of draws equals the chained single draws.
+
+```julia
+rng = Philox4x32(123456)
+distribution = MvNormal([1.0, -2.0], [2.0 0.3; 0.3 1.0])
+point, rng = rand_next(rng, distribution)
+cloud, rng = rand_next(rng, distribution, 1000)
+seventh = rand_at(rng, distribution, 7)
+```
+
+Any `PDMats` covariance works, including `Diagonal` and scalar covariances.
+The covariance lives in host memory, so MvNormal draws run on the CPU.
+Gradients with respect to `μ` and the covariance are pathwise with Enzyme, Mooncake, and ForwardDiff.
+
 ## Other distributions
 
 Use the mutable bridge for Distributions' wider API:
