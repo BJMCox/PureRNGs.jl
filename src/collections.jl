@@ -9,7 +9,8 @@ const _PickPopulation = Union{AbstractArray,Tuple,AbstractString,AbstractDict,Ab
 @inline _population_value(population, ordinal::UInt64) =
     first(Iterators.drop(population, Int(ordinal) - 1))
 
-@noinline _empty_collection_error() = throw(ArgumentError("collection must be non-empty"))
+@noinline _empty_collection_error() =
+    throw(ArgumentError("cannot pick from an empty collection"))
 
 @inline function _pick_cardinality(population)
     cardinality = _sampling_cardinality(population)

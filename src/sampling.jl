@@ -1,9 +1,17 @@
 @noinline function _sampling_population_overlap()
-    throw(ArgumentError("destination may not overlap the population"))
+    throw(
+        ArgumentError(
+            "the destination shares memory with the population; sample into a separate array",
+        ),
+    )
 end
 
-@noinline function _sampling_destination_eltype_mismatch()
-    throw(ArgumentError("destination eltype differs from the population eltype"))
+@noinline function _sampling_destination_eltype_mismatch(destination_type, population_type)
+    throw(
+        ArgumentError(
+            "destination element type $destination_type differs from the population element type $population_type",
+        ),
+    )
 end
 
 @inline function _check_sampling_population_overlap(destination, population)
@@ -14,7 +22,8 @@ end
 end
 
 @inline function _check_sampling_destination_eltype(destination, population)
-    eltype(destination) === eltype(population) || _sampling_destination_eltype_mismatch()
+    eltype(destination) === eltype(population) ||
+        _sampling_destination_eltype_mismatch(eltype(destination), eltype(population))
     return nothing
 end
 
@@ -45,7 +54,11 @@ end
     _materialize_population(device, population)
 
 @noinline function _sampling_cardinality_error()
-    throw(ArgumentError("population cardinality exceeds typemax(UInt64)"))
+    throw(
+        ArgumentError(
+            "population length must be an integer no larger than typemax(UInt64)",
+        ),
+    )
 end
 
 @inline function _checked_sampling_cardinality(cardinality::Integer)
@@ -83,7 +96,7 @@ end
     requested_count !== nothing &&
         requested_count > 0 &&
         iszero(cardinality) &&
-        _empty_sampling_population()
+        _empty_sampling_population(requested_count)
     return nothing
 end
 
@@ -94,18 +107,25 @@ end
     return _checked_sampling_cardinality(cardinality)
 end
 
-@noinline function _sampling_count_error()
-    throw(ArgumentError("k must satisfy 0 <= k <= typemax(Int)"))
+@noinline function _sampling_count_error(count)
+    throw(ArgumentError("sample count must be in 0:typemax(Int), got $count"))
 end
 
 @inline function _sampling_count(count::Integer)
-    0 <= count <= typemax(Int) || _sampling_count_error()
+    0 <= count <= typemax(Int) || _sampling_count_error(count)
     return Int(count)
 end
 
+@noinline function _uncounted_sample_error(cardinality)
+    throw(
+        ArgumentError(
+            "a sample without a count has one element per population element, and $cardinality exceeds typemax(Int); pass a count",
+        ),
+    )
+end
+
 @inline function _sampling_count(cardinality::UInt64, ::Nothing)
-    cardinality <= UInt64(typemax(Int)) ||
-        throw(ArgumentError("a no-k sampling result length exceeds typemax(Int)"))
+    cardinality <= UInt64(typemax(Int)) || _uncounted_sample_error(cardinality)
     return Int(cardinality)
 end
 
@@ -174,7 +194,9 @@ function _randsample_next_unweighted!(
     indexed = _prepare_population(rng.device, population, agnostic)
     cardinality = _sampling_cardinality(indexed)
     _check_sampling_destination_eltype(destination, indexed)
-    !isempty(destination) && iszero(cardinality) && _empty_sampling_population()
+    !isempty(destination) &&
+        iszero(cardinality) &&
+        _empty_sampling_population(length(destination))
 
     if !replace
         values, next_rng =
@@ -186,20 +208,24 @@ function _randsample_next_unweighted!(
     return _fill_prevalidated!(rng, destination, threaded, codec)
 end
 
-@noinline function _unique_count_error()
-    throw(ArgumentError("a sample without replacement cannot exceed the population"))
+@noinline function _unique_count_error(count, cardinality)
+    throw(
+        ArgumentError(
+            "cannot draw $count elements without replacement from a population of $cardinality",
+        ),
+    )
 end
 
 # A sample without replacement is the leading `count` elements of the shuffled
 # population, so it consumes 64 bits per population element for every `count`.
 function _unique_sample(rng, indexed, cardinality::UInt64, count::Int, threaded::Bool)
-    count <= cardinality || _unique_count_error()
+    count <= cardinality || _unique_count_error(count, cardinality)
     order, next_rng = _randperm_next(rng, Int(cardinality), threaded)
     return vec(indexed)[order[1:count]], next_rng
 end
 
-@noinline function _empty_sampling_population()
-    throw(ArgumentError("population must be non-empty when k is positive"))
+@noinline function _empty_sampling_population(count)
+    throw(ArgumentError("cannot draw $count elements from an empty population"))
 end
 
 function _randsample_next_unweighted(
@@ -216,7 +242,7 @@ function _randsample_next_unweighted(
     indexed = _prepare_population(rng.device, population, agnostic)
     cardinality = _sampling_cardinality(indexed)
     count === nothing && (count = _sampling_count(cardinality, nothing))
-    count > 0 && iszero(cardinality) && _empty_sampling_population()
+    count > 0 && iszero(cardinality) && _empty_sampling_population(count)
     replace || return _unique_sample(rng, indexed, cardinality, count, threaded)
 
     destination = _allocate_sampling_result(rng, indexed, count)

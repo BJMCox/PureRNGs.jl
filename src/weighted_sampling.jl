@@ -4,7 +4,19 @@ const _WEIGHTED_LOOKUP_LANES = 32
 @noinline function _invalid_weights()
     throw(
         ArgumentError(
-            "weights must be finite and non-negative with a finite positive total",
+            "weights must be finite and non-negative, with a finite positive total",
+        ),
+    )
+end
+
+@noinline function _invalid_weight_values()
+    throw(ArgumentError("weights must be finite and non-negative"))
+end
+
+@noinline function _weight_length_error(weight_count, cardinality)
+    throw(
+        ArgumentError(
+            "got $weight_count weights for a population of $cardinality elements",
         ),
     )
 end
@@ -17,7 +29,7 @@ function _collect_weights(weights)
         converted[ordinal] = weight
         invalid |= !isfinite(weight) || weight < zero(Float64)
     end
-    invalid && _invalid_weights()
+    invalid && _invalid_weight_values()
     return converted
 end
 
@@ -79,7 +91,11 @@ function WeightTable(weights)
 end
 
 @noinline function _device_weight_table()
-    throw(ArgumentError("WeightTable is a CPU value"))
+    throw(
+        ArgumentError(
+            "a WeightTable is CPU data; a device generator takes a weight vector on its device",
+        ),
+    )
 end
 
 @inline function _check_sampling_device(rng, table::WeightTable, _noun)
@@ -258,9 +274,9 @@ function _randsample_next_weighted(
     indexed = _prepare_population(rng.device, population, population_agnostic)
     cardinality = _sampling_cardinality(indexed)
     count === nothing && (count = _sampling_count(cardinality, nothing))
-    count > 0 && iszero(cardinality) && _empty_sampling_population()
+    count > 0 && iszero(cardinality) && _empty_sampling_population(count)
     _weight_count(weights) == cardinality ||
-        throw(ArgumentError("weight length differs from the population cardinality"))
+        _weight_length_error(_weight_count(weights), cardinality)
 
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, count, _WEIGHT_BITS)
@@ -302,9 +318,11 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
     indexed = _prepare_population(rng.device, population, population_agnostic)
     cardinality = _sampling_cardinality(indexed)
     _weight_count(weights) == cardinality ||
-        throw(ArgumentError("weight length differs from the population cardinality"))
+        _weight_length_error(_weight_count(weights), cardinality)
     _check_sampling_destination_eltype(destination, indexed)
-    !isempty(destination) && iszero(cardinality) && _empty_sampling_population()
+    !isempty(destination) &&
+        iszero(cardinality) &&
+        _empty_sampling_population(length(destination))
 
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, length(destination), _WEIGHT_BITS)

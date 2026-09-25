@@ -951,7 +951,7 @@ function _sample_next(rng::_ReactantRNG, population, requested_count)
     cardinality = length(population) % UInt64
     count =
         requested_count === nothing ? Int(cardinality) : IR._sampling_count(requested_count)
-    count > 0 && iszero(cardinality) && IR._empty_sampling_population()
+    count > 0 && iszero(cardinality) && IR._empty_sampling_population(count)
     iszero(count) && return Ops.constant(Vector{eltype(population)}()), rng
     width = UInt64(IR._range_bits(cardinality))
     advanced = _advance(rng, _address_offset(count + 1, width)...)

@@ -4,11 +4,11 @@
 # draws from a child of the key's value, which keeps the permutation exactly
 # uniform and the consumption at 64n bits.
 
-@noinline _permutation_length_error() =
-    throw(ArgumentError("permutation length must be non-negative"))
+@noinline _permutation_length_error(n) =
+    throw(ArgumentError("permutation length must be non-negative, got $n"))
 
 @inline function _permutation_keys(rng, n::Integer, threaded::Bool)
-    n < 0 && _permutation_length_error()
+    n < 0 && _permutation_length_error(n)
     return rand_next(rng, UInt64, Int(n); threaded)
 end
 
@@ -114,7 +114,7 @@ end
 @inline _check_permutation_serviceability(rng) = nothing
 
 function _randperm_next(rng::AbstractPureRNG, n::T, threaded::Bool) where {T<:Integer}
-    n < 0 && _permutation_length_error()
+    n < 0 && _permutation_length_error(n)
     destination = _allocate_array(rng.device, T, (Int(n),))
     return _randperm_next!(rng, destination, threaded)
 end
@@ -131,7 +131,7 @@ function _randcycle_next!(rng::AbstractPureRNG, destination::AbstractArray, thre
 end
 
 function _randcycle_next(rng::AbstractPureRNG, n::T, threaded::Bool) where {T<:Integer}
-    n < 0 && _permutation_length_error()
+    n < 0 && _permutation_length_error(n)
     destination = _allocate_array(rng.device, T, (Int(n),))
     return _randcycle_next!(rng, destination, threaded)
 end
