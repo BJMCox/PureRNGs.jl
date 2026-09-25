@@ -143,13 +143,15 @@ KernelAbstractions.@kernel function _weighted_fold_kernel!(
     end
 end
 
-function IR._prepare_weight_scan(rng, weights, agnostic::Bool)
-    source =
-        agnostic ? IR._transfer_weights(rng.device, IR._collect_weights(weights)) : weights
-    cumulative = IR._allocate_array(rng.device, Float64, (length(source),))
-    total_result = IR._allocate_array(rng.device, Float64, (1,))
-    invalid_result = IR._allocate_array(rng.device, Bool, (1,))
-    backend = IR._fill_backend(rng.device, cumulative)
+IR._prepare_weight_scan(rng, weights, agnostic::Bool) =
+    IR._fold_device_weights(rng.device, weights, agnostic)
+
+function IR._fold_device_weights(device, weights, agnostic::Bool)
+    source = agnostic ? IR._transfer_array(device, IR._collect_weights(weights)) : weights
+    cumulative = IR._allocate_array(device, Float64, (length(source),))
+    total_result = IR._allocate_array(device, Float64, (1,))
+    invalid_result = IR._allocate_array(device, Bool, (1,))
+    backend = IR._fill_backend(device, cumulative)
     lanes = _weight_fold_lanes(backend)
     lane_count = _weight_fold_lane_count(lanes)
     _weighted_fold_kernel!(backend)(
@@ -299,6 +301,87 @@ function IR._order_device_keys!(backend::KernelAbstractions.GPU, permutation, ke
     _key_scatter_kernel!(backend)(ordered, permutation, cursor, keys, shift; ndrange = n)
     _key_bucket_order_kernel!(backend)(ordered, permutation, ends; ndrange = length(ends))
     return permutation
+end
+
+
+# A workitem per slot finds the runs of equal keys that open in the first
+# `limit` slots, and the workitem at a run's first slot orders the whole run.
+# Other workitems read slots of a run being reordered, but every member of a run
+# holds the same key, so the run boundaries they see do not change.
+KernelAbstractions.@kernel function _key_run_kernel!(permutation, keys, limit, rng)
+    first_slot = @index(Global, Linear)
+    n = length(permutation)
+    if first_slot <= limit && first_slot < n
+        key = keys[permutation[first_slot]]
+        opens = first_slot == 1 || keys[permutation[first_slot-1]] != key
+        if opens && keys[permutation[first_slot+1]] == key
+            last_slot = first_slot + 1
+            while last_slot < n && keys[permutation[last_slot+1]] == key
+                last_slot += 1
+            end
+            IR._order_key_run!(
+                permutation,
+                first_slot,
+                last_slot,
+                IR._key_run_rng(rng, key),
+            )
+        end
+    end
+end
+
+function IR._order_device_key_runs!(
+    backend::KernelAbstractions.GPU,
+    permutation,
+    keys,
+    limit,
+    rng,
+)
+    workitems = min(limit, length(permutation) - 1)
+    workitems > 0 &&
+        _key_run_kernel!(backend)(permutation, keys, limit, rng; ndrange = workitems)
+    return permutation
+end
+
+
+KernelAbstractions.@kernel function _gather_kernel!(destination, source, indices)
+    slot = @index(Global, Linear)
+    destination[slot] = source[indices[slot]]
+end
+
+KernelAbstractions.@kernel function _scatter_kernel!(destination, indices, source)
+    slot = @index(Global, Linear)
+    destination[indices[slot]] = source[slot]
+end
+
+function IR._gather(backend::KernelAbstractions.GPU, source, indices)
+    destination = similar(source, length(indices))
+    isempty(indices) ||
+        _gather_kernel!(backend)(destination, source, indices; ndrange = length(indices))
+    return destination
+end
+
+function IR._scatter!(backend::KernelAbstractions.GPU, destination, indices, source)
+    isempty(indices) ||
+        _scatter_kernel!(backend)(destination, indices, source; ndrange = length(indices))
+    return destination
+end
+
+
+KernelAbstractions.@kernel function _column_kernel!(f, destination, args)
+    column = @index(Global, Linear)
+    f(destination, column, args...)
+end
+
+function IR._foreach_column!(
+    backend::KernelAbstractions.GPU,
+    f,
+    destination,
+    ::Bool,
+    args...,
+)
+    columns = size(destination, 2)
+    columns > 0 && _column_kernel!(backend)(f, destination, args; ndrange = columns)
+    return destination
 end
 
 end

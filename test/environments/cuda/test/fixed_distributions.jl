@@ -571,3 +571,37 @@ end
               998
     end
 end
+
+# A Dirichlet or MvNormal draw fills a column per draw on the device. Device
+# rounding can flip a Gamma acceptance at the boundary, so nearly all values
+# match the CPU, and a fill returns nothing to the host.
+@testset "CUDA Dirichlet and MvNormal draws track the CPU" begin
+    PDMats = Distributions.PDMats
+    covariance = [2.0 0.5 0.1; 0.5 1.0 0.2; 0.1 0.2 3.0]
+    for F in GENERATOR_TYPES,
+        d in (
+            Dirichlet([0.3, 2.0, 5.0]),
+            Dirichlet(fill(0.05f0, 7)),
+            MvNormal([1.0, 2.0, 3.0], covariance),
+            MvNormal(Float32[1, 2], PDMats.PDiagMat(Float32[2, 3])),
+            MvNormal(zeros(2), PDMats.ScalMat(2, 4.0)),
+        )
+
+        T = eltype(d)
+        cpu_rng = F(0x794, 1)
+        gpu_rng = device(cpu_rng)
+        values, next_rng = rand_next(gpu_rng, d, 1000)
+        expected, expected_next = rand_next(cpu_rng, d, 1000)
+        @test values isa CuArray{T,2}
+        @test next_rng.position == expected_next.position
+        @test count(
+            isapprox.(Array(values), expected; rtol = 1000eps(T), atol = 10eps(T)),
+        ) >= 0.998 * length(expected)
+        @test Array(rand_at(gpu_rng, d, 7)) ≈ rand_at(cpu_rng, d, 7)
+        destination = CuArray{T}(undef, length(d), 5)
+        rand!(gpu_rng, d, destination)
+        @test Array(destination) ≈ rand(cpu_rng, d, 5)
+        @test isempty(_device_events(() -> rand(gpu_rng, d, 1000)).device_to_host)
+    end
+end
+

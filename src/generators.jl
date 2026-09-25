@@ -577,6 +577,7 @@ for (Device, token) in (
     (MLDataDevices.MetalDevice, :_METAL_BACKEND),
 )
     @eval @inline (::$(Device))(rng::AbstractPureRNG) = _rebuild(rng, rng.position, $token)
+    @eval @inline _backend_token(::$(Device)) = $token
 end
 
 @noinline function _unsupported_device(device)

@@ -12,16 +12,35 @@
     return rand_next(rng, UInt64, Int(n); threaded)
 end
 
-# Fisher–Yates over one run of equal keys, whose members start in index order
-# so the result does not depend on the stability of the backend's sort.
-function _shuffle_key_run!(run, rng)
-    sort!(run)
-    for last_index = length(run):-1:2
-        swap, rng = rand_next(rng, 1:last_index)
-        run[last_index], run[swap] = run[swap], run[last_index]
+# One run of equal keys takes index order first, so the result does not depend
+# on the stability of the backend's sort. A permutation then shuffles the run by
+# Fisher–Yates from `rng`, and a weighted race, with no `rng`, keeps index order.
+# The loops index `permutation` in place, so a device kernel runs them as well.
+@inline function _order_key_run!(permutation, first_slot, last_slot, rng)
+    for slot = (first_slot+1):last_slot
+        index = permutation[slot]
+        previous = slot - 1
+        while previous >= first_slot && permutation[previous] > index
+            permutation[previous+1] = permutation[previous]
+            previous -= 1
+        end
+        permutation[previous+1] = index
     end
-    return run
+    return _shuffle_key_run!(permutation, first_slot, last_slot, rng)
 end
+
+@inline _shuffle_key_run!(permutation, first_slot, last_slot, ::Nothing) = permutation
+@inline function _shuffle_key_run!(permutation, first_slot, last_slot, rng)
+    for last_index = (last_slot-first_slot+1):-1:2
+        swap, rng = rand_next(rng, 1:last_index)
+        a, b = first_slot + last_index - 1, first_slot + swap - 1
+        permutation[a], permutation[b] = permutation[b], permutation[a]
+    end
+    return permutation
+end
+
+@inline _key_run_rng(rng, key) = subrng(rng, key)
+@inline _key_run_rng(::Nothing, key) = nothing
 
 # The keys are uniform, so a counting pass over their top bits leaves a few keys
 # per bucket, and one insertion pass orders the buckets by the whole key. This
@@ -72,7 +91,7 @@ _order_keys!(rng, permutation::AbstractVector{<:Integer}, keys::Vector{UInt64}) 
 
 _order_device_keys!(backend, permutation, keys) = sortperm!(permutation, keys)
 
-function _resolve_key_ties!(permutation::Array, keys::Array, rng)
+function _resolve_key_ties!(permutation::AbstractVector, keys::Vector{UInt64}, rng)
     n = length(permutation)
     first_index = 1
     while first_index < n
@@ -82,23 +101,26 @@ function _resolve_key_ties!(permutation::Array, keys::Array, rng)
             last_index += 1
         end
         if last_index > first_index
-            _shuffle_key_run!(view(permutation, first_index:last_index), subrng(rng, key))
+            _order_key_run!(permutation, first_index, last_index, subrng(rng, key))
         end
         first_index = last_index + 1
     end
     return permutation
 end
 
-# A device checks for equal neighbours in key order and resolves ties on the host.
-function _resolve_key_ties!(permutation::AbstractArray, keys::AbstractArray, rng)
-    n = length(permutation)
-    n < 2 && return permutation
-    ordered = keys[permutation]
-    any(view(ordered, 2:n) .== view(ordered, 1:(n-1))) || return permutation
-    host = _resolve_key_ties!(Array(permutation), Array(keys), rng)
-    copyto!(permutation, host)
-    return permutation
-end
+# A device orders its runs of equal keys through its backend, without a host
+# round trip. The KernelAbstractions extension gives GPU backends the kernel,
+# which orders the runs that start in the first `limit` slots.
+function _order_device_key_runs! end
+
+_resolve_key_ties!(permutation::AbstractVector, keys::AbstractVector, rng) =
+    _order_device_key_runs!(
+        _fill_backend(rng.device, keys),
+        permutation,
+        keys,
+        length(permutation),
+        rng,
+    )
 
 # `destination` receives the permutation of `1:length(destination)`.
 function _randperm_next!(rng::AbstractPureRNG, destination::AbstractArray, threaded::Bool)
@@ -126,7 +148,8 @@ function _randcycle_next!(rng::AbstractPureRNG, destination::AbstractArray, thre
     order = similar(destination, length(destination))
     _, next_rng = _randperm_next!(rng, order, threaded)
     cycle = reshape(destination, :)
-    isempty(order) || (cycle[order] = circshift(order, -1))
+    isempty(order) ||
+        _scatter!(_fill_backend(rng.device, order), cycle, order, circshift(order, -1))
     return destination, next_rng
 end
 
@@ -142,7 +165,7 @@ end
 function _shuffle_next!(rng::AbstractPureRNG, values::AbstractArray, threaded::Bool)
     _check_sampling_fill_device(rng, values)
     order, next_rng = _randperm_next(rng, length(values), threaded)
-    copyto!(values, vec(values)[order])
+    copyto!(values, _gather(_fill_backend(rng.device, order), vec(values), order))
     return values, next_rng
 end
 

@@ -124,8 +124,8 @@ table = WeightTable([1.0, 3.0, 0.0])
 draws, rng = randsample_next(rng, population, table, 12)
 ```
 
-Build a `WeightTable` once to reuse the cumulative table across CPU calls.
-Device generators reject it.
+Build a `WeightTable` once to reuse the cumulative table across calls.
+A table of device weights folds on their device and serves generators on that device.
 
 Each category's realized share is a whole number of `2^-53` cells of the
 cumulative total. Shares below about `1e-16` of the total are not represented

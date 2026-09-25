@@ -1986,13 +1986,53 @@ end
         @test Array(randsample(gpu_rng, CuArray(values), count; replace = false)) ==
               randsample(cpu_rng, values, count; replace = false)
     end
-    # Equal keys are found on the device and resolved as on the CPU.
-    keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
+    # Equal keys are resolved on the device as on the CPU, whatever order the
+    # device sort leaves them in, and nothing returns to the host.
+    keys = first(rand_next(Philox4x32(0x78f), UInt64(1):UInt64(300), 20_000))
     host = sortperm(keys)
     IR._resolve_key_ties!(host, keys, Philox4x32(0x78f))
-    gpu_permutation = CuArray(sortperm(keys))
-    IR._resolve_key_ties!(gpu_permutation, CuArray(keys), Philox4x32(0x78f))
+    gpu_keys = CuArray(keys)
+    reversed_ties = sortperm(collect(zip(keys, length(keys):-1:1)))
+    gpu_permutation = CuArray(reversed_ties)
+    IR._resolve_key_ties!(gpu_permutation, gpu_keys, device(Philox4x32(0x78f)))
     @test Array(gpu_permutation) == host
+    gpu_rng = device(Philox4x32(0x78f))
+    for call in (
+        () -> randperm_next(gpu_rng, 1000),
+        () -> randcycle_next(gpu_rng, 1000),
+        () -> shuffle_next(gpu_rng, CuArray(Float32.(1:1000))),
+        () -> randsample(gpu_rng, CuArray(Float32.(1:1000)), 500; replace = false),
+        () -> IR._resolve_key_ties!(copy(gpu_permutation), gpu_keys, gpu_rng),
+    )
+        call()
+        @test isempty(_device_events(call).device_to_host)
+    end
+end
+
+# A table of device weights folds on the device, and its draws equal the draws
+# with the weight vector.
+@testset "CUDA WeightTable draws equal weight-vector draws" begin
+    for F in GENERATOR_TYPES
+        gpu_rng = device(F(0x795, 1))
+        population = CuArray(Float32.(1:1000))
+        weights = CuArray([mod(7index, 11) * 0.25 for index = 1:1000])
+        table = WeightTable(weights)
+        @test table.cumulative isa CuArray{Float64,1}
+        expected, expected_next = randsample_next(gpu_rng, population, weights, 5000)
+        sample, next_rng = randsample_next(gpu_rng, population, table, 5000)
+        @test Array(sample) == Array(expected)
+        @test next_rng.position == expected_next.position
+        @test isempty(
+            _device_events(() -> randsample(gpu_rng, population, table, 5000)).device_to_host,
+        )
+        @test_throws ArgumentError randsample(F(0x795, 1), Float32.(1:1000), table, 5)
+        @test_throws ArgumentError randsample(
+            gpu_rng,
+            population,
+            WeightTable(Array(weights)),
+            5,
+        )
+    end
 end
 
 @testset "CUDA weighted samples without replacement equal the CPU samples" begin
@@ -2016,9 +2056,27 @@ end
         @test Array(sample) == expected
         @test next_rng.position == expected_next.position
     end
-    # A device sort need not order equal keys by index; the host restores that order.
-    keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
-    @test Array(IR._race_order(CuArray(keys), 5)) == sortperm(keys)[1:5]
+    # A device sort need not order equal keys by index, and the device restores
+    # that order in the leading keys. Only scalar validation reads reach the host.
+    keys = first(rand_next(Philox4x32(0x791), UInt64(1):UInt64(300), 20_000))
+    gpu_keys = CuArray(keys)
+    gpu_rng = device(Philox4x32(0x791))
+    reversed_ties = sortperm(collect(zip(keys, length(keys):-1:1)))
+    for count in (1, 5_000, 20_000)
+        @test Array(IR._race_order(gpu_rng, gpu_keys, count)) == sortperm(keys)[1:count]
+        order = CuArray(reversed_ties)
+        backend = IR._fill_backend(gpu_rng.device, gpu_keys)
+        IR._order_device_key_runs!(backend, order, gpu_keys, count, nothing)
+        @test Array(order)[1:count] == sortperm(keys)[1:count]
+    end
+    population = CuArray(Float32.(1:1000))
+    weights = CuArray([mod(7index, 11) * 0.25 for index = 1:1000])
+    randsample(gpu_rng, population, weights, 500; replace = false)
+    profile = CUDA.Profile.profile_internally(; concurrent = false, trace = true) do
+        randsample(gpu_rng, population, weights, 500; replace = false)
+    end
+    events = _cuda_profile_events(profile)
+    @test all(<=(sizeof(Int)), _event_sizes(profile, events.device_to_host))
 end
 
 @testset "CUDA static array draws equal the chained scalar draws" begin

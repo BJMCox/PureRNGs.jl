@@ -134,8 +134,8 @@ cloud, rng = rand_next(rng, distribution, 1000)
 seventh = rand_at(rng, distribution, 7)
 ```
 
-Any `PDMats` covariance works, including `Diagonal` and scalar covariances.
-The covariance lives in host memory, so MvNormal draws run on the CPU.
+`PDMat`, diagonal, and scalar covariances work on every backend.
+A device draw moves the covariance's factor to the device once per call and applies it there.
 Gradients with respect to `μ` and the covariance are pathwise with Enzyme, Mooncake, and ForwardDiff.
 
 ## Gamma and its family
@@ -156,7 +156,7 @@ mixture, rng = rand_next(rng, Dirichlet([0.3, 1.0, 2.5]))
 `Chisq(ν)` is `Gamma(ν/2, 2)`, and `InverseGamma(α, θ)` is `θ` over a `Gamma(α)` draw.
 `Beta` and `Dirichlet` normalize the logarithms of Gamma draws in consecutive spans, so shapes as small as 0.01 give finite draws that sum to one.
 `TDist(ν)` divides a normal by the square root of a following chi-square over `ν`.
-The scalar members run on the CPU and on CUDA, where a 2^26 `Gamma` fill takes about 6.7 ms on an A100. `Dirichlet` returns vectors and runs on the CPU.
+Every member runs on the CPU, CUDA, and AMDGPU; a 2^26 `Gamma` fill takes about 6.7 ms on an A100. A device `Dirichlet` fill runs one work item per draw.
 
 Shape gradients use the implicit derivative of the Gamma CDF, `dx/dα = -∂F(x; α)/∂α ÷ f(x; α)` (Figurnov, Mohamed, and Mnih 2018), with Enzyme, Mooncake, and ForwardDiff alike.
 Differentiating through the rejection test would bias the gradient, so the sampler is a primitive with that rule.

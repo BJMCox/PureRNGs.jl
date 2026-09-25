@@ -286,42 +286,66 @@ include("distributions_categorical.jl")
 
 # A multivariate normal draw is Distributions' own map, `μ + L z`, applied to
 # `length(d)` standard normal draws at the held position, where `L` is the
-# covariance's lower factor. `n` draws are one fill, a column per draw. The
-# covariance lives in host memory, so the draws run on the CPU.
+# covariance's lower factor. `n` draws are one fill, a column per draw. PDMats
+# keeps the factor in host memory, so a device draw moves it once per call and
+# applies it with the device's array operations.
 const _FloatMvNormal = Distributions.MvNormal{<:_FloatType}
+const _PDMats = Distributions.PDMats
+const _LinearAlgebra = Distributions.LinearAlgebra
 
-@inline function _whitened_to_mvnormal!(d, values)
-    Distributions.PDMats.unwhiten!(d.Σ, values)
+_device_unwhiten!(device, Σ::_PDMats.PDMat, values) = _LinearAlgebra.lmul!(
+    _LinearAlgebra.LowerTriangular(
+        IR._transfer_array(device, Matrix(_PDMats.chol_lower(_LinearAlgebra.cholesky(Σ)))),
+    ),
+    values,
+)
+_device_unwhiten!(device, Σ::_PDMats.PDiagMat, values) =
+    values .*= sqrt.(IR._transfer_array(device, collect(Σ.diag)))
+_device_unwhiten!(device, Σ::_PDMats.ScalMat, values) = _PDMats.unwhiten!(Σ, values)
+
+@inline function _whitened_to_mvnormal!(::IR._CPUBackend, d, values)
+    _PDMats.unwhiten!(d.Σ, values)
     values .+= d.μ
     return values
 end
 
-function IR.rand_next(rng::IR._CPUGenerators, d::_FloatMvNormal)
-    values, next_rng = IR.randn_next(rng, eltype(d), length(d))
-    return _whitened_to_mvnormal!(d, values), next_rng
+@inline function _whitened_to_mvnormal!(device, d, values)
+    _device_unwhiten!(device, d.Σ, values)
+    values .+= IR._transfer_array(device, collect(d.μ))
+    return values
 end
-Random.rand(rng::IR._CPUGenerators, d::_FloatMvNormal) = first(IR.rand_next(rng, d))
-function IR.rand_at(rng::IR._CPUGenerators, d::_FloatMvNormal, index::Integer)
+
+function IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal)
+    values, next_rng = IR.randn_next(rng, eltype(d), length(d))
+    return _whitened_to_mvnormal!(rng.device, d, values), next_rng
+end
+Random.rand(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal) =
+    first(IR.rand_next(rng, d))
+function IR.rand_at(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal, index::Integer)
     index < 1 && IR._invalid_address_index()
     start = Base.Checked.checked_mul(index - one(index), length(d)) + 1
     values = IR.randn_at(rng, eltype(d), start:(start+length(d)-1))
-    return _whitened_to_mvnormal!(d, values)
+    return _whitened_to_mvnormal!(rng.device, d, values)
 end
 
 function IR.rand_next(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::_FloatMvNormal,
     n::Integer;
     threaded::Bool = false,
 )
     values, next_rng = IR.randn_next(rng, eltype(d), length(d), n; threaded)
-    return _whitened_to_mvnormal!(d, values), next_rng
+    return _whitened_to_mvnormal!(rng.device, d, values), next_rng
 end
-Random.rand(rng::IR._CPUGenerators, d::_FloatMvNormal, n::Integer; threaded::Bool = false) =
-    first(IR.rand_next(rng, d, n; threaded))
+Random.rand(
+    rng::IR._ScalarUniformGenerators,
+    d::_FloatMvNormal,
+    n::Integer;
+    threaded::Bool = false,
+) = first(IR.rand_next(rng, d, n; threaded))
 
 function IR.rand_next!(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::Distributions.MvNormal{T},
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,
@@ -332,10 +356,10 @@ function IR.rand_next!(
         ),
     )
     _, next_rng = IR.randn_next!(rng, destination; threaded)
-    return _whitened_to_mvnormal!(d, destination), next_rng
+    return _whitened_to_mvnormal!(rng.device, d, destination), next_rng
 end
 Random.rand!(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::Distributions.MvNormal{T},
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,

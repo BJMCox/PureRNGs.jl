@@ -54,7 +54,8 @@ end
 Prepared weights for repeated weighted sampling. Holds the cumulative table the
 weighted forms build on every call, so a caller with fixed weights pays that cost
 once. Accepted wherever a weight vector is. Draws with a table equal draws with the
-weights it was built from. A table is CPU data; a device generator rejects it.
+weights it was built from. A table lives on the device of its weights and serves
+generators on that device.
 
 # Examples
 
@@ -80,28 +81,25 @@ julia> randsample(rng, pop, table, 6) == randsample(rng, pop, weights, 6)
 true
 ```
 """
-struct WeightTable
-    total::Float64
-    cumulative::Vector{Float64}
+struct WeightTable{T,V<:AbstractVector{Float64}}
+    total::T
+    cumulative::V
 end
 
+# Device weights fold on their device, where the total stays as a one-element
+# array for the threshold kernel.
 function WeightTable(weights)
-    total, cumulative = _fold_weights_cpu(weights)
+    device = MLDataDevices.get_device(weights)
+    device isa MLDataDevices.AbstractGPUDevice ||
+        return WeightTable(_fold_weights_cpu(weights)...)
+    _, total, cumulative = _fold_device_weights(_backend_token(device), weights, false)
     return WeightTable(total, cumulative)
 end
 
-@noinline function _device_weight_table()
-    throw(
-        ArgumentError(
-            "a WeightTable is CPU data; a device generator takes a weight vector on its device",
-        ),
-    )
-end
+function _fold_device_weights end
 
-@inline function _check_sampling_device(rng, table::WeightTable, _noun)
-    rng.device isa _CPUBackend || _device_weight_table()
-    return false
-end
+@inline _check_sampling_device(rng, table::WeightTable, noun) =
+    _check_sampling_device(rng, table.cumulative, noun)
 
 @inline _weight_count(weights) = UInt64(length(weights))
 @inline _weight_count(table::WeightTable) = UInt64(length(table.cumulative))
@@ -113,12 +111,8 @@ end
 
 @inline _prepare_weight_scan(rng::_CPUGenerators, table::WeightTable, _agnostic::Bool) =
     (nothing, table.total, table.cumulative)
-
-function _transfer_weights(device, weights::Vector{Float64})
-    transferred = _allocate_array(device, Float64, (length(weights),))
-    copyto!(transferred, weights)
-    return transferred
-end
+@inline _prepare_weight_scan(rng, table::WeightTable, _agnostic::Bool) =
+    (nothing, table.total, table.cumulative)
 
 # `threshold < cumulative[end]`; odd spans overlap one index between both halves.
 Base.@propagate_inbounds function _weighted_cdf_index(cumulative, threshold)
@@ -278,9 +272,10 @@ end
 # table sample could not equal the weight-vector sample.
 _unique_weights(rng::_CPUGenerators, ::WeightTable, _agnostic::Bool) =
     _weight_table_unique_error()
+_unique_weights(rng, ::WeightTable, _agnostic::Bool) = _weight_table_unique_error()
 _unique_weights(rng::_CPUGenerators, weights, _agnostic::Bool) = _collect_weights(weights)
 function _unique_weights(rng, weights, agnostic::Bool)
-    agnostic && return _transfer_weights(rng.device, _collect_weights(weights))
+    agnostic && return _transfer_array(rng.device, _collect_weights(weights))
     converted = Float64.(weights)
     any(weight -> !isfinite(weight) || weight < zero(Float64), converted) &&
         _invalid_weight_values()
@@ -299,18 +294,14 @@ const _RACE_EXPONENT_BIAS = 64
     return ratio + ((_RACE_EXPONENT_BIAS - exponent(weight)) % UInt64) << 52
 end
 
-# The leading `count` indices in key order, ties by index.
-_race_order(keys::Vector{UInt64}, count::Int) = partialsortperm(keys, 1:count)
+# The leading `count` indices in key order, ties by index. A device sort need
+# not be stable, so the device then orders each tied run that reaches the
+# leading `count` by index. Zero-weight keys tie, but they sort after `count`.
+_race_order(rng, keys::Vector{UInt64}, count::Int) = partialsortperm(keys, 1:count)
 
-# A device sort need not be stable, so equal neighbours among the leading keys
-# send the order to the host. Zero-weight keys tie, but they sort after `count`.
-function _race_order(keys::AbstractVector{UInt64}, count::Int)
+function _race_order(rng, keys::AbstractVector{UInt64}, count::Int)
     order = sortperm!(similar(keys, Int), keys)
-    leading = keys[order[1:min(count+1, length(keys))]]
-    n = length(leading)
-    n > 1 &&
-        any(view(leading, 2:n) .== view(leading, 1:(n-1))) &&
-        return copyto!(similar(keys, Int, count), collect(_race_order(Array(keys), count)))
+    _order_device_key_runs!(_fill_backend(rng.device, keys), order, keys, count, nothing)
     return order[1:count]
 end
 
@@ -333,7 +324,8 @@ function _weighted_unique_sample(
     count <= positive || _weighted_unique_count_error(count, positive)
     exponentials, next_rng = randexp_next(rng, Float64, length(converted); threaded)
     keys = _race_key.(exponentials, converted)
-    return vec(indexed)[_race_order(keys, count)], next_rng
+    order = _race_order(rng, keys, count)
+    return _gather(_fill_backend(rng.device, keys), vec(indexed), order), next_rng
 end
 
 function _randsample_next_weighted(
