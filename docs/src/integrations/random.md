@@ -59,3 +59,23 @@ sample(rng, [:a, :b, :c], Weights([1.0, 2.0, 3.0]), 5)
 `UnitWeights` take the unweighted law, as in StatsBase.
 `sample!` draws the sample, then copies it into the destination, which may have any element type.
 `samplepair(rng, n)` makes two range draws: `i` from `1:n`, then `j` from `1:n-1`, with `j == i` standing for `n`.
+
+## StaticArrays
+
+Loading StaticArrays adds static array draws for pure generators.
+A static array type with `N` elements of type `T` is the next `N` scalar draws of `T`, in linear order, so it equals a length-`N` fill.
+
+```julia
+using StaticArrays
+rng = Philox4x32(7)
+velocity, rng = randn_next(rng, SVector{3,Float32})
+position = rand_at(rng, SVector{3,Float32}, 17)
+particles, rng = rand_next(rng, SVector{3,Float32}, 1000)
+faces = rand(rng, 1:6, SVector{4})
+```
+
+`rand`, `randn`, `randexp`, their `_next` and `_at` forms, and the fills accept a static array type.
+The scalar forms allocate nothing, so a GPU kernel can call them, and `rand_at(rng, SA, i)` gives each thread its own array without chaining.
+An array of static arrays fills as its `reinterpret` to `T`, so it runs on the same CPU and GPU fill paths.
+`rand(rng, X, SA)` picks `N` times from a collection or distribution `X`.
+The element type must be part of the type: `SVector{3}` alone throws, as an untyped draw does.

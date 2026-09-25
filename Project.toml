@@ -17,6 +17,7 @@ EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 Reactant = "3c362404-f566-11ee-1572-e11a4b42c853"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [extensions]
@@ -28,6 +29,7 @@ PureRNGsKernelAbstractionsExt = ["KernelAbstractions", "Adapt"]
 PureRNGsMetalExt = "Metal"
 PureRNGsReactantDistributionsExt = ["Distributions", "Reactant"]
 PureRNGsReactantExt = "Reactant"
+PureRNGsStaticArraysExt = "StaticArrays"
 PureRNGsStatsBaseExt = "StatsBase"
 
 [compat]
@@ -43,6 +45,7 @@ Metal = "1.7"
 PrecompileTools = "1"
 Random = "1"
 Reactant = "0.2.280"
+StaticArrays = "1"
 StatsBase = "0.34"
 TOML = "1"
 Test = "1"

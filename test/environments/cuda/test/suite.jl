@@ -5,6 +5,7 @@ using KernelAbstractions
 using PureRNGs
 using MLDataDevices
 using Random
+using StaticArrays
 using Test
 
 include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
@@ -2018,6 +2019,29 @@ end
     # A device sort need not order equal keys by index; the host restores that order.
     keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
     @test Array(IR._race_order(CuArray(keys), 5)) == sortperm(keys)[1:5]
+end
+
+@testset "CUDA static array draws equal the chained scalar draws" begin
+    SA = SVector{3,Float32}
+    for F in GENERATOR_TYPES
+        cpu_rng = F(0x791, 1)
+        gpu_rng = device(cpu_rng)
+        values, next_rng = rand_next(gpu_rng, SA, 1000)
+        @test values isa CuArray{SA,1}
+        @test Array(values) == rand(cpu_rng, SA, 1000)
+        @test next_rng.position == last(rand_next(cpu_rng, Float32, 3000)).position
+        # Each thread addresses its own static array inside the kernel.
+        addressed = CuArray{SA}(undef, 1000)
+        CUDA.@sync CUDA.@cuda threads = 256 blocks = 4 _address_kernel!(
+            addressed,
+            gpu_rng,
+            0,
+        )
+        @test Array(addressed) == Array(values)
+        normals = randn(gpu_rng, SA, 1000)
+        @test vec(reinterpret(Float32, Array(normals))) ==
+              Array(randn(gpu_rng, Float32, 3000))
+    end
 end
 
 include("fixed_distributions.jl")

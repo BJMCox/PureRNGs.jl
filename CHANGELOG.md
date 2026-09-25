@@ -14,6 +14,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Char` draws, uniform over the Unicode scalar values as in `Random`.
 - Permutations: `randperm_next`, `randcycle_next`, `shuffle_next`, their in-place forms, and `Random.randperm`, `randcycle`, `shuffle` and their in-place forms for pure generators. A permutation orders one uniform `UInt64` key per element, so it is the same on the CPU and on a GPU. `StatefulRNG` uses the same law.
 - `randsample(...; replace = false)` samples without replacement: the leading elements of the shuffled population. With weights, it orders the population by `E / w` with one exponential draw `E` per element, which is successive sampling proportional to the remaining weights.
+- A StaticArrays extension: `rand`, `randn`, `randexp`, their `_next` and `_at` forms, and the fills accept static array types. A static array is the next `N` scalar draws, with no allocation, so GPU kernels can draw one per thread.
 - A StatsBase extension: `sample`, `sample!`, `wsample`, and `wsample!` accept pure generators and draw what `randsample` does, and `samplepair` makes two range draws.
 - Sampling, permutation, and pick errors state the values that broke the rule, for example `cannot draw 5 elements without replacement from a population of 3`.
 - CUDA fills of 8- and 16-bit integers and `Float16`, and `Float16` normal and exponential fills, store 16 bytes per work item. On an A100 a 2^26 `UInt8` fill runs at 1015 GiB/s instead of 183, `UInt16` at 1176 instead of 292, and `Float16` at 715 instead of 145.

@@ -17,6 +17,7 @@ using TOML
         "PureRNGsMetalExt" => "Metal",
         "PureRNGsReactantDistributionsExt" => ["Distributions", "Reactant"],
         "PureRNGsReactantExt" => "Reactant",
+        "PureRNGsStaticArraysExt" => "StaticArrays",
         "PureRNGsStatsBaseExt" => "StatsBase",
     )
     declared = union(
