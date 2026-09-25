@@ -13,4 +13,8 @@ PureRNGs = {path = ".."}
 [compat]
 BenchmarkTools = "1"
 CUDA = "5.8, 6"
+KernelAbstractions = "0.9.42"
+MLDataDevices = "1.17.10"
+Printf = "1.11"
+TOML = "1"
 julia = "1.13"
