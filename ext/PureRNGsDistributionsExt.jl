@@ -7,6 +7,10 @@ using PrecompileTools: PrecompileTools, @compile_workload, @setup_workload
 
 const IR = PureRNGs
 include("distributions_common.jl")
+include("distributions_gamma.jl")
+
+# Reactant shares the common file but not Gamma, whose draw can loop.
+const _NativeDistribution = Union{_FixedDistribution,_GammaDistribution}
 
 struct _DistributionCodec{D<:_MappedDistribution{<:_FloatType},B<:IR._BackendToken} <:
        IR._MappedFillCodec
@@ -32,31 +36,31 @@ end
     return IR._draw_range_unchecked(rng, position, range, _discrete_span(d))
 end
 
-@inline function _draw_distribution(rng, d::_FixedDistribution)
+@inline function _draw_distribution(rng, d::_NativeDistribution)
     _validate_distribution(d)
     width = _distribution_span(d)
     IR._reserve(rng, UInt64(width), UInt64(0))
     return _draw_distribution_unchecked(rng, rng.position, d)
 end
 
-@inline function _draw_distribution_next(rng, d::_FixedDistribution)
+@inline function _draw_distribution_next(rng, d::_NativeDistribution)
     _validate_distribution(d)
     width = _distribution_span(d)
     next_rng = IR._reserve(rng, UInt64(width), UInt64(0))
     return _draw_distribution_unchecked(rng, rng.position, d), next_rng
 end
 
-@inline function Random.rand(rng::IR._ScalarUniformGenerators, d::_FixedDistribution)
+@inline function Random.rand(rng::IR._ScalarUniformGenerators, d::_NativeDistribution)
     return _draw_distribution(rng, d)
 end
 
-@inline function IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FixedDistribution)
+@inline function IR.rand_next(rng::IR._ScalarUniformGenerators, d::_NativeDistribution)
     return _draw_distribution_next(rng, d)
 end
 
 @inline function IR.rand_at(
     rng::IR._ScalarUniformGenerators,
-    d::_FixedDistribution,
+    d::_NativeDistribution,
     index::Integer,
 )
     _validate_distribution(d)
@@ -155,14 +159,14 @@ end
 
 @inline IR._check_serviceability(
     rng,
-    d::Union{_FixedDistribution,Distributions.Categorical},
+    d::Union{_NativeDistribution,Distributions.Categorical},
 ) = IR._check_serviceability(rng, _result_type(d))
 
 # Metal serves no distribution draw. The result type is checked first so a
 # type Metal does not serve keeps reporting the device error.
 @inline function IR._check_serviceability(
     rng::IR._BackendGenerators{IR._MetalBackend},
-    d::Union{_FixedDistribution,Distributions.Categorical},
+    d::Union{_NativeDistribution,Distributions.Categorical},
 )
     IR._check_serviceability(rng, _result_type(d))
     return _metal_distribution_error()
@@ -200,7 +204,7 @@ end
 
 @inline function Random.rand(
     rng::IR._ScalarUniformGenerators,
-    d::_FixedDistribution,
+    d::_NativeDistribution,
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
@@ -211,7 +215,7 @@ end
 
 @inline function IR.rand_next(
     rng::IR._ScalarUniformGenerators,
-    d::_FixedDistribution,
+    d::_NativeDistribution,
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
@@ -221,7 +225,7 @@ end
 
 @inline function Random.rand!(
     rng::IR._ScalarUniformGenerators,
-    d::_FloatMapped{T},
+    d::Union{_FloatMapped{T},Distributions.Gamma{T}},
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_FloatType}
@@ -251,7 +255,7 @@ end
 
 @inline function IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
-    d::_FloatMapped{T},
+    d::Union{_FloatMapped{T},Distributions.Gamma{T}},
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_FloatType}

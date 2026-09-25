@@ -294,4 +294,5 @@ end
 include("distribution_expansion.jl")
 include("distribution_transforms.jl")
 include("categorical.jl")
+include("gamma.jl")
 include("mvnormal.jl")
