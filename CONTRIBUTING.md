@@ -191,7 +191,14 @@ Keep runs long enough to measure steady-state performance.
 
 Compare the same workload and hardware against the exact base revision.
 Separate allocation, fills, kernel-local draws, and device transfers.
-Preserve benchmark results outside Git.
+Preserve benchmark results outside Git, except the regression pins below.
+
+`benchmark/regression.jl` times a fixed case list and compares each minimum with
+its pin in `benchmark/baselines/<name>.toml`: run
+`julia --project=benchmark benchmark/regression.jl a100` on the CUDA host, and
+`apple-cpu` with `--threads=auto` on the development Mac. A case slower than its
+pin by more than the file's tolerance fails the run. After an intended speed
+change, rerun with `--update` and commit the new pins with the change.
 
 Load and first-call latency come from the PrecompileTools workload in
 `src/precompile.jl` and the matching one at the end of
@@ -214,6 +221,8 @@ Hosted CI is manual-dispatch only, so this recipe is the gate.
 4. Run `Aqua.test_all(PureRNGs)`.
 5. Build the documentation with `include("docs/make.jl")`.
 6. Run the CUDA environment on a CUDA host when `ext/PureRNGsCUDAExt.jl` or any
+   kernel changes.
+7. Run `benchmark/regression.jl` on each pinned host when a fill, sampler, or
    kernel changes.
 
 ### Coverage

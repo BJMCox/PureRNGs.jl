@@ -1,13 +1,16 @@
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 MLDataDevices = "7e8f7934-dd98-4c1a-8fe8-92b47a384d40"
 PureRNGs = "2ccaadc3-3d9a-45d4-a2ec-95a2424790b7"
 Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+TOML = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 
 [sources]
 PureRNGs = {path = ".."}
 
 [compat]
 BenchmarkTools = "1"
+CUDA = "5.8, 6"
 julia = "1.13"

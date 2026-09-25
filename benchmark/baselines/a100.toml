@@ -1,0 +1,105 @@
+description = "NVIDIA A100 on batserv01; fills are 2^26 elements"
+device = "cuda"
+host = "batserv01"
+julia = "1.13.0"
+seconds = 2.0
+threads = 1
+tolerance = 0.07
+
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.1864
+type = "UInt32"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.1931
+type = "Float32"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.3804
+type = "UInt64"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.06021
+type = "UInt8"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.1045
+type = "UInt16"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.1691
+type = "Float16"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "randn"
+minimum_ms = 0.4029
+type = "Float32"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "randn"
+minimum_ms = 0.4522
+type = "Float16"
+[[case]]
+elements = 67108864
+family = "Philox4x32"
+kind = "randexp"
+minimum_ms = 0.3161
+type = "Float32"
+[[case]]
+elements = 67108864
+family = "ChaCha"
+kind = "rand"
+minimum_ms = 0.2562
+type = "Float32"
+[[case]]
+elements = 67108864
+family = "ChaCha"
+kind = "rand"
+minimum_ms = 0.08702
+type = "UInt8"
+[[case]]
+elements = 67108864
+family = "Philox4x64"
+kind = "rand"
+minimum_ms = 0.2421
+type = "Float32"
+[[case]]
+elements = 67108864
+family = "Threefry4x64"
+kind = "rand"
+minimum_ms = 0.2818
+type = "Float32"
+[[case]]
+elements = 16777216
+family = "Philox4x32"
+kind = "randperm"
+minimum_ms = 13.6
+[[case]]
+count = 100
+elements = 16777216
+family = "Philox4x32"
+kind = "weighted"
+minimum_ms = 304.6
+replace = true
+[[case]]
+count = 100
+elements = 16777216
+family = "Philox4x32"
+kind = "weighted"
+minimum_ms = 105.4
+replace = false

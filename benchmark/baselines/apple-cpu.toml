@@ -1,0 +1,83 @@
+description = "The development Mac's CPU; fills are 2^22 elements"
+device = "cpu"
+host = "batlab-mac01.labor.mppmu.mpg.de"
+julia = "1.13.0"
+seconds = 2.0
+threads = 14
+tolerance = 0.1
+
+[[case]]
+elements = 4194304
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 6.504
+threaded = false
+type = "Float64"
+[[case]]
+elements = 4194304
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.6835
+threaded = true
+type = "Float64"
+[[case]]
+elements = 4194304
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 6.916
+threaded = false
+type = "UInt64"
+[[case]]
+elements = 4194304
+family = "Philox4x32"
+kind = "randn"
+minimum_ms = 21.89
+threaded = false
+type = "Float64"
+[[case]]
+elements = 4194304
+family = "Philox4x32"
+kind = "randexp"
+minimum_ms = 13.76
+threaded = false
+type = "Float64"
+[[case]]
+elements = 4194304
+family = "ChaCha"
+kind = "rand"
+minimum_ms = 20.57
+threaded = false
+type = "Float64"
+[[case]]
+elements = 4194304
+family = "Threefry4x64"
+kind = "rand"
+minimum_ms = 10.62
+threaded = false
+type = "Float64"
+[[case]]
+elements = 4194304
+family = "Philox4x64"
+kind = "rand"
+minimum_ms = 7.243
+threaded = false
+type = "UInt64"
+[[case]]
+elements = 1048576
+family = "Philox4x32"
+kind = "randperm"
+minimum_ms = 10.32
+[[case]]
+count = 100
+elements = 1048576
+family = "Philox4x32"
+kind = "weighted"
+minimum_ms = 0.6433
+replace = true
+[[case]]
+count = 100
+elements = 1048576
+family = "Philox4x32"
+kind = "weighted"
+minimum_ms = 6.089
+replace = false
