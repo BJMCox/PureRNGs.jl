@@ -85,7 +85,7 @@ Adapt.adapt_structure(to, codec::IR._PopulationCodec) =
     IR._PopulationCodec(Adapt.adapt(to, codec.population), codec.cardinality)
 
 # One workgroup folds the whole weight vector. Weighted sampling runs on CUDA and
-# AMDGPU, whose workgroups hold 1024 workitems; Metal does not serve sampling.
+# AMDGPU, whose workgroups hold 1024 workitems; Metal has no Float64 to fold.
 @inline _weight_fold_lanes(_backend) = Val(1024)
 @inline _weight_fold_lane_count(::Val{lanes}) where {lanes} = lanes
 
@@ -330,7 +330,7 @@ KernelAbstractions.@kernel function _key_run_kernel!(permutation, keys, limit, r
 end
 
 function IR._order_device_key_runs!(
-    backend::KernelAbstractions.GPU,
+    backend::KernelAbstractions.Backend,
     permutation,
     keys,
     limit,
@@ -373,7 +373,7 @@ KernelAbstractions.@kernel function _column_kernel!(f, destination, args)
 end
 
 function IR._foreach_column!(
-    backend::KernelAbstractions.GPU,
+    backend::KernelAbstractions.Backend,
     f,
     destination,
     ::Bool,

@@ -85,7 +85,26 @@ end
         @test sample == expected
         @test next_rng.position == expected_next.position
     end
-    # A device sort need not order equal keys by index; the host restores that order.
-    keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
-    @test IR._race_order(view(keys, :), 5) == sortperm(keys)[1:5]
+    # A device sort need not order equal keys by index, so a kernel orders each
+    # tied run that reaches the leading keys; a permutation shuffles its runs.
+    keys = first(rand_next(Philox4x32(0x5a1), UInt64(1):UInt64(300), 5000))
+    reversed_ties = sortperm(collect(zip(keys, length(keys):-1:1)))
+    device_rng = _device_rng(Philox4x32(0x5a1))
+    for count in (1, 1000, 5000)
+        @test IR._race_order(device_rng, view(keys, :), count) == sortperm(keys)[1:count]
+        order = copy(reversed_ties)
+        IR._order_device_key_runs!(
+            KernelAbstractions.CPU(),
+            order,
+            view(keys, :),
+            count,
+            nothing,
+        )
+        @test order[1:count] == sortperm(keys)[1:count]
+    end
+    host = sortperm(keys)
+    IR._resolve_key_ties!(host, keys, Philox4x32(0x5a1))
+    order = copy(reversed_ties)
+    IR._resolve_key_ties!(order, view(keys, :), device_rng)
+    @test order == host
 end
