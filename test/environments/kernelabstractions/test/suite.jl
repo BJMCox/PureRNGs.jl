@@ -65,3 +65,27 @@ IR._allocate_array(::IR._AMDGPUBackend, ::Type{T}, dims::Tuple) where {T} =
     end
     @test_throws ArgumentError IR._prepare_weight_scan(device_rng, [1.0, -1.0], false)
 end
+
+@testset "device weighted samples without replacement equal the CPU samples" begin
+    rng = Philox4x32(5, 17)
+    population = collect(1:1025)
+    weights = [mod(7index, 11) + 0.5 for index = 1:1025]
+    weights[2] = 0.0
+    expected, expected_next =
+        randsample_next(rng, population, weights, 300; replace = false)
+    for agnostic in (true, false)
+        sample, next_rng = IR._weighted_unique_sample(
+            _device_rng(rng),
+            population,
+            weights,
+            agnostic,
+            300,
+            false,
+        )
+        @test sample == expected
+        @test next_rng.position == expected_next.position
+    end
+    # A device sort need not order equal keys by index; the host restores that order.
+    keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
+    @test IR._race_order(view(keys, :), 5) == sortperm(keys)[1:5]
+end

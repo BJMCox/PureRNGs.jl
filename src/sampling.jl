@@ -252,7 +252,7 @@ end
 
 """
     randsample(rng, population[, count]; replace=true, threaded=false)
-    randsample(rng, population, weights[, count]; threaded=false)
+    randsample(rng, population, weights[, count]; replace=true, threaded=false)
 
 Sample from `population`. Without `count`, return as many draws as the
 population has elements. With `weights`, use non-negative finite weights
@@ -261,7 +261,16 @@ proportional to the desired probabilities.
 Sampling is with replacement by default. With `replace=false`, the sample is the
 first `count` elements of `shuffle_next(rng, collect(population))`: it consumes
 64 bits per population element for every `count`, and `count` may not exceed
-the population. Weighted sampling is always with replacement.
+the population.
+
+Weighted sampling with `replace=false` draws `E = randexp_next(rng, Float64, n)`
+and returns the population in increasing order of `E[i] / weights[i]`, ties by
+index, truncated to `count`. This is successive sampling proportional to the
+remaining weights (Efraimidis and Spirakis 2006). It consumes 52 bits per
+population element for every `count`, and `count` may not exceed the number of
+positive weights. It does not accept a `WeightTable`. Device exponentials can
+differ from CPU exponentials in the last ulp, so a device sample can differ
+from the CPU sample when two ratios are that close.
 
 The no-count form returns `length(pop)` samples, unlike `StatsBase.sample(rng, a)`,
 which returns one element. `randsample(rng, pop, 1)` returns a one-element vector.
@@ -310,7 +319,7 @@ end
 
 """
     randsample_next(rng, population[, count]; replace=true, threaded=false) -> (values, next_rng)
-    randsample_next(rng, population, weights[, count]; threaded=false) -> (values, next_rng)
+    randsample_next(rng, population, weights[, count]; replace=true, threaded=false) -> (values, next_rng)
 
 Sample from `population` and return the advanced immutable generator with the
 result. Without `count`, return as many draws as the population has elements.

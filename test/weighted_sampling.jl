@@ -329,3 +329,60 @@ end
           serial_fill_bytes(rng, population, weights, destination) ==
           8 * (length(wide_weights) - length(weights))
 end
+
+# Without replacement, the sample orders the population by `E / w` with one
+# exponential draw per element, ties by index.
+@testset "a weighted sample without replacement orders E / w" begin
+    population = Int16[11, 12, 13, 14, 15, 16, 17, 18]
+    weights = [0.5, 2.0, 0.0, 1.0, 3.5, 0.25, 1.5, 0.0]
+    positive = [0.5, 2.0, 0.1, 1.0, 3.5, 0.25, 1.5, 7.0]
+    for F in (Philox4x32, Threefry2x64, ChaCha), threaded in (false, true)
+        rng = F(0x9a1, 3)
+        exponentials, after = randexp_next(rng, Float64, length(population))
+        order = population[sortperm(exponentials ./ weights)]
+        for count in (0, 3, 6)
+            sample, next_rng =
+                randsample_next(rng, population, weights, count; replace = false, threaded)
+            @test sample == order[1:count]
+            @test next_rng == after
+            @test randsample(rng, population, weights, count; replace = false) == sample
+            destination = Vector{Int16}(undef, count)
+            @test randsample!(rng, population, weights, destination; replace = false) ==
+                  sample
+            @test last(
+                randsample_next!(rng, population, weights, destination; replace = false),
+            ) == after
+        end
+        @test randsample(rng, population, positive; replace = false) ==
+              population[sortperm(exponentials ./ positive)]
+    end
+end
+
+@testset "weighted race keys order E / w across the Float64 range" begin
+    weights = [1e300, 5e-324, 0.0, 1e-300, 2.0, 0.0, 1e-310]
+    rng = Philox4x32(0x9a2)
+    exponentials, _ = randexp_next(rng, Float64, length(weights))
+    exact = sortperm(big.(exponentials) ./ big.(weights))
+    @test randsample(rng, 1:7, weights, 5; replace = false) == exact[1:5]
+end
+
+@testset "weighted samples without replacement follow successive sampling" begin
+    weights = [1.0, 2.0, 3.0, 4.0]
+    total = sum(weights)
+    counts = Dict{Tuple{Int,Int},Int}()
+    rng = Philox4x32(0x9a3)
+    trials = 20_000
+    for _ = 1:trials
+        pair, rng = randsample_next(rng, 1:4, weights, 2; replace = false)
+        counts[(pair[1], pair[2])] = get(counts, (pair[1], pair[2]), 0) + 1
+    end
+    statistic = sum(
+        (
+            get(counts, (i, j), 0) -
+            trials * weights[i] / total * weights[j] / (total - weights[i])
+        )^2 / (trials * weights[i] / total * weights[j] / (total - weights[i])) for
+        i = 1:4, j = 1:4 if i != j
+    )
+    # 11 degrees of freedom; 31.3 is the 0.999 quantile.
+    @test statistic < 31.3
+end

@@ -258,11 +258,90 @@ end
     return thresholds
 end
 
+@noinline function _weighted_unique_count_error(count, positive)
+    throw(
+        ArgumentError(
+            "cannot draw $count elements without replacement: only $positive weights are positive",
+        ),
+    )
+end
+
+@noinline function _weight_table_unique_error()
+    throw(
+        ArgumentError(
+            "replace = false needs the weight vector; a WeightTable holds only cumulative sums",
+        ),
+    )
+end
+
+# A table keeps cumulative sums, whose differences are not the weights, so a
+# table sample could not equal the weight-vector sample.
+_unique_weights(rng::_CPUGenerators, ::WeightTable, _agnostic::Bool) =
+    _weight_table_unique_error()
+_unique_weights(rng::_CPUGenerators, weights, _agnostic::Bool) = _collect_weights(weights)
+function _unique_weights(rng, weights, agnostic::Bool)
+    agnostic && return _transfer_weights(rng.device, _collect_weights(weights))
+    converted = Float64.(weights)
+    any(weight -> !isfinite(weight) || weight < zero(Float64), converted) &&
+        _invalid_weight_values()
+    return converted
+end
+
+# The key orders `E / w` for every finite weight, where Float64 division would
+# overflow. With `w = s * 2^e` and `s` in [1, 2), `E / s` is a normal Float64
+# for every exponential draw, and `-e` moves into the key's 12-bit exponent
+# field. Zero weights sort last.
+const _RACE_EXPONENT_BIAS = 64
+
+@inline function _race_key(exponential::Float64, weight::Float64)
+    iszero(weight) && return typemax(UInt64)
+    ratio = reinterpret(UInt64, exponential / significand(weight))
+    return ratio + ((_RACE_EXPONENT_BIAS - exponent(weight)) % UInt64) << 52
+end
+
+# The leading `count` indices in key order, ties by index.
+_race_order(keys::Vector{UInt64}, count::Int) = partialsortperm(keys, 1:count)
+
+# A device sort need not be stable, so equal neighbours among the leading keys
+# send the order to the host. Zero-weight keys tie, but they sort after `count`.
+function _race_order(keys::AbstractVector{UInt64}, count::Int)
+    order = sortperm!(similar(keys, Int), keys)
+    leading = keys[order[1:min(count+1, length(keys))]]
+    n = length(leading)
+    n > 1 &&
+        any(view(leading, 2:n) .== view(leading, 1:(n-1))) &&
+        return copyto!(similar(keys, Int, count), collect(_race_order(Array(keys), count)))
+    return order[1:count]
+end
+
+# A weighted sample without replacement orders the population by `E / w`, one
+# exponential draw `E` per element (Efraimidis and Spirakis 2006, with
+# `E = -log(u)`). The smallest `E / w` belongs to element `i` with probability
+# `w[i] / sum(w)`, and the others restart by memorylessness, so the order is
+# that of successive draws proportional to the remaining weights. It consumes 52
+# bits per population element for every `count`.
+function _weighted_unique_sample(
+    rng,
+    indexed,
+    weights,
+    agnostic::Bool,
+    count::Int,
+    threaded::Bool,
+)
+    converted = _unique_weights(rng, weights, agnostic)
+    positive = Base.count(>(zero(Float64)), converted)
+    count <= positive || _weighted_unique_count_error(count, positive)
+    exponentials, next_rng = randexp_next(rng, Float64, length(converted); threaded)
+    keys = _race_key.(exponentials, converted)
+    return vec(indexed)[_race_order(keys, count)], next_rng
+end
+
 function _randsample_next_weighted(
     rng,
     population,
     weights,
     requested_count,
+    replace::Bool,
     threaded::Bool,
 )
     population_agnostic = _check_population_device(rng, population)
@@ -277,6 +356,14 @@ function _randsample_next_weighted(
     count > 0 && iszero(cardinality) && _empty_sampling_population(count)
     _weight_count(weights) == cardinality ||
         _weight_length_error(_weight_count(weights), cardinality)
+    replace || return _weighted_unique_sample(
+        rng,
+        indexed,
+        weights,
+        weights_agnostic,
+        count,
+        threaded,
+    )
 
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, count, _WEIGHT_BITS)
@@ -308,7 +395,14 @@ function _randsample_next_weighted(
     return destination, next_rng
 end
 
-function _randsample_next_weighted!(rng, population, weights, destination, threaded::Bool)
+function _randsample_next_weighted!(
+    rng,
+    population,
+    weights,
+    destination,
+    replace::Bool,
+    threaded::Bool,
+)
     _check_sampling_fill_device(rng, destination)
     _check_sampling_serviceability(rng)
     population_agnostic = _check_population_device(rng, population)
@@ -323,6 +417,18 @@ function _randsample_next_weighted!(rng, population, weights, destination, threa
     !isempty(destination) &&
         iszero(cardinality) &&
         _empty_sampling_population(length(destination))
+    if !replace
+        values, next_rng = _weighted_unique_sample(
+            rng,
+            indexed,
+            weights,
+            weights_agnostic,
+            length(destination),
+            threaded,
+        )
+        copyto!(destination, values)
+        return destination, next_rng
+    end
 
     converted, total, cumulative = _prepare_weight_scan(rng, weights, weights_agnostic)
     next_rng = _sampling_reservation(rng, length(destination), _WEIGHT_BITS)
@@ -355,9 +461,12 @@ end
     rng::AbstractPureRNG,
     population,
     weights::Union{AbstractVector{<:Real},WeightTable};
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return first(_randsample_next_weighted(rng, population, weights, nothing, threaded))
+    return first(
+        _randsample_next_weighted(rng, population, weights, nothing, replace, threaded),
+    )
 end
 
 
@@ -366,9 +475,12 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     count::Integer;
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return first(_randsample_next_weighted(rng, population, weights, count, threaded))
+    return first(
+        _randsample_next_weighted(rng, population, weights, count, replace, threaded),
+    )
 end
 
 
@@ -376,9 +488,10 @@ end
     rng::AbstractPureRNG,
     population,
     weights::Union{AbstractVector{<:Real},WeightTable};
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return _randsample_next_weighted(rng, population, weights, nothing, threaded)
+    return _randsample_next_weighted(rng, population, weights, nothing, replace, threaded)
 end
 
 
@@ -387,9 +500,10 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     count::Integer;
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return _randsample_next_weighted(rng, population, weights, count, threaded)
+    return _randsample_next_weighted(rng, population, weights, count, replace, threaded)
 end
 
 @inline function randsample!(
@@ -397,10 +511,18 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
+    replace::Bool = true,
     threaded::Bool = false,
 )
     return first(
-        _randsample_next_weighted!(rng, population, weights, destination, threaded),
+        _randsample_next_weighted!(
+            rng,
+            population,
+            weights,
+            destination,
+            replace,
+            threaded,
+        ),
     )
 end
 
@@ -409,7 +531,15 @@ end
     population,
     weights::Union{AbstractVector{<:Real},WeightTable},
     destination::AbstractArray;
+    replace::Bool = true,
     threaded::Bool = false,
 )
-    return _randsample_next_weighted!(rng, population, weights, destination, threaded)
+    return _randsample_next_weighted!(
+        rng,
+        population,
+        weights,
+        destination,
+        replace,
+        threaded,
+    )
 end

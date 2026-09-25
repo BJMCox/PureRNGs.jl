@@ -97,7 +97,6 @@ Equal keys have probability about `n^2 / 2^65`. They are shuffled within their r
 
 The keys are ordered by a counting pass over their top bits, in expected linear time, on the CPU and on a GPU.
 A GPU permutation of 2^24 elements takes 13.7 ms on an A100, against 104 ms for CUDA.jl's `sortperm!`.
-Weighted sampling is always with replacement.
 
 ## Supply weights
 
@@ -131,6 +130,20 @@ Device generators reject it.
 Each category's realized share is a whole number of `2^-53` cells of the
 cumulative total. Shares below about `1e-16` of the total are not represented
 faithfully and depend on weight order.
+
+### Weighted sampling without replacement
+
+```@example sampling
+finalists, rng = randsample_next(rng, [:ann, :bo, :cy, :di], [4.0, 1.0, 2.0, 0.0], 2; replace = false)
+finalists
+```
+
+With `replace = false`, each element gets one exponential draw `E`, and the sample is the population in increasing order of `E / w`, ties by index (Efraimidis and Spirakis, 2006).
+The first element is `i` with probability `w[i] / sum(w)`, the next one is drawn in proportion to the remaining weights, and so on.
+The sample consumes 52 bits per population element whatever the count, and the count may not exceed the number of positive weights.
+The keys cover the whole `Float64` weight range without overflow, and no weight total is formed, so the total need not be finite.
+Pass the weight vector: a `WeightTable` keeps only cumulative sums.
+Device exponentials can differ from CPU exponentials in the last ulp, so a device sample can differ from the CPU sample when two keys are that close.
 
 ## Fill an existing destination
 

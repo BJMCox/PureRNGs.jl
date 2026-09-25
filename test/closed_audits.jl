@@ -291,13 +291,9 @@ end
             ) ? _pure_audit_methods(function_) : _audit_methods(function_)
         )
     )
-    # Unweighted sampling also takes `replace`; weighted sampling is always with
-    # replacement and takes only `threaded`.
     for function_ in (randsample, randsample_next, randsample!, randsample_next!)
         for method in _audit_methods(function_)
-            weighted = endswith(string(method.file), "weighted_sampling.jl")
-            @test Base.kwarg_decl(method) ==
-                  (weighted ? [:threaded] : [:replace, :threaded])
+            @test Base.kwarg_decl(method) == [:replace, :threaded]
         end
     end
     # The dynamic split takes the fill keyword. The other two forms take none.

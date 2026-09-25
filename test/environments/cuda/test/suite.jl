@@ -1994,5 +1994,31 @@ end
     @test Array(gpu_permutation) == host
 end
 
+@testset "CUDA weighted samples without replacement equal the CPU samples" begin
+    for F in GENERATOR_TYPES, n in (1, 1000, 70_000)
+        cpu_rng = F(0x790, 1)
+        gpu_rng = device(cpu_rng)
+        weights = [mod(7index, 11) * 0.25 for index = 1:n]
+        weights[1] = 1e-310
+        population = Float32.(1:n)
+        count = min(n, 17)
+        expected, expected_next =
+            randsample_next(cpu_rng, population, weights, count; replace = false)
+        sample, next_rng = randsample_next(
+            gpu_rng,
+            CuArray(population),
+            CuArray(weights),
+            count;
+            replace = false,
+        )
+        @test sample isa CuArray{Float32,1}
+        @test Array(sample) == expected
+        @test next_rng.position == expected_next.position
+    end
+    # A device sort need not order equal keys by index; the host restores that order.
+    keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
+    @test Array(IR._race_order(CuArray(keys), 5)) == sortperm(keys)[1:5]
+end
+
 include("fixed_distributions.jl")
 include("enzyme.jl")
