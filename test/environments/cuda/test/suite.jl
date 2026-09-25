@@ -1,6 +1,7 @@
 using CUDA
 using Distributions
 using Enzyme
+using ForwardDiff
 using KernelAbstractions
 using PureRNGs
 using MLDataDevices

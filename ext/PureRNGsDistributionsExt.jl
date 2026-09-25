@@ -8,7 +8,6 @@ using PrecompileTools: PrecompileTools, @compile_workload, @setup_workload
 const IR = PureRNGs
 include("distributions_common.jl")
 include("distributions_gamma.jl")
-include("distributions_gamma_derivative.jl")
 include("distributions_dirichlet.jl")
 
 # Reactant shares the common file but not the Gamma family, whose draws can loop.

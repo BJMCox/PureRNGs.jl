@@ -160,7 +160,9 @@ Every member runs on the CPU, CUDA, and AMDGPU; a 2^26 `Gamma` fill takes about 
 
 Shape gradients use the implicit derivative of the Gamma CDF, `dx/dα = -∂F(x; α)/∂α ÷ f(x; α)` (Figurnov, Mohamed, and Mnih 2018), with Enzyme, Mooncake, and ForwardDiff alike.
 Differentiating through the rejection test would bias the gradient, so the sampler is a primitive with that rule.
-The derivative evaluates the incomplete gamma function on the CPU.
+The derivative differentiates the series and continued fraction of the incomplete gamma function term by term, in the shape's type, so it also runs in device kernels.
+Its cost grows with the square root of the shape near the mode: about 40 ns at shape 2.5 and 0.6 µs at shape 10⁴ on the CPU.
+In Float32 it is accurate to about 10⁻⁶ up to shape 100 and 10⁻⁴ at shape 10⁴.
 
 ## Other distributions
 

@@ -103,9 +103,9 @@ function IR.rand_at(rng::IR._ScalarUniformGenerators, d::_DualDistribution, inde
     )
 end
 
-# Fills run on the CPU, where the dual element type is an ordinary array element.
+# A dual is a plain bits type, so a device fill runs the generic kernel.
 function IR.rand_next!(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::_DualDistribution,
     destination::AbstractArray{<:ForwardDiff.Dual};
     threaded::Bool = false,
@@ -114,33 +114,36 @@ function IR.rand_next!(
     return IR._fill_prevalidated!(rng, destination, threaded, _dual_codec(rng, d))
 end
 Random.rand!(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::_DualDistribution,
     destination::AbstractArray{<:ForwardDiff.Dual};
     threaded::Bool = false,
 ) = first(IR.rand_next!(rng, d, destination; threaded))
 
-IR.rand_next(
-    rng::IR._CPUGenerators,
+function IR.rand_next(
+    rng::IR._ScalarUniformGenerators,
     d::_DualDistribution,
     dims::Dims;
     threaded::Bool = false,
-) = IR.rand_next!(rng, d, Array{Distributions.partype(d)}(undef, dims); threaded)
+)
+    destination = IR._allocate_draw_array(rng.device, Distributions.partype(d), dims)
+    return IR.rand_next!(rng, d, destination; threaded)
+end
 IR.rand_next(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::_DualDistribution,
     dim1::Integer,
     dims::Integer...;
     threaded::Bool = false,
 ) = IR.rand_next(rng, d, (dim1, dims...); threaded)
 Random.rand(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::_DualDistribution,
     dims::Dims;
     threaded::Bool = false,
 ) = first(IR.rand_next(rng, d, dims; threaded))
 Random.rand(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::_DualDistribution,
     dim1::Integer,
     dims::Integer...;
@@ -155,23 +158,42 @@ const _DualMvNormal = Distributions.MvNormal{<:ForwardDiff.Dual}
 _primal_type(::Type{<:ForwardDiff.Dual{<:Any,V}}) where {V} = _primal_type(V)
 _primal_type(::Type{T}) where {T} = T
 
-_whitened_to_mvnormal(d, values) = d.μ .+ Distributions.PDMats.unwhiten(d.Σ, values)
+const _PDMats = Distributions.PDMats
+const _LinearAlgebra = Distributions.LinearAlgebra
 
-function IR.rand_next(rng::IR._CPUGenerators, d::_DualMvNormal)
+# A device draw moves the dual factor to the device once per call, as a dense
+# matrix, since device arrays have no triangular product for dual elements.
+_device_unwhitened(device, Σ::_PDMats.PDMat, values) =
+    IR._transfer_array(device, Matrix(_PDMats.chol_lower(_LinearAlgebra.cholesky(Σ)))) *
+    values
+_device_unwhitened(device, Σ::_PDMats.PDiagMat, values) =
+    sqrt.(IR._transfer_array(device, collect(Σ.diag))) .* values
+_device_unwhitened(device, Σ::_PDMats.ScalMat, values) = sqrt(Σ.value) .* values
+
+_whitened_to_mvnormal(::IR._CPUBackend, d, values) = d.μ .+ _PDMats.unwhiten(d.Σ, values)
+_whitened_to_mvnormal(device, d, values) =
+    IR._transfer_array(device, collect(d.μ)) .+ _device_unwhitened(device, d.Σ, values)
+
+function IR.rand_next(rng::IR._ScalarUniformGenerators, d::_DualMvNormal)
     values, next_rng = IR.randn_next(rng, _primal_type(eltype(d)), length(d))
-    return _whitened_to_mvnormal(d, values), next_rng
+    return _whitened_to_mvnormal(rng.device, d, values), next_rng
 end
-Random.rand(rng::IR._CPUGenerators, d::_DualMvNormal) = first(IR.rand_next(rng, d))
+Random.rand(rng::IR._ScalarUniformGenerators, d::_DualMvNormal) =
+    first(IR.rand_next(rng, d))
 function IR.rand_next(
-    rng::IR._CPUGenerators,
+    rng::IR._ScalarUniformGenerators,
     d::_DualMvNormal,
     n::Integer;
     threaded::Bool = false,
 )
     values, next_rng = IR.randn_next(rng, _primal_type(eltype(d)), length(d), n; threaded)
-    return _whitened_to_mvnormal(d, values), next_rng
+    return _whitened_to_mvnormal(rng.device, d, values), next_rng
 end
-Random.rand(rng::IR._CPUGenerators, d::_DualMvNormal, n::Integer; threaded::Bool = false) =
-    first(IR.rand_next(rng, d, n; threaded))
+Random.rand(
+    rng::IR._ScalarUniformGenerators,
+    d::_DualMvNormal,
+    n::Integer;
+    threaded::Bool = false,
+) = first(IR.rand_next(rng, d, n; threaded))
 
 end

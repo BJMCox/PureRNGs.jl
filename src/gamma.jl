@@ -112,11 +112,98 @@ end
     return log(g) + log(_open_midpoint(F, boost_raw)) / shape
 end
 
-# d g / d shape and d log(g) / d shape of a standard Gamma draw g, from the
-# implicit function theorem on the Gamma CDF. The Distributions extension owns
-# the methods, since they need the incomplete gamma function.
-function _gamma_shape_derivative end
-function _gamma_log_shape_derivative end
+# The digamma function for a positive argument: the recurrence moves it to at
+# least 7, where the asymptotic series with Bernoulli coefficients holds.
+@inline function _digamma(x::F) where {F<:AbstractFloat}
+    ψ = zero(F)
+    while x < F(7)
+        ψ -= inv(x)
+        x += one(F)
+    end
+    t = inv(x)
+    ψ += log(x) - t / 2
+    t *= t
+    coefficients = (1 / 12, -1 / 120, 1 / 252, -1 / 240, 1 / 132, -691 / 32760, 1 / 12)
+    return ψ - t * evalpoly(t, map(F, coefficients))
+end
+
+# Near g = shape both expansions need about sqrt(74 shape) terms in Float64.
+@inline _gamma_expansion_terms(shape::F) where {F} =
+    200 + unsafe_trunc(Int, 12 * sqrt(min(shape, F(1e12))))
+
+# d log(g) / d shape of a standard Gamma(shape) draw g is -dP/dshape / (g p(g))
+# for the regularized incomplete gamma function P and the Gamma density p, by
+# the implicit function theorem (Figurnov, Mohamed, and Mnih 2018). P comes from
+# its series where g <= 1 or g < shape, and 1 - P from its continued fraction
+# elsewhere, as in Cephes; each is differentiated term by term, as in Eigen's
+# igamma derivative. The prefactor g^shape e^-g / Gamma(shape) cancels against
+# g p(g), so the result needs only log(g) and digamma, and stays finite where a
+# small shape's draw underflows. The arithmetic runs in the shape's type, so it
+# also runs in a device kernel.
+@inline function _gamma_log_shape_derivative(shape::F, log_g::F) where {F<:AbstractFloat}
+    g = exp(log_g)
+    g <= one(F) || g < shape || return _gamma_fraction_log_derivative(shape, g, log_g)
+    return _gamma_series_log_derivative(shape, g, log_g)
+end
+
+@inline _gamma_shape_derivative(shape::F, g::F) where {F<:AbstractFloat} =
+    iszero(g) ? zero(F) : g * _gamma_log_shape_derivative(shape, log(g))
+
+# P = g^a e^-g / Gamma(a + 1) S with S = sum_k g^k / prod_{j <= k} (a + j).
+@inline function _gamma_series_log_derivative(a::F, x::F, log_x::F) where {F}
+    term, sum, term_slope, sum_slope = one(F), one(F), zero(F), zero(F)
+    denominator = a
+    for _ = 1:_gamma_expansion_terms(a)
+        denominator += one(F)
+        ratio = x / denominator
+        term_slope = (term_slope - term / denominator) * ratio
+        term *= ratio
+        sum += term
+        sum_slope += term_slope
+        term <= eps(F) * sum && abs(term_slope) <= eps(F) * abs(sum_slope) && break
+    end
+    return -(sum_slope + sum * (log_x - _digamma(a + one(F)))) / a
+end
+
+# 1 - P = g^a e^-g / Gamma(a) f for the Cephes continued fraction f, whose
+# convergents p / q follow a three-term recurrence; the slopes follow its
+# derivative in a. Both rescale together when the convergents grow large.
+@inline function _gamma_fraction_log_derivative(a::F, x::F, log_x::F) where {F}
+    y = one(F) - a
+    z = x + y + one(F)
+    c = zero(F)
+    p0, q0, p1, q1 = one(F), x, x + one(F), z * x
+    dp0, dq0, dp1, dq1 = zero(F), zero(F), zero(F), -x
+    fraction = p1 / q1
+    slope = (dp1 - fraction * dq1) / q1
+    large = inv(eps(F))
+    for _ = 1:_gamma_expansion_terms(a)
+        c += one(F)
+        y += one(F)
+        z += F(2)
+        yc = y * c
+        p = p1 * z - p0 * yc
+        q = q1 * z - q0 * yc
+        dp = dp1 * z - p1 - dp0 * yc + p0 * c
+        dq = dq1 * z - q1 - dq0 * yc + q0 * c
+        if !iszero(q)
+            next_fraction = p / q
+            next_slope = (dp - next_fraction * dq) / q
+            converged =
+                abs(next_fraction - fraction) <= eps(F) * abs(next_fraction) &&
+                abs(next_slope - slope) <= eps(F) * abs(next_slope)
+            fraction, slope = next_fraction, next_slope
+            converged && break
+        end
+        p0, p1, q0, q1 = p1, p, q1, q
+        dp0, dp1, dq0, dq1 = dp1, dp, dq1, dq
+        if abs(p) > large
+            p0, p1, q0, q1 = p0 / large, p1 / large, q0 / large, q1 / large
+            dp0, dp1, dq0, dq1 = dp0 / large, dp1 / large, dq0 / large, dq1 / large
+        end
+    end
+    return slope + fraction * (log_x - _digamma(a))
+end
 
 @inline _gamma_cursor(rng, position) =
     _dense_cursor(rng, _position_block(position), position.bit)

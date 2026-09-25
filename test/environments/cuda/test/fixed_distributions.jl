@@ -605,3 +605,45 @@ end
     end
 end
 
+# A dual distribution fills a device array through the generic kernel, which
+# also runs the Gamma shape's implicit derivative. Values and partials track the
+# CPU draw; a dual MvNormal applies its factor on the device.
+@testset "CUDA dual fills track the CPU" begin
+    dual(x) = ForwardDiff.Dual{:cuda}(x, one(x))
+    PDMats = Distributions.PDMats
+    for F in GENERATOR_TYPES,
+        d in (
+            Normal(dual(0.5), 2.0),
+            Gamma(dual(2.5), 1.5),
+            Gamma(dual(0.3f0), 1.0f0),
+            Beta(dual(0.4), 0.7),
+            TDist(dual(3.0)),
+            Chisq(dual(4.0f0)),
+        )
+
+        cpu_rng = F(0x797, 1)
+        gpu_rng = device(cpu_rng)
+        values = Array(rand(gpu_rng, d, 1000))
+        expected = rand(cpu_rng, d, 1000)
+        T = typeof(ForwardDiff.value(first(expected)))
+        near(x, y) = isapprox(x, y; rtol = sqrt(eps(T)), atol = sqrt(eps(T)))
+        @test count(near.(ForwardDiff.value.(values), ForwardDiff.value.(expected))) >= 998
+        @test count(
+            near.(ForwardDiff.partials.(values, 1), ForwardDiff.partials.(expected, 1)),
+        ) >= 998
+    end
+    mean = dual.([1.0, 2.0])
+    for Σ in (
+        PDMats.PDMat([2.0 0.5; 0.5 1.0] .* dual(1.0)),
+        PDMats.PDiagMat(dual.([2.0, 3.0])),
+        PDMats.ScalMat(2, dual(4.0)),
+    )
+        d = MvNormal(mean, Σ)
+        values, next_rng = rand_next(device(Philox4x32(0x798)), d, 50)
+        expected, expected_next = rand_next(Philox4x32(0x798), d, 50)
+        @test values isa CuArray
+        @test next_rng.position == expected_next.position
+        @test ForwardDiff.value.(Array(values)) ≈ ForwardDiff.value.(expected)
+        @test ForwardDiff.partials.(Array(values), 1) ≈ ForwardDiff.partials.(expected, 1)
+    end
+end

@@ -258,3 +258,36 @@ end
     @test all(isfinite, small)
     @test maximum(abs.(sum(small; dims = 1) .- 1)) < 1e-12
 end
+
+# The shape derivative differentiates the incomplete gamma expansions term by
+# term. The reference is a Richardson-extrapolated central difference of the
+# incomplete gamma ratio, over the density, at Gamma quantiles.
+@testset "the Gamma shape derivative matches the incomplete gamma difference" begin
+    special = Distributions.SpecialFunctions
+    function central(a, x, h)
+        upper, lower = special.gamma_inc(a + h, x), special.gamma_inc(a - h, x)
+        first(upper) + first(lower) <= 1 && return (first(upper) - first(lower)) / 2h
+        return (last(lower) - last(upper)) / 2h
+    end
+    function reference(a, x)
+        h = cbrt(eps(Float64)) * a
+        slope = (4central(a, x, h / 2) - central(a, x, h)) / 3
+        return -slope / exp(a * log(x) - x - special.loggamma(a))
+    end
+    for a in (1e-3, 0.02, 0.3, 1.0, 2.5, 10.0, 100.0, 1e4, 1e6),
+        q in (1e-6, 1e-3, 0.1, 0.5, 0.9, 0.999, 1 - 1e-6)
+
+        x = quantile(Gamma(a), q)
+        x > floatmin(Float64) || continue
+        expected = reference(a, x)
+        @test IR._gamma_log_shape_derivative(a, log(x)) ≈ expected rtol = 1e-8
+        @test IR._gamma_shape_derivative(a, x) ≈ x * expected rtol = 1e-8
+        (a <= 100 && x > floatmin(Float32)) || continue
+        @test IR._gamma_log_shape_derivative(Float32(a), Float32(log(x))) ≈ expected rtol =
+            1e-5
+    end
+    # Where the draw underflows, the series reduces to its first term.
+    @test IR._gamma_shape_derivative(0.3, 0.0) == 0
+    @test IR._gamma_log_shape_derivative(1e-3, -2000.0) ≈
+          (2000 + special.digamma(1 + 1e-3)) / 1e-3
+end
