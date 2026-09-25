@@ -88,6 +88,18 @@ end
 
 @inline _val_count(::Val{N}) where {N} = N
 
+# One uniform value read from `cursor`. A complex value reads its real part and
+# then its imaginary part, as the scalar draw does.
+@inline function _take_uniform(rng, cursor, ::Type{T}) where {T}
+    raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(Int(_draw_bits(T))))
+    return _from_bits(T, raw), cursor
+end
+@inline function _take_uniform(rng, cursor, ::Type{Complex{T}}) where {T}
+    real_part, cursor = _take_uniform(rng, cursor, T)
+    imaginary_part, cursor = _take_uniform(rng, cursor, T)
+    return Complex{T}(real_part, imaginary_part), cursor
+end
+
 # The fallback every uniform block store below drops into when its alignment
 # does not hold. Like those stores, it counts draws by ordinal and writes each
 # one to that ordinal's `eachindex` position, so offset axes stay in bounds.
@@ -105,8 +117,8 @@ end
     @inbounds for offset = 0:(N-1)
         index = first + offset
         index > last && break
-        raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(Int(_draw_bits(T))))
-        destination[_destination_index(indices, index)] = _from_bits(T, raw)
+        value, cursor = _take_uniform(rng, cursor, T)
+        destination[_destination_index(indices, index)] = value
     end
     return nothing
 end
@@ -474,13 +486,9 @@ end
     count::Int,
     ::Val{:uniform},
 ) where {T<:_TransformFloat}
-    width = Val(Int(_draw_bits(T)))
     last_index = index + count - 1
     @inbounds while index <= last_index
-        real_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
-        imaginary_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
-        destination[index] =
-            Complex{T}(_from_bits(T, real_raw), _from_bits(T, imaginary_raw))
+        destination[index], cursor = _take_uniform(rng, cursor, Complex{T})
         index += 1
     end
     return cursor

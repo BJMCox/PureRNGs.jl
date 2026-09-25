@@ -1969,6 +1969,30 @@ end
     end
 end
 
+# A complex value is two draws of its part type, in the grouped and the
+# generic kernel. Device normals differ from CPU normals in the last ulp.
+@testset "CUDA complex draws equal the CPU draws" begin
+    for F in GENERATOR_TYPES, T in (ComplexF16, ComplexF32, ComplexF64), n in (1, 1001)
+        cpu_rng = F(0x796, 1)
+        gpu_rng = device(cpu_rng)
+        values, next_rng = rand_next(gpu_rng, T, n)
+        @test values isa CuArray{T,1}
+        @test Array(values) == first(rand_next(cpu_rng, T, n))
+        @test next_rng.position == last(rand_next(cpu_rng, T, n)).position
+        normals, normal_next = randn_next(gpu_rng, T, n)
+        @test Array(normals) ≈ first(randn_next(cpu_rng, T, n))
+        @test normal_next.position == last(randn_next(cpu_rng, T, n)).position
+        for codec in (Val(:uniform), IR._NormalCodec(gpu_rng.device))
+            generic = CuArray{T}(undef, n)
+            backend = IR._fill_backend(gpu_rng.device, generic)
+            IR._launch_device_fill!(backend, gpu_rng, generic, T, codec, nothing)
+            grouped = CuArray{T}(undef, n)
+            IR._fill_prevalidated!(gpu_rng, grouped, false, codec)
+            @test Array(generic) == Array(grouped)
+        end
+    end
+end
+
 @testset "CUDA permutations equal the CPU permutations" begin
     for F in GENERATOR_TYPES, n in (0, 1, 1000, 70_000)
         cpu_rng = F(0x78e, 1)

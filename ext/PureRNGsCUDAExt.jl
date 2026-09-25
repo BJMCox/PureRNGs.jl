@@ -132,6 +132,12 @@ const _CUDAUniformLikeCodec =
 ) = Val(4)
 @inline _fill_group_elements(::IR._NormalCodec{IR._CUDABackend}, rng, ::Type{Float16}) =
     Val(8)
+# A complex value is two draws of its part type.
+@inline _fill_group_elements(
+    codec::Union{_CUDAUniformLikeCodec,IR._NormalCodec{IR._CUDABackend}},
+    rng,
+    ::Type{Complex{T}},
+) where {T} = Val(max(1, IR._val_count(_fill_group_elements(codec, rng, T)) ÷ 2))
 
 # A100 trials picked these output tiles and workgroup sizes.
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))

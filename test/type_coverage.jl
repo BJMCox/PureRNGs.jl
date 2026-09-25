@@ -109,9 +109,9 @@ end
     end
 end
 
-@testset "128-bit and complex fills stay on the CPU" begin
+@testset "128-bit fills stay on the CPU" begin
     device_rng = MLD.CUDADevice()(Philox4x32(0x7c7))
-    for spec in (UInt128, Int128, ComplexF32)
+    for spec in (UInt128, Int128)
         @test_throws ArgumentError rand_next(device_rng, spec, 4)
     end
     @test_throws ArgumentError rand_next(device_rng, Int128(1):Int128(6), 4)

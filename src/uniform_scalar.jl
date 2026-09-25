@@ -150,8 +150,8 @@ Omitting `T` selects `Float64`. Supported scalar types are `Bool`, the 8- to 128
 `Float16`, `Float32`, `Float64`, `Complex` values of those three, and `Char`, which is
 uniform over the Unicode scalar values as in `Random`.
 Integer ranges support signed and unsigned integer element types through 128
-bits. Dimensions may also be one tuple, as in `Random`. The 128-bit and complex
-types run on the CPU only.
+bits. Dimensions may also be one tuple, as in `Random`. The 128-bit types run on
+the CPU only.
 
 A collection is an integer range, any other array or range, a tuple, a string, a
 dict, or a set. A pick from it consumes and returns what one

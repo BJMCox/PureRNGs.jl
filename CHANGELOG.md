@@ -8,7 +8,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- Draws of every signed and unsigned integer type from 8 to 128 bits, `Float16`, and `Complex` values, with normal draws for `Float16` and complex types and exponential draws for `Float16`. Integer ranges accept 128-bit element types; a range with more than 2^64 values reduces a 192-bit candidate. The 128-bit and complex types run on the CPU only.
+- Draws of every signed and unsigned integer type from 8 to 128 bits, `Float16`, and `Complex` values, with normal draws for `Float16` and complex types and exponential draws for `Float16`. Integer ranges accept 128-bit element types; a range with more than 2^64 values reduces a 192-bit candidate. The 128-bit types run on the CPU only.
 - `StatefulRNG` serves every `Random` element type, `Random.seed!(rng)` without a seed, `copy!`, `==`, and `hash`.
 - Picks from collections: `rand`, `rand_next`, `rand_at`, `rand!`, and `rand_next!` accept any array or range, a tuple, a string, a dict, or a set. A pick consumes what one `randsample_next` draw does. `StatefulRNG` picks from tuples, strings, dicts, and sets through the same law.
 - `Char` draws, uniform over the Unicode scalar values as in `Random`.
