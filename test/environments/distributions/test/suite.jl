@@ -236,7 +236,7 @@ end
     invalid_error(() -> rand_next!(exhausted, distribution, destination))
 
     @test_throws MethodError rand(rng, Normal(Float16(0), Float16(1)))
-    @test_throws MethodError rand(rng, Beta())
+    @test_throws MethodError rand(rng, Poisson())
     @test_throws MethodError rand!(rng, Normal(), Float32[])
 
     distribution = Normal()

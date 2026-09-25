@@ -553,3 +553,22 @@ end
         @test count(isapprox.(Array(forced), host_forced; rtol = 100eps(T))) >= 9_980
     end
 end
+
+# Beta subtracts two log-gammas and exponentiates, so device rounding reaches
+# further than for Gamma; the tolerance allows it.
+@testset "CUDA Gamma family fills equal device draws and track the CPU" begin
+    for F in GENERATOR_TYPES,
+        d in (Chisq(3.0), InverseGamma(2.5f0, 1.5f0), Beta(0.3, 0.4), TDist(3.0f0))
+
+        T = partype(d)
+        cpu_rng = F(0x793, 1)
+        gpu_rng = device(cpu_rng)
+        values = rand(gpu_rng, d, 1000)
+        @test values isa CuArray{T,1}
+        addressed = CuArray{T}(undef, 1000)
+        CUDA.@sync CUDA.@cuda threads = 1 _expanded_addressed_kernel!(addressed, gpu_rng, d)
+        @test Array(values) == Array(addressed)
+        @test count(isapprox.(Array(values), rand(cpu_rng, d, 1000); rtol = 1000eps(T))) >=
+              998
+    end
+end

@@ -9,8 +9,8 @@ const IR = PureRNGs
 include("distributions_common.jl")
 include("distributions_gamma.jl")
 
-# Reactant shares the common file but not Gamma, whose draw can loop.
-const _NativeDistribution = Union{_FixedDistribution,_GammaDistribution}
+# Reactant shares the common file but not the Gamma family, whose draws can loop.
+const _NativeDistribution = Union{_FixedDistribution,_GammaFamilyDistribution}
 
 struct _DistributionCodec{D<:_MappedDistribution{<:_FloatType},B<:IR._BackendToken} <:
        IR._MappedFillCodec
@@ -225,7 +225,7 @@ end
 
 @inline function Random.rand!(
     rng::IR._ScalarUniformGenerators,
-    d::Union{_FloatMapped{T},Distributions.Gamma{T}},
+    d::Union{_FloatMapped{T},_GammaFamily{T}},
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_FloatType}
@@ -255,7 +255,7 @@ end
 
 @inline function IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
-    d::Union{_FloatMapped{T},Distributions.Gamma{T}},
+    d::Union{_FloatMapped{T},_GammaFamily{T}},
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_FloatType}
