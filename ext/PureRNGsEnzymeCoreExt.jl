@@ -378,4 +378,163 @@ for (draw, slope) in (
     end
 end
 
+
+# A device fill of a codec with parameters, such as a distribution's. The
+# KernelAbstractions rules take no active kernel argument on a GPU, so these
+# rules differentiate each element in a kernel of their own, in forward mode:
+# the element is the generic kernel's draw, which every fill plan equals.
+# Reverse mode runs one tangent fill per float field of the codec and dots it
+# with the adjoints. Custom rules do not reach a device kernel, so the Gamma
+# family takes the core's tangent, which carries the implicit shape derivative.
+@inline function _element_position(codec, rng, ordinal, ::Val{T}) where {T}
+    bits_lo, bits_hi = IR._bit_span(UInt64(ordinal - 1), IR._fill_width(codec, T))
+    return IR._advance_position_unchecked(rng, bits_lo, bits_hi)
+end
+
+@inline _element(codec, rng, ordinal, element_type::Val{T}) where {T} =
+    IR._transformed_draw_unchecked(
+        codec,
+        rng,
+        _element_position(codec, rng, ordinal, element_type),
+        T,
+    )
+
+@inline _element_tangent(codec, dcodec, rng, ordinal, element_type) = only(
+    EnzymeCore.autodiff_deferred(
+        EnzymeCore.Forward,
+        EnzymeCore.Const(_element),
+        EnzymeCore.Duplicated,
+        EnzymeCore.Duplicated(codec, dcodec),
+        EnzymeCore.Const(rng),
+        EnzymeCore.Const(ordinal),
+        EnzymeCore.Const(element_type),
+    ),
+)
+@inline _element_tangent(codec::IR._GammaFamilyCodec, dcodec, rng, ordinal, element_type) =
+    IR._transformed_tangent_unchecked(
+        codec,
+        dcodec,
+        rng,
+        _element_position(codec, rng, ordinal, element_type),
+    )
+
+@inline function _element_tangent!(tangents, ordinal, rng, codec, dcodec, element_type)
+    tangents[1, ordinal] = _element_tangent(codec, dcodec, rng, ordinal, element_type)
+    return nothing
+end
+
+@inline _as_columns(array) = reshape(array, 1, :)
+
+@inline function _fill_tangent!(backend, tangents, rng, codec, dcodec, ::Type{T}) where {T}
+    IR._foreach_column!(
+        backend,
+        _element_tangent!,
+        _as_columns(tangents),
+        false,
+        rng,
+        codec,
+        dcodec,
+        Val(T),
+    )
+    return tangents
+end
+
+# The float fields of a codec, depth first, and the codec with them replaced.
+function _float_paths(::Type{S}, path = ()) where {S}
+    S <: AbstractFloat && return [path]
+    (isstructtype(S) && fieldcount(S) > 0) || return Tuple[]
+    return reduce(
+        vcat,
+        (_float_paths(fieldtype(S, i), (path..., i)) for i = 1:fieldcount(S)),
+    )
+end
+
+@generated function _floats(value::T) where {T}
+    fields = map(_float_paths(T)) do path
+        foldl((expression, i) -> :(getfield($expression, $i)), path; init = :value)
+    end
+    return Expr(:tuple, fields...)
+end
+
+@generated function _with_floats(value::T, floats) where {T}
+    count = Ref(0)
+    function build(S, expression)
+        if S <: AbstractFloat
+            count[] += 1
+            return :(floats[$(count[])])
+        end
+        (isstructtype(S) && fieldcount(S) > 0) || return expression
+        fields =
+            (build(fieldtype(S, i), :(getfield($expression, $i))) for i = 1:fieldcount(S))
+        return Expr(:new, S, fields...)
+    end
+    return build(T, :value)
+end
+
+@inline _direction(floats, k) =
+    ntuple(j -> j == k ? one(floats[j]) : zero(floats[j]), Val(length(floats)))
+
+const _DeviceFloatFill = EnzymeCore.Const{<:Type{<:AbstractFloat}}
+
+function ER.forward(
+    config::ER.FwdConfig,
+    ::EnzymeCore.Const{typeof(IR._launch_device_fill!)},
+    ::Type,
+    backend::EnzymeCore.Const,
+    rng::EnzymeCore.Const,
+    destination::EnzymeCore.Duplicated,
+    element_type::_DeviceFloatFill,
+    codec::EnzymeCore.Duplicated,
+    plan::EnzymeCore.Const,
+)
+    T = element_type.val
+    IR._launch_device_fill!(backend.val, rng.val, destination.val, T, codec.val, plan.val)
+    _fill_tangent!(backend.val, destination.dval, rng.val, codec.val, codec.dval, T)
+    return _forward_return(config, destination.val, destination)
+end
+
+function ER.augmented_primal(
+    config::ER.RevConfig,
+    ::EnzymeCore.Const{typeof(IR._launch_device_fill!)},
+    ::Type,
+    backend::EnzymeCore.Const,
+    rng::EnzymeCore.Const,
+    destination::EnzymeCore.Duplicated,
+    element_type::_DeviceFloatFill,
+    codec::EnzymeCore.Active,
+    plan::EnzymeCore.Const,
+)
+    T = element_type.val
+    IR._launch_device_fill!(backend.val, rng.val, destination.val, T, codec.val, plan.val)
+    primal = ER.needs_primal(config) ? destination.val : nothing
+    shadow = ER.needs_shadow(config) ? destination.dval : nothing
+    return ER.AugmentedReturn(primal, shadow, nothing)
+end
+
+function ER.reverse(
+    config::ER.RevConfig,
+    ::EnzymeCore.Const{typeof(IR._launch_device_fill!)},
+    ::Type,
+    tape,
+    backend::EnzymeCore.Const,
+    rng::EnzymeCore.Const,
+    destination::EnzymeCore.Duplicated,
+    element_type::_DeviceFloatFill,
+    codec::EnzymeCore.Active,
+    plan::EnzymeCore.Const,
+)
+    T = element_type.val
+    adjoints = destination.dval
+    tangents = similar(adjoints)
+    floats = _floats(codec.val)
+    gradient = ntuple(Val(length(floats))) do k
+        direction = _with_floats(codec.val, _direction(floats, k))
+        _fill_tangent!(backend.val, tangents, rng.val, codec.val, direction, T)
+        return oftype(floats[k], sum(tangents .* adjoints))
+    end
+    # The fill overwrote the destination, so its adjoint stops here.
+    fill!(adjoints, zero(eltype(adjoints)))
+    return (nothing, nothing, nothing, nothing, _with_floats(codec.val, gradient), nothing)
+end
+
 end

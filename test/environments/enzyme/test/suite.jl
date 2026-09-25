@@ -42,7 +42,8 @@ end
     # carries all but the StatefulRNG one. Distribution and population fills have
     # no rule, and the scheduler rule stops threaded fills under differentiation.
     # The two Gamma primitives carry the implicit shape derivative, with a second
-    # reverse method for a constant result.
+    # reverse method for a constant result. The device fill launcher carries the
+    # rule for codecs with parameters, which a GPU kernel cannot take as active.
     expected_counts = (
         (Random.rand!, 3),
         (Random.randn!, 2),
@@ -53,6 +54,7 @@ end
         (PureRNGs._run_chunks, 1),
         (PureRNGs._gamma_value, 1),
         (PureRNGs._gamma_log_value, 1),
+        (PureRNGs._launch_device_fill!, 1),
     )
     constant_reverse = (PureRNGs._gamma_value, PureRNGs._gamma_log_value)
     for rule in (ER.forward, ER.augmented_primal, ER.reverse)

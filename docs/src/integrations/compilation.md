@@ -13,8 +13,10 @@ It does not differentiate the seed or repeat the primal draw during the reverse 
 
 These rules cover CPU and CUDA use.
 
-Distribution fills, such as `rand!(rng, Normal(μ, σ), destination)`, and population sampling with `randsample!` have no rule.
+On the CPU, distribution fills, such as `rand!(rng, Normal(μ, σ), destination)`, and population sampling with `randsample!` have no rule.
 Enzyme differentiates them directly and returns the pathwise gradient: the derivative of the computed values with the random bits held fixed.
+A device distribution fill has a rule, since Enzyme cannot differentiate a GPU kernel with active parameters: it computes each element's tangent in a kernel of its own, and reverse mode runs one tangent fill per distribution parameter and sums it against the adjoints.
+The Gamma family carries the same implicit shape derivative on the device as on the CPU.
 A fill therefore agrees with the equivalent chain of scalar draws, so `sum` of a `Normal(μ, σ)` fill has `∂/∂μ` equal to the number of draws.
 Sampled indices do not move with the weights, so weights receive no gradient.
 

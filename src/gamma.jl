@@ -272,6 +272,48 @@ end
 @inline _transformed_draw_unchecked(codec::_GammaFamilyCodec, rng, position, ::Type) =
     _family_value(codec, rng, position, _gamma_cursor(rng, position))
 
+# The tangent of a family draw along a codec tangent, with every Gamma draw
+# carrying its implicit shape derivative; `d` and `c` follow the shape, so their
+# tangents carry nothing. AD rules on `_gamma_value` do not reach device kernels,
+# so device fills differentiate the family through these instead.
+@inline _gamma_tangent(codec, dcodec, g) =
+    dcodec.shape * _gamma_shape_derivative(codec.shape, g)
+@inline _gamma_log_tangent(codec, dcodec, log_g) =
+    dcodec.shape * _gamma_log_shape_derivative(codec.shape, log_g)
+
+@inline function _family_tangent(codec::_GammaCodec, dcodec, rng, position, cursor)
+    g = _gamma_draw(codec, rng, position, cursor)
+    return dcodec.scale * g + codec.scale * _gamma_tangent(codec, dcodec, g)
+end
+@inline function _family_tangent(codec::_InverseGammaCodec, dcodec, rng, position, cursor)
+    gamma, dgamma = codec.gamma, dcodec.gamma
+    g = _gamma_draw(gamma, rng, position, cursor)
+    return dgamma.scale / g - gamma.scale / (g * g) * _gamma_tangent(gamma, dgamma, g)
+end
+@inline function _family_tangent(codec::_BetaCodec, dcodec, rng, position, cursor)
+    log_x = _gamma_log_draw(codec.a, rng, position, cursor)
+    second = _gamma_offset(rng, position, _fill_width(codec.a, Nothing))
+    log_y = _gamma_log_draw(codec.b, rng, second, _gamma_cursor(rng, second))
+    value = inv(one(log_x) + exp(log_y - log_x))
+    slope =
+        _gamma_log_tangent(codec.b, dcodec.b, log_y) -
+        _gamma_log_tangent(codec.a, dcodec.a, log_x)
+    return -value * (one(value) - value) * slope
+end
+@inline function _family_tangent(codec::_TDistCodec, dcodec, rng, position, cursor)
+    F = _codec_float(codec.gamma)
+    n = Int(_normal_bits(F))
+    normal_raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(n))
+    z = _normal_from_bits(codec.gamma.device, F, normal_raw)
+    g = _gamma_draw(codec.gamma, rng, _gamma_offset(rng, position, n), cursor)
+    ratio = codec.ν / (2 * g)
+    slope = dcodec.ν / (2 * g) - ratio / g * _gamma_tangent(codec.gamma, dcodec.gamma, g)
+    return z * slope / (2 * sqrt(ratio))
+end
+
+@inline _transformed_tangent_unchecked(codec::_GammaFamilyCodec, dcodec, rng, position) =
+    _family_tangent(codec, dcodec, rng, position, _gamma_cursor(rng, position))
+
 @inline _block_start(block::UInt64) = _Position64(block, UInt16(0))
 @inline _block_start(block::Tuple{UInt64,UInt64}) =
     _Position128(block[1], block[2], UInt16(0))

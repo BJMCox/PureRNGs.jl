@@ -235,3 +235,85 @@ end
         @test iszero(Array(shadow))
     end
 end
+
+# A distribution fill with active parameters differentiates each element in the
+# rule's own kernels. The destination's shadow seeds the adjoints, so reverse
+# gradients are weighted sums of the pathwise derivatives of the device draws.
+function _enzyme_distribution_fill!(rng, make, p, q, destination)
+    rand!(rng, make(p, q), destination)
+    return nothing
+end
+
+@testset "CUDA Enzyme distribution fills give pathwise gradients" begin
+    rng = device(Philox4x32(0x65c7))
+    weights = [sin(Float64(i)) for i = 1:257]
+    # d(draw)/dp and d(draw)/dq at the drawn value x.
+    normal_slopes(x, μ, σ) = (one(x), (x - μ) / σ)
+    gamma_slopes(x, α, θ) = (θ * IR._gamma_shape_derivative(α, x / θ), x / θ)
+    for (make, p, q, slopes) in (
+        ((μ, σ) -> Normal(μ, σ), 0.5, 2.0, normal_slopes),
+        ((α, θ) -> Gamma(α, θ), 2.5, 1.5, gamma_slopes),
+    )
+        values = CUDA.zeros(Float64, 257)
+        shadow = CuArray(weights)
+        gradient = only(
+            autodiff(
+                Reverse,
+                _enzyme_distribution_fill!,
+                Const,
+                Const(rng),
+                Const(make),
+                Active(p),
+                Active(q),
+                Duplicated(values, shadow),
+            ),
+        )
+        x = Array(values)
+        @test x == Array(rand(rng, make(p, q), 257))
+        @test gradient[3] ≈ sum(weights .* first.(slopes.(x, p, q))) rtol = 1e-10
+        @test gradient[4] ≈ sum(weights .* last.(slopes.(x, p, q))) rtol = 1e-10
+        @test iszero(Array(shadow))
+
+        tangent = CUDA.zeros(Float64, 257)
+        autodiff(
+            Forward,
+            _enzyme_distribution_fill!,
+            Const,
+            Const(rng),
+            Const(make),
+            Duplicated(p, 1.0),
+            Const(q),
+            Duplicated(values, tangent),
+        )
+        @test Array(tangent) ≈ first.(slopes.(x, p, q)) rtol = 1e-10
+    end
+end
+
+# Every Gamma-family member differentiates through the core's tangent in the
+# kernel; a ForwardDiff dual fill on the same device draws reaches the implicit
+# shape derivative through its own code path.
+@testset "CUDA Enzyme Gamma-family tangents match dual fills" begin
+    rng = device(Philox4x32(0x65c8))
+    dual(x) = ForwardDiff.Dual{:enzyme}(x, one(x))
+    for (make, p, q) in (
+        ((α, θ) -> Gamma(α, θ), 0.3, 2.0),
+        ((ν, _) -> Chisq(ν), 3.0, 0.0),
+        ((α, θ) -> InverseGamma(α, θ), 2.5, 1.5),
+        ((α, β) -> Beta(α, β), 0.4, 0.7),
+        ((ν, _) -> TDist(ν), 3.0, 0.0),
+    )
+        tangent = CUDA.zeros(Float64, 257)
+        autodiff(
+            Forward,
+            _enzyme_distribution_fill!,
+            Const,
+            Const(rng),
+            Const(make),
+            Duplicated(p, 1.0),
+            Const(q),
+            Duplicated(CUDA.zeros(Float64, 257), tangent),
+        )
+        expected = ForwardDiff.partials.(Array(rand(rng, make(dual(p), q), 257)), 1)
+        @test Array(tangent) ≈ expected rtol = 1e-10
+    end
+end

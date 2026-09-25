@@ -125,3 +125,44 @@ end
         @test abs(mean(slopes) - 1) < 4 * std(slopes) / sqrt(length(slopes))
     end
 end
+
+# Device fills differentiate the Gamma family through the core's tangents, since
+# rules on the Gamma primitives do not reach a kernel. On the CPU they match the
+# dual draw, which reaches the implicit derivative through its own methods.
+codec_difference(a::T, b::T) where {T<:AbstractFloat} = a - b
+codec_difference(a, b) = a
+function codec_difference(a::T, b::T) where {T}
+    (isstructtype(T) && fieldcount(T) > 0) || return a
+    return T((codec_difference(getfield(a, i), getfield(b, i)) for i = 1:fieldcount(T))...)
+end
+
+@testset "Gamma-family tangents match dual draws" begin
+    rng = Philox4x32(0xb78, 3)
+    ext = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
+    dual(x) = ForwardDiff.Dual{:tangent}(x, one(x))
+    for (make, p, q) in (
+        ((α, θ) -> Gamma(α, θ), 0.3, 2.0),
+        ((α, θ) -> Gamma(α, θ), 2.5, 1.5),
+        ((ν, _) -> Chisq(ν), 3.0, 0.0),
+        ((α, θ) -> InverseGamma(α, θ), 2.5, 1.5),
+        ((α, β) -> Beta(α, β), 0.4, 0.7),
+        ((ν, _) -> TDist(ν), 3.0, 0.0),
+    )
+        codec = ext._family_codec(make(p, q), rng.device)
+        # The parameter fields are linear in p, so this difference is their
+        # tangent; `d` and `c` differ too, but the tangent ignores them.
+        dcodec = codec_difference(ext._family_codec(make(p + 1, q), rng.device), codec)
+        span = PureRNGs._fill_width(codec, Float64)
+        for j = 1:20
+            addressed = PureRNGs._addressed_rng(rng, span, j)
+            tangent = PureRNGs._transformed_tangent_unchecked(
+                codec,
+                dcodec,
+                addressed,
+                addressed.position,
+            )
+            expected = ForwardDiff.partials(rand_at(rng, make(dual(p), q), j), 1)
+            @test tangent ≈ expected rtol = 1e-10
+        end
+    end
+end
