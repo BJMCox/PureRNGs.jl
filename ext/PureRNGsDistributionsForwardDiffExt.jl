@@ -110,6 +110,7 @@ function IR.rand_next!(
     destination::AbstractArray{<:ForwardDiff.Dual};
     threaded::Bool = false,
 )
+    IR._check_serviceability(rng, IR._primal_float(Distributions.partype(d)))
     IR._check_fill_device(rng, destination)
     return IR._fill_prevalidated!(rng, destination, threaded, _dual_codec(rng, d))
 end
@@ -126,6 +127,8 @@ function IR.rand_next(
     dims::Dims;
     threaded::Bool = false,
 )
+    # A device without the primal type's arithmetic throws before it allocates.
+    IR._check_serviceability(rng, IR._primal_float(Distributions.partype(d)))
     destination = IR._allocate_draw_array(rng.device, Distributions.partype(d), dims)
     return IR.rand_next!(rng, d, destination; threaded)
 end

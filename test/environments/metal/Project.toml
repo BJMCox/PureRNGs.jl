@@ -4,6 +4,7 @@ version = "0.1.0"
 
 [deps]
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 PureRNGs = "2ccaadc3-3d9a-45d4-a2ec-95a2424790b7"
 MLDataDevices = "7e8f7934-dd98-4c1a-8fe8-92b47a384d40"
@@ -16,6 +17,7 @@ PureRNGs = {path = "../../.."}
 
 [compat]
 Distributions = "0.25"
+ForwardDiff = "1"
 KernelAbstractions = "0.9"
 PureRNGs = "0.0.1"
 MLDataDevices = "1.17"

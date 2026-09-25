@@ -1,4 +1,5 @@
 using Distributions
+using ForwardDiff
 using KernelAbstractions
 using PureRNGs
 using Metal
@@ -207,9 +208,18 @@ end
         _check_metal_error(() -> IR.rand_next!(rng, distribution, destination))
     end
     rng = MetalDevice()(Philox4x32(0x91f))
-    for distribution in (Categorical([0.25, 0.75]), Gamma(2.0, 1.0), Dirichlet([0.5, 2.0]))
+    dual = ForwardDiff.Dual(0.5, 1.0)
+    for distribution in (
+        Categorical([0.25, 0.75]),
+        Gamma(2.0, 1.0),
+        Dirichlet([0.5, 2.0]),
+        Normal(dual, one(dual)),
+        Gamma(dual, one(dual)),
+    )
         _check_metal_error(() -> rand(rng, distribution, 1))
     end
+    destination = MetalDeviceArrayProbe(Vector{typeof(dual)}())
+    _check_metal_error(() -> rand!(rng, Normal(dual, one(dual)), destination))
 end
 
 if Metal.functional()
@@ -289,6 +299,20 @@ if Metal.functional()
                 @test values isa Metal.MtlArray
                 @test count(near.(Array(values), expected)) >= 998
                 @test next_rng.position == expected_next.position
+            end
+            dual = ForwardDiff.Dual(2.5f0, 1.0f0)
+            for d in (Normal(dual, 1.0f0), Gamma(dual, 1.0f0))
+                values = Array(rand(rng, d, 1000))
+                expected = rand(cpu_rng, d, 1000)
+                @test count(
+                    near.(ForwardDiff.value.(values), ForwardDiff.value.(expected)),
+                ) >= 998
+                @test count(
+                    near.(
+                        ForwardDiff.partials.(values, 1),
+                        ForwardDiff.partials.(expected, 1),
+                    ),
+                ) >= 998
             end
             for d in (
                 Dirichlet(Float32[0.3, 2, 5]),
