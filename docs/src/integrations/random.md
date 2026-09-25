@@ -24,6 +24,17 @@ Use `parent(rng)` to retrieve the current immutable state.
 Use `copy(rng)` for an independent mutable wrapper at the same position.
 Use `Random.seed!` to reset the same generator type.
 
+### Lux and WeightInitializers
+
+`Lux.setup` and WeightInitializers' `glorot_uniform`, `kaiming_normal`, `orthogonal`, and the other initializers take an `AbstractRNG`, so pass the wrapper:
+
+```julia
+using WeightInitializers
+weights = glorot_uniform(StatefulRNG(Philox4x32(7)), Float32, 4, 3)
+```
+
+The initializers' uniform and normal fills then follow the pure stream from the wrapped position.
+
 ## Respect mutable ownership
 
 Do not share one wrapper between parallel tasks.
