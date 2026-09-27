@@ -389,6 +389,7 @@ end
     for T in EXPONENTIAL_TYPES
         require(Random.randexp!, Tuple{M,Vector{T}})
     end
+    require(Random.seed!, Tuple{M})
     require(Random.seed!, Tuple{M,Int})
     require(Random.seed!, Tuple{M,Nothing})
     require(Random.seed!, Tuple{M,Random.RandomDevice})

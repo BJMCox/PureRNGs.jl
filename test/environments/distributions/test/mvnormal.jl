@@ -20,12 +20,16 @@ using LinearAlgebra
         values, values_next = rand_next(rng, d, 50; threaded = true)
         @test values ≈ μ .+ factor * columns
         @test values_next == columns_next
+        # A single draw applies the factor with BLAS's vector kernel and a fill
+        # with its matrix kernel, which round the last bit differently on some
+        # platforms. The normals underneath are the same stream.
         chained = rng
         for j = 1:50
             column, chained = rand_next(chained, d)
-            @test column == values[:, j]
+            @test column ≈ values[:, j] rtol = 4 * eps(Float64)
         end
-        @test rand_at(rng, d, 7) == values[:, 7]
+        @test chained == values_next
+        @test rand_at(rng, d, 7) ≈ values[:, 7] rtol = 4 * eps(Float64)
         @test rand!(rng, d, zeros(3, 50)) == values
         @test last(rand_next!(rng, d, zeros(3))) == next_rng
     end

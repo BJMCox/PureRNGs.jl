@@ -283,6 +283,8 @@ function Random.seed!(mutable_rng::StatefulRNG, device::Random.RandomDevice)
 end
 Random.seed!(mutable_rng::StatefulRNG, ::Nothing) =
     Random.seed!(mutable_rng, Random.RandomDevice())
+# Julia 1.10 has no generic `seed!(rng)`; it defines `seed!(rng, nothing)` from it.
+Random.seed!(mutable_rng::StatefulRNG) = Random.seed!(mutable_rng, Random.RandomDevice())
 
 @inline Base.copy(mutable_rng::StatefulRNG) = _stateful_rng(mutable_rng.rng)
 
