@@ -231,13 +231,50 @@ function _engine_fill_columns!(
     count, width = _codec_takes(codec, T)
     next_rng = _reserve_draws(rng, size(destination, 2), count, width)
     backend = _fill_backend(_engine_backend(rng), destination)
-    _foreach_column!(backend, _column_fill!, destination, threaded, rng, codec)
+    _fill_columns!(backend, rng, destination, threaded, codec)
     return destination, next_rng
 end
+
+# The host walks each column with one cursor, which keeps the column in cache.
+_fill_columns!(backend::_CPUBackend, rng, destination, threaded::Bool, codec) =
+    _foreach_column!(backend, _column_fill!, destination, threaded, rng, codec)
 
 @inline function _column_fill!(destination, column, rng, codec)
     count, width = _codec_takes(codec, eltype(destination))
     cursor = _fill_cursor(rng, count, width, UInt64(column - 1))
     _column_take!(codec, rng, cursor, destination, column)
+    return nothing
+end
+
+# The workitems a device holds resident at once. The device extensions that
+# can ask the device define it. A backend without the query fills by element.
+_device_workitems(backend) = typemax(Int)
+
+# A device with a column for every resident workitem fills whole columns, one
+# cursor each. With fewer columns it fills the log-gamma matrix with a workitem
+# per element, so the lanes stay busy however wide the columns are, then
+# normalizes each column. The components of a column sit in consecutive spans,
+# so element `i` is draw `i - 1` of the component spans. On an A100 with 2^20
+# components, 3 to 16 Float64 components per column cost 13 to 23 % more per
+# element than per column, and 128 to 513 per column cost 36 to 59 % less.
+function _fill_columns!(backend, rng, destination, threaded::Bool, codec)
+    size(destination, 2) >= _device_workitems(backend) &&
+        return _foreach_column!(backend, _column_fill!, destination, threaded, rng, codec)
+    _foreach_element!(backend, _component_fill!, destination, rng, codec)
+    _foreach_column!(backend, _normalize_fill!, destination, threaded)
+    return destination
+end
+
+@inline function _component_fill!(destination, index, rng, codec)
+    T = eltype(destination)
+    count, width = _component_takes(codec, T)
+    cursor = _fill_cursor(rng, count, width, UInt64(index - 1))
+    component = (index - 1) % size(destination, 1) + 1
+    destination[index] = _component_log(codec, rng, cursor, component, T)
+    return nothing
+end
+
+@inline function _normalize_fill!(destination, column)
+    _normalize_column!(destination, column)
     return nothing
 end

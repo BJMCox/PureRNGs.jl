@@ -701,6 +701,12 @@ end
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
 
+# The threads the current device holds resident: multiprocessors times the
+# threads each one schedules at once.
+IR._device_workitems(::CUDA.CUDABackend) =
+    CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT) *
+    CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR)
+
 # Cache host wrappers without creating a device context or compiling a kernel.
 let rng_type = _CUDAPhilox4x32{10}, array_type = CUDA.CuArray{Float32,1,CUDA.DeviceMemory}
     precompile(IR.rand_next, (rng_type, Type{Float32}, Int))

@@ -60,7 +60,7 @@ Optional overrides, with defaults built from the hooks above:
 | `_engine_draw_next(rng, codec, T)` | `_draw_cursor`, then one `_codec_take`. |
 | `_engine_draw_at(rng, codec, T, i)` | `_addressed_state`, `_draw_cursor`, then one `_codec_take`. |
 | `_engine_fill!(rng, destination, threaded, codec)` | `_reserve_draws`, then a host loop over one cursor, or over one `_fill_cursor` per chunk when `threaded`. It throws `ArgumentError` for a device-bound generator. Returns `(destination, next_rng)`. |
-| `_engine_fill_columns!(rng, destination::AbstractMatrix, threaded, codec)` | `_reserve_draws` for `size(destination, 2)` draws, then `_foreach_column!` on the destination's backend, host or device, with one `_fill_cursor` per column. Returns `(destination, next_rng)`. |
+| `_engine_fill_columns!(rng, destination::AbstractMatrix, threaded, codec)` | `_reserve_draws` for `size(destination, 2)` draws, then on the host one `_fill_cursor` and `_column_take!` per column, and on a device the same per column when there is a column for every resident workitem (`_device_workitems(backend)`), otherwise one `_fill_cursor` and `_component_log` per element followed by `_normalize_column!` per column. Returns `(destination, next_rng)`. |
 
 Override `_engine_fill!` to keep bulk generation fast. The default walks a cursor
 take by take, so an engine whose stream is cheapest in whole blocks or rows
@@ -195,8 +195,9 @@ generator exactly.
 
 ## Known limits
 
-- The default `_engine_fill_columns!` starts each column with `_fill_cursor`.
-  An engine that repositions slowly should override it.
+- The default `_engine_fill_columns!` starts each host column, and each device
+  element, with `_fill_cursor`. An engine that repositions slowly should
+  override it.
 - The Enzyme rules for device fills attach to the built-in launcher, so they do
   not reach an engine's own device fill.
 - Categorical and the uniform, range, collection, and sampling draws stay on the

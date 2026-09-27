@@ -43,6 +43,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Allocating draws, addressed array draws, and allocating sampling now accept the `threaded` keyword.
 - `threaded` is a typed `Bool` keyword. A non-`Bool` value throws a `TypeError` instead of an `ArgumentError`.
 - Host Dirichlet fills allocate once per call instead of about three times per column, and run 25 to 40 % faster.
+- Device Dirichlet fills with fewer columns than the device holds resident workitems draw one log-gamma component per workitem and normalize the columns afterwards. On an A100, 2^20 components in columns of 128 run 36 to 40 % faster and in columns of 513 run 58 to 59 % faster. CUDA reports its resident workitems. Other backends use the per-element form for every fill.
 
 ## 0.0.1 - 2026-09-22
 

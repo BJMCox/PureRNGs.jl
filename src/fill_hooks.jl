@@ -39,6 +39,11 @@ function _foreach_column!(
     return destination
 end
 
+# Calls `f(destination, index, args...)` for every linear index of a device
+# array, one workitem each. Only device column fills use it, so the
+# KernelAbstractions extension owns its methods.
+function _foreach_element! end
+
 # Every device fill runs a KernelAbstractions kernel, so the extension owns all
 # methods of this launcher.
 function _launch_device_fill! end

@@ -375,6 +375,17 @@ KernelAbstractions.@kernel function _column_kernel!(f, destination, args)
     f(destination, column, args...)
 end
 
+KernelAbstractions.@kernel function _element_kernel!(f, destination, args)
+    index = @index(Global, Linear)
+    f(destination, index, args...)
+end
+
+function IR._foreach_element!(backend::KernelAbstractions.Backend, f, destination, args...)
+    isempty(destination) ||
+        _element_kernel!(backend)(f, destination, args; ndrange = length(destination))
+    return destination
+end
+
 function IR._foreach_column!(
     backend::KernelAbstractions.Backend,
     f,
