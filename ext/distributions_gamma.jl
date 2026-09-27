@@ -51,17 +51,5 @@ end
 @inline _distribution_span(d::_GammaFamilyDistribution) =
     IR._fill_width(_family_codec(d, IR._CPU_BACKEND), _result_type(d))
 
-@inline _draw_distribution_unchecked(rng, position, d::_GammaFamilyDistribution) =
-    IR._transformed_draw_unchecked(
-        _family_codec(d, rng.device),
-        rng,
-        position,
-        _result_type(d),
-    )
-
-@inline _fill_distribution_prevalidated!(
-    rng,
-    d::_GammaFamilyDistribution,
-    destination,
-    threaded,
-) = IR._fill_prevalidated!(rng, destination, threaded, _family_codec(d, rng.device))
+@inline _distribution_codec(d::_GammaFamilyDistribution, backend) =
+    _family_codec(d, backend)

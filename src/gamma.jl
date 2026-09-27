@@ -55,8 +55,10 @@ const _GAMMA_TAG = 0x67616d6d61636869
 @inline _position_index(rng, p::_Position64) = (p.block << _block_shift(rng)) + p.bit
 @inline _position_index(rng, p::_Position128) = (p.lo << _block_shift(rng)) + p.bit
 
-@noinline function _gamma_child(codec::_GammaCodec{F}, rng, position) where {F}
-    child = subrng(rng, xor(_position_index(rng, position), _GAMMA_TAG))
+# `ordinal` is the stream index of the draw's first bit, so the child stream
+# depends on where the draw sits and not on how the engine counts positions.
+@noinline function _gamma_child(codec::_GammaCodec{F}, rng, ordinal::UInt64) where {F}
+    child = subrng(rng, xor(ordinal, _GAMMA_TAG))
     n = Int(_normal_bits(F))
     while true
         x, child = randn_next(child, F)
@@ -69,33 +71,34 @@ end
 
 # The first accepted candidate's Gamma(shape) value, or Gamma(shape + 1) for a
 # shape below one, and the boost uniform's raw bits.
-@inline function _gamma_base(codec::_GammaCodec{F}, rng, position, cursor) where {F}
-    n = Int(_normal_bits(F))
-    boost_raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(n))
+@inline function _gamma_base(codec::_GammaCodec{F}, rng, ordinal, cursor) where {F}
+    n = Val(Int(_normal_bits(F)))
+    boost_raw, cursor = _take_bits(rng, cursor, n)
     accepted, g = false, zero(F)
     for _ = 1:codec.candidates
-        normal_raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(n))
-        uniform_raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(n))
+        normal_raw, cursor = _take_bits(rng, cursor, n)
+        uniform_raw, cursor = _take_bits(rng, cursor, n)
         x = _normal_from_bits(codec.device, F, normal_raw)
         accepted, g = _gamma_candidate(x, _open_midpoint(F, uniform_raw), codec.d, codec.c)
         accepted && break
     end
-    accepted || (g = _gamma_child(codec, rng, position))
+    accepted || (g = _gamma_child(codec, rng, ordinal))
     return g, boost_raw
 end
 
-# The standard Gamma(shape) draw at `position`, read from `cursor`, and its
-# logarithm, which stays finite where a small shape's value underflows. `shape`
-# repeats the codec's shape so that an AD rule can give the draw its implicit
-# shape derivative instead of differentiating the rejection test.
+# The standard Gamma(shape) draw whose first bit has stream index `ordinal`,
+# read from `cursor`, and its logarithm, which stays finite where a small
+# shape's value underflows. `shape` repeats the codec's shape so that an AD rule
+# can give the draw its implicit shape derivative instead of differentiating the
+# rejection test.
 @inline function _gamma_value(
     shape::F,
     codec::_GammaCodec{F},
     rng,
-    position,
+    ordinal,
     cursor,
 ) where {F<:AbstractFloat}
-    g, boost_raw = _gamma_base(codec, rng, position, cursor)
+    g, boost_raw = _gamma_base(codec, rng, ordinal, cursor)
     shape < one(F) || return g
     return g * exp(log(_open_midpoint(F, boost_raw)) / shape)
 end
@@ -104,10 +107,10 @@ end
     shape::F,
     codec::_GammaCodec{F},
     rng,
-    position,
+    ordinal,
     cursor,
 ) where {F<:AbstractFloat}
-    g, boost_raw = _gamma_base(codec, rng, position, cursor)
+    g, boost_raw = _gamma_base(codec, rng, ordinal, cursor)
     shape < one(F) || return log(g)
     return log(g) + log(_open_midpoint(F, boost_raw)) / shape
 end
@@ -212,8 +215,6 @@ function _traced_gamma end
 
 @inline _gamma_cursor(rng, position) =
     _dense_cursor(rng, _position_block(position), position.bit)
-@inline _gamma_offset(rng, position, bits) =
-    _advance_position_unchecked(position, UInt64(bits), UInt64(0), _block_shift(rng))
 
 # InverseGamma(shape, scale) is scale over a standard Gamma(shape) draw.
 struct _InverseGammaCodec{G<:_GammaCodec}
@@ -245,32 +246,73 @@ const _GammaFamilyCodec = Union{_GammaCodec,_InverseGammaCodec,_BetaCodec,_TDist
 @inline _fill_width(codec::_TDistCodec, ::Type{T}) where {T} =
     UInt16(_normal_bits(_codec_float(codec.gamma)) + _fill_width(codec.gamma, T))
 
-@inline _gamma_draw(codec::_GammaCodec, rng, position, cursor) =
-    _gamma_value(codec.shape, codec, rng, position, cursor)
-@inline _gamma_log_draw(codec::_GammaCodec, rng, position, cursor) =
-    _gamma_log_value(codec.shape, codec, rng, position, cursor)
-
-@inline _family_value(codec::_GammaCodec, rng, position, cursor) =
-    codec.scale * _gamma_draw(codec, rng, position, cursor)
-@inline _family_value(codec::_InverseGammaCodec, rng, position, cursor) =
-    codec.gamma.scale / _gamma_draw(codec.gamma, rng, position, cursor)
-@inline function _family_value(codec::_BetaCodec, rng, position, cursor)
-    log_x = _gamma_log_draw(codec.a, rng, position, cursor)
-    second = _gamma_offset(rng, position, _fill_width(codec.a, Nothing))
-    log_y = _gamma_log_draw(codec.b, rng, second, _gamma_cursor(rng, second))
-    return inv(one(log_x) + exp(log_y - log_x))
+# Every family draw reads equal-width takes: the boost and the candidate pairs
+# of each Gamma draw, and the leading normal of a TDist draw.
+@inline _codec_takes(codec::_GammaCodec, ::Type) =
+    (2codec.candidates + 1, Val(Int(_normal_bits(_codec_float(codec)))))
+@inline _codec_takes(codec::_InverseGammaCodec, ::Type{T}) where {T} =
+    _codec_takes(codec.gamma, T)
+@inline function _codec_takes(codec::_BetaCodec, ::Type{T}) where {T}
+    count, width = _codec_takes(codec.a, T)
+    return 2count, width
 end
-@inline function _family_value(codec::_TDistCodec, rng, position, cursor)
+@inline function _codec_takes(codec::_TDistCodec, ::Type{T}) where {T}
+    count, width = _codec_takes(codec.gamma, T)
+    return count + 1, width
+end
+
+@inline _gamma_draw(codec::_GammaCodec, rng, cursor) =
+    _gamma_value(codec.shape, codec, rng, _cursor_ordinal(rng, cursor), cursor)
+@inline _gamma_log_draw(codec::_GammaCodec, rng, cursor) =
+    _gamma_log_value(codec.shape, codec, rng, _cursor_ordinal(rng, cursor), cursor)
+
+# The second Gamma draw of a Beta draw starts where the first one's span ends.
+@inline function _second_gamma_cursor(codec::_BetaCodec, rng, cursor)
+    count, width = _codec_takes(codec.a, Nothing)
+    return _skip_takes(rng, cursor, count, width)
+end
+
+# The normal of a TDist draw, and the cursor of the Gamma draw after it.
+@inline function _tdist_normal(codec::_TDistCodec, rng, cursor)
     F = _codec_float(codec.gamma)
-    n = Int(_normal_bits(F))
-    normal_raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(n))
-    z = _normal_from_bits(codec.gamma.device, F, normal_raw)
-    g = _gamma_draw(codec.gamma, rng, _gamma_offset(rng, position, n), cursor)
+    normal_raw, cursor = _take_bits(rng, cursor, Val(Int(_normal_bits(F))))
+    return _normal_from_bits(codec.gamma.device, F, normal_raw), cursor
+end
+
+@inline _family_value(codec::_GammaCodec, rng, cursor) =
+    codec.scale * _gamma_draw(codec, rng, cursor)
+@inline _family_value(codec::_InverseGammaCodec, rng, cursor) =
+    codec.gamma.scale / _gamma_draw(codec.gamma, rng, cursor)
+@inline _beta_value(log_x, log_y) = inv(one(log_x) + exp(log_y - log_x))
+@inline function _family_value(codec::_BetaCodec, rng, cursor)
+    log_x = _gamma_log_draw(codec.a, rng, cursor)
+    log_y = _gamma_log_draw(codec.b, rng, _second_gamma_cursor(codec, rng, cursor))
+    return _beta_value(log_x, log_y)
+end
+@inline function _family_value(codec::_TDistCodec, rng, cursor)
+    z, cursor = _tdist_normal(codec, rng, cursor)
+    g = _gamma_draw(codec.gamma, rng, cursor)
     return z * sqrt(codec.ν / (2 * g))
 end
 
 @inline _transformed_draw_unchecked(codec::_GammaFamilyCodec, rng, position, ::Type) =
-    _family_value(codec, rng, position, _gamma_cursor(rng, position))
+    _family_value(codec, rng, _gamma_cursor(rng, position))
+
+# A built-in draw at a position finds the second Gamma span from the position,
+# which keeps a smaller state live through the first draw than its cursor. On
+# an A100 the cursor form cost Float64 Beta fills 3.4 %.
+@inline function _transformed_draw_unchecked(
+    codec::_BetaCodec,
+    rng::_ScalarUniformGenerators,
+    position,
+    ::Type,
+)
+    log_x = _gamma_log_draw(codec.a, rng, _gamma_cursor(rng, position))
+    count, width = _codec_takes(codec.a, Nothing)
+    bits = UInt64(count) * UInt64(_val_count(width))
+    second = _advance_position_unchecked(position, bits, UInt64(0), _block_shift(rng))
+    return _beta_value(log_x, _gamma_log_draw(codec.b, rng, _gamma_cursor(rng, second)))
+end
 
 # The tangent of a family draw along a codec tangent, with every Gamma draw
 # carrying its implicit shape derivative; `d` and `c` follow the shape, so their
@@ -281,49 +323,39 @@ end
 @inline _gamma_log_tangent(codec, dcodec, log_g) =
     dcodec.shape * _gamma_log_shape_derivative(codec.shape, log_g)
 
-@inline function _family_tangent(codec::_GammaCodec, dcodec, rng, position, cursor)
-    g = _gamma_draw(codec, rng, position, cursor)
+@inline function _family_tangent(codec::_GammaCodec, dcodec, rng, cursor)
+    g = _gamma_draw(codec, rng, cursor)
     return dcodec.scale * g + codec.scale * _gamma_tangent(codec, dcodec, g)
 end
-@inline function _family_tangent(codec::_InverseGammaCodec, dcodec, rng, position, cursor)
+@inline function _family_tangent(codec::_InverseGammaCodec, dcodec, rng, cursor)
     gamma, dgamma = codec.gamma, dcodec.gamma
-    g = _gamma_draw(gamma, rng, position, cursor)
+    g = _gamma_draw(gamma, rng, cursor)
     return dgamma.scale / g - gamma.scale / (g * g) * _gamma_tangent(gamma, dgamma, g)
 end
-@inline function _family_tangent(codec::_BetaCodec, dcodec, rng, position, cursor)
-    log_x = _gamma_log_draw(codec.a, rng, position, cursor)
-    second = _gamma_offset(rng, position, _fill_width(codec.a, Nothing))
-    log_y = _gamma_log_draw(codec.b, rng, second, _gamma_cursor(rng, second))
-    value = inv(one(log_x) + exp(log_y - log_x))
+@inline function _family_tangent(codec::_BetaCodec, dcodec, rng, cursor)
+    log_x = _gamma_log_draw(codec.a, rng, cursor)
+    log_y = _gamma_log_draw(codec.b, rng, _second_gamma_cursor(codec, rng, cursor))
+    value = _beta_value(log_x, log_y)
     slope =
         _gamma_log_tangent(codec.b, dcodec.b, log_y) -
         _gamma_log_tangent(codec.a, dcodec.a, log_x)
     return -value * (one(value) - value) * slope
 end
-@inline function _family_tangent(codec::_TDistCodec, dcodec, rng, position, cursor)
-    F = _codec_float(codec.gamma)
-    n = Int(_normal_bits(F))
-    normal_raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(n))
-    z = _normal_from_bits(codec.gamma.device, F, normal_raw)
-    g = _gamma_draw(codec.gamma, rng, _gamma_offset(rng, position, n), cursor)
+@inline function _family_tangent(codec::_TDistCodec, dcodec, rng, cursor)
+    z, cursor = _tdist_normal(codec, rng, cursor)
+    g = _gamma_draw(codec.gamma, rng, cursor)
     ratio = codec.ν / (2 * g)
     slope = dcodec.ν / (2 * g) - ratio / g * _gamma_tangent(codec.gamma, dcodec.gamma, g)
     return z * slope / (2 * sqrt(ratio))
 end
 
 @inline _transformed_tangent_unchecked(codec::_GammaFamilyCodec, dcodec, rng, position) =
-    _family_tangent(codec, dcodec, rng, position, _gamma_cursor(rng, position))
-
-@inline _block_start(block::UInt64) = _Position64(block, UInt16(0))
-@inline _block_start(block::Tuple{UInt64,UInt64}) =
-    _Position128(block[1], block[2], UInt16(0))
+    _family_tangent(codec, dcodec, rng, _gamma_cursor(rng, position))
 
 # The cursor already sits at the draw, so the draw reads from it and the next
-# draw restarts a cursor past the span, skipping the candidates left unread.
+# draw starts a cursor past the span, skipping the candidates left unread.
 @inline function _codec_take(codec::_GammaFamilyCodec, rng, cursor, ::Type{T}) where {T}
-    offset = UInt64(cursor.lane) * UInt64(64) + UInt64(cursor.bit)
-    position = _gamma_offset(rng, _block_start(cursor.block), offset)
-    value = _family_value(codec, rng, position, cursor)
-    next = _gamma_offset(rng, position, _fill_width(codec, T))
-    return value, _gamma_cursor(rng, next)
+    value = _family_value(codec, rng, cursor)
+    count, width = _codec_takes(codec, T)
+    return value, _skip_takes(rng, cursor, count, width)
 end

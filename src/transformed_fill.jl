@@ -42,7 +42,7 @@ end
 # the codec's map; a codec whose draw is wider than a word, or whose value is an
 # index rather than a converted raw, overrides it.
 @inline function _codec_take(codec, rng, cursor, ::Type{T}) where {T}
-    raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(_fill_width(codec, T)))
+    raw, cursor = _take_bits(rng, cursor, Val(Int(_fill_width(codec, T))))
     return _cooperative_value(codec, T, raw), cursor
 end
 
@@ -375,26 +375,26 @@ end
 end
 
 @inline function _rand_transformed_next_fill!(
-    rng::_ScalarUniformGenerators,
+    rng,
     destination::AbstractArray{T},
     threaded::Bool,
     codec::_TransformedFillCodec,
 ) where {T}
     _check_fill_device(rng, destination)
     _check_serviceability(rng, T)
-    return _fill_prevalidated!(rng, destination, threaded, codec)
+    return _engine_fill!(rng, destination, threaded, codec)
 end
 
 @inline function _rand_transformed_next_array(
-    rng::_ScalarUniformGenerators,
+    rng,
     ::Type{T},
     dims::Tuple,
     codec::_TransformedFillCodec,
     threaded::Bool,
 ) where {T}
     _check_serviceability(rng, T)
-    destination = _allocate_draw_array(rng.device, T, dims)
-    return _fill_prevalidated!(rng, destination, threaded, codec)
+    destination = _allocate_draw_array(_engine_backend(rng), T, dims)
+    return _engine_fill!(rng, destination, threaded, codec)
 end
 
 # A scalar draw is the one-element case of a fill: the codec's width, reserved

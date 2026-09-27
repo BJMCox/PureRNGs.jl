@@ -102,7 +102,7 @@ _forced_gamma(rng, shape) = PureRNGs._traced_gamma(rng, shape, Val(false), 1)
         1.0,
         PureRNGs._GammaCodec(1.0, 1.0, rng.device, candidates),
         rng,
-        rng.position,
+        PureRNGs._position_index(rng, rng.position),
         PureRNGs._gamma_cursor(rng, rng.position),
     )
     rngs = [PureRNGs._addressed_rng(base, span, j) for j = 1:200]

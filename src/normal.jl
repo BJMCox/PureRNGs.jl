@@ -320,21 +320,20 @@ Random.randn(::AbstractPureRNG, ::Dims) =
 @inline randn_next(rng::_ScalarUniformGenerators) = randn_next(rng, Float64)
 
 @inline Random.randn(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_NormalResult} =
-    first(_draw_next(rng, _NormalCodec(rng.device), T))
+    first(_engine_randn_next(rng, T))
 @inline randn_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_NormalResult} =
-    _draw_next(rng, _NormalCodec(rng.device), T)
+    _engine_randn_next(rng, T)
 @inline randn_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     i::Integer,
-) where {T<:_NormalResult} = _draw_at(rng, _NormalCodec(rng.device), T, i)
+) where {T<:_NormalResult} = _engine_randn_at(rng, T, i)
 @inline randn_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     indices::AbstractUnitRange{<:Integer};
     threaded::Bool = false,
-) where {T<:_NormalResult} =
-    _addressed_array(rng, T, indices, _normal_bits(T), randn_next, threaded)
+) where {T<:_NormalResult} = _engine_randn_at(rng, T, indices; threaded)
 
 @doc """
     randn_next(rng[, T]) -> (value, next_rng)
@@ -370,10 +369,13 @@ positive or the addressed draw exceeds the generator's counter capacity.
 
 @inline _fill_width(::_NormalCodec, ::Type{T}) where {T} = _normal_bits(T)
 
+@inline _codec_takes(::_NormalCodec, ::Type{Complex{T}}) where {T} =
+    (2, Val(Int(_normal_bits(T))))
+
 @inline function _codec_take(codec::_NormalCodec, rng, cursor, ::Type{Complex{T}}) where {T}
     width = Val(Int(_normal_bits(T)))
-    real_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
-    imaginary_raw, cursor = _take_dense_bits_unchecked(rng, cursor, width)
+    real_raw, cursor = _take_bits(rng, cursor, width)
+    imaginary_raw, cursor = _take_bits(rng, cursor, width)
     scale = T(sqrt(0.5))
     value = Complex{T}(
         scale * _normal_from_bits(codec.backend, T, real_raw),
@@ -387,8 +389,7 @@ end
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_NormalResult}
-    result, _ =
-        _rand_transformed_next_fill!(rng, destination, threaded, _NormalCodec(rng.device))
+    result, _ = _engine_randn_next!(rng, destination; threaded)
     return result
 end
 
@@ -397,12 +398,7 @@ end
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_NormalResult}
-    return _rand_transformed_next_fill!(
-        rng,
-        destination,
-        threaded,
-        _NormalCodec(rng.device),
-    )
+    return _engine_randn_next!(rng, destination; threaded)
 end
 
 @doc """
@@ -423,16 +419,10 @@ never changes.
     dims::Integer...;
     threaded::Bool = false,
 )
-    return _rand_transformed_next_array(
-        rng,
-        Float64,
-        (dim1, dims...),
-        _NormalCodec(rng.device),
-        threaded,
-    )
+    return _engine_randn_next(rng, Float64, dim1, dims...; threaded)
 end
 @inline randn_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
-    _rand_transformed_next_array(rng, Float64, dims, _NormalCodec(rng.device), threaded)
+    _engine_randn_next(rng, Float64, dims; threaded)
 
 @inline function Random.randn(
     rng::_ScalarUniformGenerators,
@@ -441,13 +431,7 @@ end
     dims::Integer...;
     threaded::Bool = false,
 ) where {T<:_NormalResult}
-    destination, _ = _rand_transformed_next_array(
-        rng,
-        T,
-        (dim1, dims...),
-        _NormalCodec(rng.device),
-        threaded,
-    )
+    destination, _ = _engine_randn_next(rng, T, dim1, dims...; threaded)
     return destination
 end
 @inline Random.randn(
@@ -455,15 +439,13 @@ end
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_NormalResult} =
-    first(_rand_transformed_next_array(rng, T, dims, _NormalCodec(rng.device), threaded))
+) where {T<:_NormalResult} = first(_engine_randn_next(rng, T, dims; threaded))
 @inline randn_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_NormalResult} =
-    _rand_transformed_next_array(rng, T, dims, _NormalCodec(rng.device), threaded)
+) where {T<:_NormalResult} = _engine_randn_next(rng, T, dims; threaded)
 
 @inline function randn_next(
     rng::_ScalarUniformGenerators,
@@ -472,11 +454,47 @@ end
     dims::Integer...;
     threaded::Bool = false,
 ) where {T<:_NormalResult}
-    return _rand_transformed_next_array(
-        rng,
-        T,
-        (dim1, dims...),
-        _NormalCodec(rng.device),
-        threaded,
-    )
+    return _engine_randn_next(rng, T, dim1, dims...; threaded)
 end
+
+# The bodies of the randn entries, for any engine. The methods above serve the
+# built-in generators, and an external engine's own methods forward here.
+@inline _randn_codec(rng) = _NormalCodec(_engine_backend(rng))
+
+@inline _engine_randn_next(rng) = _engine_randn_next(rng, Float64)
+@inline _engine_randn_next(rng, ::Type{T}) where {T<:_NormalResult} =
+    _engine_draw_next(rng, _randn_codec(rng), T)
+@inline _engine_randn_next(
+    rng,
+    ::Type{T},
+    dims::Dims;
+    threaded::Bool = false,
+) where {T<:_NormalResult} =
+    _rand_transformed_next_array(rng, T, dims, _randn_codec(rng), threaded)
+@inline _engine_randn_next(
+    rng,
+    ::Type{T},
+    dim1::Integer,
+    dims::Integer...;
+    threaded::Bool = false,
+) where {T<:_NormalResult} =
+    _rand_transformed_next_array(rng, T, (dim1, dims...), _randn_codec(rng), threaded)
+@inline _engine_randn_next(rng, dims::Dims; threaded::Bool = false) =
+    _engine_randn_next(rng, Float64, dims; threaded)
+@inline _engine_randn_next(rng, dim1::Integer, dims::Integer...; threaded::Bool = false) =
+    _engine_randn_next(rng, Float64, dim1, dims...; threaded)
+@inline _engine_randn_next!(
+    rng,
+    destination::AbstractArray{T};
+    threaded::Bool = false,
+) where {T<:_NormalResult} =
+    _rand_transformed_next_fill!(rng, destination, threaded, _randn_codec(rng))
+@inline _engine_randn_at(rng, ::Type{T}, i::Integer) where {T<:_NormalResult} =
+    _engine_draw_at(rng, _randn_codec(rng), T, i)
+@inline _engine_randn_at(
+    rng,
+    ::Type{T},
+    indices::AbstractUnitRange{<:Integer};
+    threaded::Bool = false,
+) where {T<:_NormalResult} =
+    _engine_addressed_array(rng, _randn_codec(rng), T, indices, threaded)

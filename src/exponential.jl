@@ -142,21 +142,20 @@ Random.randexp(::AbstractPureRNG, ::Dims) =
 @inline Random.randexp(
     rng::_ScalarUniformGenerators,
     ::Type{T},
-) where {T<:_TransformFloat} = first(_draw_next(rng, _ExponentialCodec(rng.device), T))
+) where {T<:_TransformFloat} = first(_engine_randexp_next(rng, T))
 @inline randexp_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_TransformFloat} =
-    _draw_next(rng, _ExponentialCodec(rng.device), T)
+    _engine_randexp_next(rng, T)
 @inline randexp_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     i::Integer,
-) where {T<:_TransformFloat} = _draw_at(rng, _ExponentialCodec(rng.device), T, i)
+) where {T<:_TransformFloat} = _engine_randexp_at(rng, T, i)
 @inline randexp_at(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     indices::AbstractUnitRange{<:Integer};
     threaded::Bool = false,
-) where {T<:_TransformFloat} =
-    _addressed_array(rng, T, indices, _exponential_bits(T), randexp_next, threaded)
+) where {T<:_TransformFloat} = _engine_randexp_at(rng, T, indices; threaded)
 
 @doc """
     randexp_next(rng[, T]) -> (value, next_rng)
@@ -191,12 +190,7 @@ positive or the addressed draw exceeds the generator's counter capacity.
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_TransformFloat}
-    result, _ = _rand_transformed_next_fill!(
-        rng,
-        destination,
-        threaded,
-        _ExponentialCodec(rng.device),
-    )
+    result, _ = _engine_randexp_next!(rng, destination; threaded)
     return result
 end
 
@@ -205,12 +199,7 @@ end
     destination::AbstractArray{T};
     threaded::Bool = false,
 ) where {T<:_TransformFloat}
-    return _rand_transformed_next_fill!(
-        rng,
-        destination,
-        threaded,
-        _ExponentialCodec(rng.device),
-    )
+    return _engine_randexp_next!(rng, destination; threaded)
 end
 
 @doc """
@@ -231,22 +220,10 @@ never changes.
     dims::Integer...;
     threaded::Bool = false,
 )
-    return _rand_transformed_next_array(
-        rng,
-        Float64,
-        (dim1, dims...),
-        _ExponentialCodec(rng.device),
-        threaded,
-    )
+    return _engine_randexp_next(rng, Float64, dim1, dims...; threaded)
 end
 @inline randexp_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
-    _rand_transformed_next_array(
-        rng,
-        Float64,
-        dims,
-        _ExponentialCodec(rng.device),
-        threaded,
-    )
+    _engine_randexp_next(rng, Float64, dims; threaded)
 
 @inline function Random.randexp(
     rng::_ScalarUniformGenerators,
@@ -255,13 +232,7 @@ end
     dims::Integer...;
     threaded::Bool = false,
 ) where {T<:_TransformFloat}
-    destination, _ = _rand_transformed_next_array(
-        rng,
-        T,
-        (dim1, dims...),
-        _ExponentialCodec(rng.device),
-        threaded,
-    )
+    destination, _ = _engine_randexp_next(rng, T, dim1, dims...; threaded)
     return destination
 end
 @inline Random.randexp(
@@ -269,16 +240,13 @@ end
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_TransformFloat} = first(
-    _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device), threaded),
-)
+) where {T<:_TransformFloat} = first(_engine_randexp_next(rng, T, dims; threaded))
 @inline randexp_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
     dims::Dims;
     threaded::Bool = false,
-) where {T<:_TransformFloat} =
-    _rand_transformed_next_array(rng, T, dims, _ExponentialCodec(rng.device), threaded)
+) where {T<:_TransformFloat} = _engine_randexp_next(rng, T, dims; threaded)
 
 @inline function randexp_next(
     rng::_ScalarUniformGenerators,
@@ -287,11 +255,47 @@ end
     dims::Integer...;
     threaded::Bool = false,
 ) where {T<:_TransformFloat}
-    return _rand_transformed_next_array(
-        rng,
-        T,
-        (dim1, dims...),
-        _ExponentialCodec(rng.device),
-        threaded,
-    )
+    return _engine_randexp_next(rng, T, dim1, dims...; threaded)
 end
+
+# The bodies of the randexp entries, for any engine. The methods above serve the
+# built-in generators, and an external engine's own methods forward here.
+@inline _randexp_codec(rng) = _ExponentialCodec(_engine_backend(rng))
+
+@inline _engine_randexp_next(rng) = _engine_randexp_next(rng, Float64)
+@inline _engine_randexp_next(rng, ::Type{T}) where {T<:_TransformFloat} =
+    _engine_draw_next(rng, _randexp_codec(rng), T)
+@inline _engine_randexp_next(
+    rng,
+    ::Type{T},
+    dims::Dims;
+    threaded::Bool = false,
+) where {T<:_TransformFloat} =
+    _rand_transformed_next_array(rng, T, dims, _randexp_codec(rng), threaded)
+@inline _engine_randexp_next(
+    rng,
+    ::Type{T},
+    dim1::Integer,
+    dims::Integer...;
+    threaded::Bool = false,
+) where {T<:_TransformFloat} =
+    _rand_transformed_next_array(rng, T, (dim1, dims...), _randexp_codec(rng), threaded)
+@inline _engine_randexp_next(rng, dims::Dims; threaded::Bool = false) =
+    _engine_randexp_next(rng, Float64, dims; threaded)
+@inline _engine_randexp_next(rng, dim1::Integer, dims::Integer...; threaded::Bool = false) =
+    _engine_randexp_next(rng, Float64, dim1, dims...; threaded)
+@inline _engine_randexp_next!(
+    rng,
+    destination::AbstractArray{T};
+    threaded::Bool = false,
+) where {T<:_TransformFloat} =
+    _rand_transformed_next_fill!(rng, destination, threaded, _randexp_codec(rng))
+@inline _engine_randexp_at(rng, ::Type{T}, i::Integer) where {T<:_TransformFloat} =
+    _engine_draw_at(rng, _randexp_codec(rng), T, i)
+@inline _engine_randexp_at(
+    rng,
+    ::Type{T},
+    indices::AbstractUnitRange{<:Integer};
+    threaded::Bool = false,
+) where {T<:_TransformFloat} =
+    _engine_addressed_array(rng, _randexp_codec(rng), T, indices, threaded)

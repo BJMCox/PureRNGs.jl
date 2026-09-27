@@ -120,4 +120,18 @@ end
         extension = Base.get_extension(PureRNGs, :PureRNGsDistributionsExt)
         @test isempty(Test.detect_ambiguities(extension; recursive = true))
     end
+
+    # Turing loads DimensionalData, whose `rand(x, dims)` also matches a tuple of
+    # dimensions. The pick keeps its PureRNGs meaning.
+    @testset "a tuple of dimensions is a pick population" begin
+        dimensional = Base.root_module(
+            Base.PkgId(
+                Base.UUID("0703355e-b756-11e9-17c0-8b28908087d0"),
+                "DimensionalData",
+            ),
+        )
+        dims = (dimensional.X(1:3), dimensional.Y(1:2))
+        rng = Philox4x32(0xd1a)
+        @test rand(rng, dims) === rand(rng, collect(dims))
+    end
 end

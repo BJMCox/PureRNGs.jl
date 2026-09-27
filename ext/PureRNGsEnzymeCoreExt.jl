@@ -307,11 +307,11 @@ for (draw, slope) in (
             shape::EnzymeCore.Annotation{F},
             codec::EnzymeCore.Annotation,
             rng::EnzymeCore.Annotation,
-            position::EnzymeCore.Annotation,
+            ordinal::EnzymeCore.Annotation,
             cursor::EnzymeCore.Annotation,
         ) where {F<:AbstractFloat}
             s = shape.val
-            value = $draw(s, codec.val, rng.val, position.val, cursor.val)
+            value = $draw(s, codec.val, rng.val, ordinal.val, cursor.val)
             ER.needs_shadow(config) || return ER.needs_primal(config) ? value : nothing
             shadow =
                 shape isa EnzymeCore.Const ? _zero_tangent(config, value) :
@@ -328,11 +328,11 @@ for (draw, slope) in (
             shape::EnzymeCore.Annotation{F},
             codec::EnzymeCore.Annotation,
             rng::EnzymeCore.Annotation,
-            position::EnzymeCore.Annotation,
+            ordinal::EnzymeCore.Annotation,
             cursor::EnzymeCore.Annotation,
         ) where {F<:AbstractFloat}
             s = shape.val
-            value = $draw(s, codec.val, rng.val, position.val, cursor.val)
+            value = $draw(s, codec.val, rng.val, ordinal.val, cursor.val)
             primal = ER.needs_primal(config) ? value : nothing
             return ER.AugmentedReturn(primal, nothing, $slope(s, value))
         end
@@ -345,7 +345,7 @@ for (draw, slope) in (
             shape::EnzymeCore.Annotation{F},
             codec::EnzymeCore.Annotation,
             rng::EnzymeCore.Annotation,
-            position::EnzymeCore.Annotation,
+            ordinal::EnzymeCore.Annotation,
             cursor::EnzymeCore.Annotation,
         ) where {F<:AbstractFloat}
             dshape =
@@ -366,7 +366,7 @@ for (draw, slope) in (
             shape::EnzymeCore.Annotation{F},
             codec::EnzymeCore.Annotation,
             rng::EnzymeCore.Annotation,
-            position::EnzymeCore.Annotation,
+            ordinal::EnzymeCore.Annotation,
             cursor::EnzymeCore.Annotation,
         ) where {F<:AbstractFloat}
             dshape =

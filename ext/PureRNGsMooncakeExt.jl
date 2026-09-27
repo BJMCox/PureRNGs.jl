@@ -38,11 +38,11 @@ for (draw, slope) in (
             shape::Dual{F},
             codec::Dual,
             rng::Dual,
-            position::Dual,
+            ordinal::Dual,
             cursor::Dual,
         ) where {F<:Base.IEEEFloat}
             s = primal(shape)
-            value = $draw(s, primal(codec), primal(rng), primal(position), primal(cursor))
+            value = $draw(s, primal(codec), primal(rng), primal(ordinal), primal(cursor))
             return Dual(value, tangent(shape) * $slope(s, value))
         end
         function rrule!!(
@@ -50,18 +50,18 @@ for (draw, slope) in (
             shape::CoDual{F},
             codec::CoDual,
             rng::CoDual,
-            position::CoDual,
+            ordinal::CoDual,
             cursor::CoDual,
         ) where {F<:Base.IEEEFloat}
             s = primal(shape)
-            value = $draw(s, primal(codec), primal(rng), primal(position), primal(cursor))
+            value = $draw(s, primal(codec), primal(rng), primal(ordinal), primal(cursor))
             derivative = $slope(s, value)
             adjoint(dvalue) = (
                 NoRData(),
                 dvalue * derivative,
                 zero_rdata(primal(codec)),
                 zero_rdata(primal(rng)),
-                zero_rdata(primal(position)),
+                zero_rdata(primal(ordinal)),
                 zero_rdata(primal(cursor)),
             )
             return zero_fcodual(value), adjoint

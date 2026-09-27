@@ -4,7 +4,6 @@ import PureRNGs
 import Metal
 
 const IR = PureRNGs
-const _MetalGenerators = IR._BackendGenerators{IR._MetalBackend}
 
 # Metal has no Float64 or 128-bit integer arithmetic. Every other draw runs on
 # the device; weighted sampling stays off it, since its cumulative sums are
@@ -27,11 +26,11 @@ end
     )
 end
 
-@inline IR._check_serviceability(
-    ::_MetalGenerators,
+@inline IR._check_backend_serviceability(
+    ::IR._MetalBackend,
     ::Type{T},
 ) where {T<:Union{Float64,Complex{Float64},IR._WideInteger}} = _metal_type_error(T)
-@inline IR._check_weighted_serviceability(::_MetalGenerators) = _metal_weighted_error()
+@inline IR._check_weighted_backend(::IR._MetalBackend) = _metal_weighted_error()
 IR._fold_device_weights(::IR._MetalBackend, weights, ::Bool) = _metal_weighted_error()
 
 @inline function IR._allocate_array(::IR._MetalBackend, ::Type{T}, dims::Tuple) where {T}

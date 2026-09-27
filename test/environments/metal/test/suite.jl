@@ -1,6 +1,7 @@
 using Distributions
 using ForwardDiff
 using KernelAbstractions
+using Distributions: LinearAlgebra
 using PureRNGs
 using Metal
 using MLDataDevices
@@ -8,6 +9,7 @@ using Random
 using Test
 
 const IR = PureRNGs
+include(joinpath(@__DIR__, "..", "..", "..", "engine_fixture.jl"))
 const METAL_GENERATORS = (
     Philox2x32,
     Philox4x32,
@@ -327,6 +329,19 @@ if Metal.functional()
         end
     end
 
+    # Every column of a device MvNormal draw is the factor times that column's
+    # normals plus the mean, however many columns the draw has.
+    @testset "Metal MvNormal draws transform their own normals" begin
+        μ = Float32[0.5, -1.0, 2.0]
+        Σ = Float32[2.0 0.3 0.1; 0.3 1.0 0.2; 0.1 0.2 1.5]
+        L = LinearAlgebra.cholesky(Σ).L
+        rng = MetalDevice()(Philox4x32(0xde71ce, 37))
+        z = Array(first(randn_next(rng, Float32, 3, 2049)))
+        values = Array(first(rand_next(rng, MvNormal(μ, Σ), 2049)))
+        @test values ≈ L * z .+ μ rtol = 1.0f-5
+        @test values == Array(first(rand_next(rng, MvNormal(μ, Σ), 2049)))
+    end
+
     @testset "Metal permutations equal the CPU permutations" begin
         for F in (Philox4x32, ChaCha), n in (0, 1, 1000)
             cpu_rng = F(0x81e, 3)
@@ -427,6 +442,20 @@ if Metal.functional()
             )
             @test next_rng.position == expected_next.position
         end
+    end
+
+    # The checks key on the backend token, so an engine outside the built-in
+    # generators meets Metal's limits before any kernel compiles.
+    @testset "an external engine bound to Metal meets Metal's limits" begin
+        rng = MetalDevice()(Philox4x32(0x3e7a1))
+        engine = WrappedEngine(rng)
+        values, next = rand_next(engine, Normal(0.5f0, 2.0f0), 257)
+        @test (Array(values), next.inner) == (
+            Array(first(rand_next(rng, Normal(0.5f0, 2.0f0), 257))),
+            last(rand_next(rng, Normal(0.5f0, 2.0f0), 257)),
+        )
+        @test_throws ArgumentError rand_next(engine, Normal(0.5, 2.0), 257)
+        @test_throws ArgumentError randn_next(engine, Float64, 257)
     end
 else
     @info "Metal hardware unavailable; served device execution was not run"

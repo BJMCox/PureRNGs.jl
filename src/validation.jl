@@ -8,23 +8,27 @@
 end
 
 # The destination device is read once: a destination may count the query.
-@inline function _check_fill_device(rng::_ScalarUniformGenerators, destination)
-    generator_device = MLDataDevices.get_device_type(rng.device)
+@inline function _check_fill_device(rng, destination)
+    generator_device = MLDataDevices.get_device_type(_engine_backend(rng))
     destination_device = MLDataDevices.get_device_type(destination)
     generator_device <: destination_device ||
         _fill_device_mismatch(generator_device, destination_device)
     return nothing
 end
 
-@inline _check_serviceability(rng, ::Type) = nothing
+# The checks key on the generator's backend token, so any engine bound to a
+# backend meets that backend's limits before a kernel compiles.
+@inline _check_serviceability(rng, ::Type{T}) where {T} =
+    _check_backend_serviceability(_engine_backend(rng), T)
+@inline _check_backend_serviceability(::_BackendToken, ::Type) = nothing
 
 @noinline function _host_only_type(::Type{T}) where {T}
     throw(ArgumentError("$T draws run on the CPU only; move the generator to the CPU"))
 end
 
 # Device kernels hold no 128-bit integers, so these types stay on the host.
-@inline _check_serviceability(
-    ::_BackendGenerators{<:Union{_CUDABackend,_AMDGPUBackend}},
+@inline _check_backend_serviceability(
+    ::Union{_CUDABackend,_AMDGPUBackend},
     ::Type{T},
 ) where {T<:_WideInteger} = _host_only_type(T)
 @inline _check_serviceability(rng, range::AbstractRange) =
@@ -48,7 +52,8 @@ end
 end
 
 # Weighted sampling folds Float64 weights; a backend without Float64 rejects it.
-@inline _check_weighted_serviceability(rng) = nothing
+@inline _check_weighted_serviceability(rng) = _check_weighted_backend(_engine_backend(rng))
+@inline _check_weighted_backend(::_BackendToken) = nothing
 
 @inline function _check_sampling_fill_device(rng, destination::Array)
     rng.device isa _CPUBackend || _fill_device_mismatch(

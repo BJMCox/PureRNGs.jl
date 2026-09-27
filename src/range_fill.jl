@@ -3,11 +3,11 @@
 # population cardinality.
 @inline function _take_range_offset(rng, cursor, span::UInt64)
     if _range_bits(span) == UInt16(64)
-        candidate, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+        candidate, cursor = _take_bits(rng, cursor, Val(64))
         return _reduce_range_candidate(candidate, span), cursor
     end
-    hi, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
-    lo, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+    hi, cursor = _take_bits(rng, cursor, Val(64))
+    lo, cursor = _take_bits(rng, cursor, Val(64))
     return _reduce_range_candidate(lo, hi, span), cursor
 end
 
@@ -16,9 +16,9 @@ end
         offset, cursor = _take_range_offset(rng, cursor, span % UInt64)
         return UInt128(offset), cursor
     end
-    w2, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
-    w1, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
-    w0, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
+    w2, cursor = _take_bits(rng, cursor, Val(64))
+    w1, cursor = _take_bits(rng, cursor, Val(64))
+    w0, cursor = _take_bits(rng, cursor, Val(64))
     return _reduce_range_candidate(w2, w1, w0, span), cursor
 end
 
@@ -30,6 +30,9 @@ struct _RangeCodec{R,S<:Union{UInt64,UInt128}}
 end
 
 @inline _fill_width(codec::_RangeCodec, ::Type) = _range_bits(codec.span)
+
+@inline _codec_takes(codec::_RangeCodec, ::Type) =
+    (Int(_range_bits(codec.span)) ÷ 64, Val(64))
 
 @inline _fill_chunk_elements(codec::_RangeCodec, ::Type) =
     Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_range_bits(codec.span)))

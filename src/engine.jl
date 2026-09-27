@@ -1,0 +1,171 @@
+# The engine contract: the hooks through which the codecs read a generator's
+# stream. `docs/dev/engine-interface.md` states each hook's contract. The
+# built-in generators serve every hook from their dense bit cursor.
+
+# A codec reads `count` takes of `W` bits each per draw. The default is one
+# take of the codec's whole width. A codec that reads several overrides it.
+@inline _codec_takes(codec, ::Type{T}) where {T} = (1, Val(Int(_fill_width(codec, T))))
+
+# The backend token selects transforms, allocation, residence, and the
+# serviceability checks. A built-in generator carries its own.
+@inline _engine_backend(rng::AbstractPureRNG) = rng.device
+
+@inline _take_bits(rng, cursor::_DenseBitCursor, width::Val) =
+    _take_dense_bits_unchecked(rng, cursor, width)
+
+@inline _advance_block_unchecked(block::UInt64, count::UInt64) = block + count
+@inline function _advance_block_unchecked(block::NTuple{2,UInt64}, count::UInt64)
+    lo = block[1] + count
+    return lo, block[2] + UInt64(lo < block[1])
+end
+
+# The dense stream packs takes with no gaps, so a skip is a bit offset. A skip
+# that stays in the cursor's block keeps its decoded words.
+@inline function _skip_takes(
+    rng,
+    cursor::_DenseBitCursor,
+    count::Integer,
+    ::Val{W},
+) where {W}
+    shift = _block_shift(rng)
+    offset = (UInt64(cursor.lane) << 6) + UInt64(cursor.bit) + UInt64(count) * UInt64(W)
+    blocks = offset >> shift
+    bit = UInt16(offset & ((UInt64(1) << shift) - UInt64(1)))
+    iszero(blocks) &&
+        return _DenseBitCursor(cursor.block, cursor.block_words, bit >> 6, bit & UInt16(63))
+    return _dense_cursor(rng, _advance_block_unchecked(cursor.block, blocks), bit)
+end
+
+@inline _first_block_word(block::UInt64) = block
+@inline _first_block_word(block::NTuple{2,UInt64}) = block[1]
+
+# The stream index modulo 2^64, as `_position_index` gives for a position.
+@inline _cursor_ordinal(rng, cursor::_DenseBitCursor) =
+    (_first_block_word(cursor.block) << _block_shift(rng)) +
+    (UInt64(cursor.lane) << 6) +
+    UInt64(cursor.bit)
+
+# The cursor of zero-based draw `ordinal` of a fill of `count`-take draws that
+# starts at the held position. The fill has already reserved its span.
+@inline function _fill_cursor(
+    rng::AbstractPureRNG,
+    count::Integer,
+    ::Val{W},
+    ordinal::UInt64,
+) where {W}
+    bits_hi, bits_lo = _mulhilo64(ordinal, UInt64(count) * UInt64(W))
+    position = _advance_position_unchecked(rng, bits_lo, bits_hi)
+    return _dense_cursor(rng, _position_block(position), position.bit)
+end
+
+# Reserve `count` takes at the held position: the cursor of the first take and
+# the generator past the last one.
+@inline function _draw_cursor(rng::AbstractPureRNG, count::Integer, ::Val{W}) where {W}
+    bits_hi, bits_lo = _mulhilo64(UInt64(count), UInt64(W))
+    next_rng = _reserve(rng, bits_lo, bits_hi)
+    return _dense_cursor(rng, _position_block(rng.position), rng.position.bit), next_rng
+end
+
+# The generator at the start of draw `i`, counting from one, of `count`-take draws.
+@inline _addressed_state(
+    rng::AbstractPureRNG,
+    count::Integer,
+    ::Val{W},
+    i::Integer,
+) where {W} = _addressed_rng(rng, UInt16(count * W), i)
+
+# The draws an engine gets from its hooks alone. A built-in generator overrides
+# all three with the paths its fills and draws were tuned on.
+@inline function _engine_draw_next(rng, codec, ::Type{T}) where {T}
+    count, width = _codec_takes(codec, T)
+    cursor, next_rng = _draw_cursor(rng, count, width)
+    return first(_codec_take(codec, rng, cursor, T)), next_rng
+end
+
+@inline function _engine_draw_at(rng, codec, ::Type{T}, i::Integer) where {T}
+    count, width = _codec_takes(codec, T)
+    addressed = _addressed_state(rng, count, width, i)
+    cursor, _ = _draw_cursor(addressed, count, width)
+    return first(_codec_take(codec, addressed, cursor, T))
+end
+
+@noinline _no_engine_device_fill() =
+    throw(ArgumentError("this generator has no device fill; move it to the CPU"))
+
+# A host fill that walks one cursor, or one per chunk when threaded. A device
+# fill needs the engine's own method.
+function _engine_fill!(rng, destination::AbstractArray{T}, threaded::Bool, codec) where {T}
+    _engine_backend(rng) isa _CPUBackend || _no_engine_device_fill()
+    count, width = _codec_takes(codec, T)
+    cursor, next_rng = _draw_cursor(rng, length(destination) * count, width)
+    isempty(destination) && return destination, next_rng
+    indices = eachindex(destination)
+    if threaded
+        _run_chunks(length(destination), _fill_chunk_elements(codec, T)) do first, last
+            chunk = _fill_cursor(rng, count, width, UInt64(first - 1))
+            for ordinal = first:last
+                value, chunk = _codec_take(codec, rng, chunk, T)
+                destination[_destination_index(indices, ordinal)] = value
+            end
+        end
+    else
+        for index in indices
+            value, cursor = _codec_take(codec, rng, cursor, T)
+            destination[index] = value
+        end
+    end
+    return destination, next_rng
+end
+
+# The built-in paths: a scalar reserves its span and reads it at the held
+# position, normal and exponential scalars chain across the block boundary, and
+# fills run the tuned CPU and device launchers.
+@inline function _engine_draw_next(
+    rng::_ScalarUniformGenerators,
+    codec,
+    ::Type{T},
+) where {T}
+    next_rng = _reserve(rng, UInt64(_fill_width(codec, T)), UInt64(0))
+    return _transformed_draw_unchecked(codec, rng, rng.position, T), next_rng
+end
+@inline _engine_draw_next(
+    rng::_ScalarUniformGenerators,
+    codec::Union{_NormalCodec,_ExponentialCodec},
+    ::Type{T},
+) where {T} = _draw_next(rng, codec, T)
+@inline _engine_draw_at(
+    rng::_ScalarUniformGenerators,
+    codec,
+    ::Type{T},
+    i::Integer,
+) where {T} = _draw_at(rng, codec, T, i)
+@inline _engine_fill!(
+    rng::_ScalarUniformGenerators,
+    destination::AbstractArray,
+    threaded::Bool,
+    codec,
+) = _fill_prevalidated!(rng, destination, threaded, codec)
+
+# The bodies of `rand_next`, `rand_next!`, and `rand_at` for distributions, with
+# the public signatures and any engine. The Distributions extensions own their
+# methods. The built-in public methods and an external engine's own methods call
+# them.
+function _engine_rand_next end
+function _engine_rand_next! end
+function _engine_rand_at end
+
+# Addressed draws `indices` are the fill that starts at the first of them.
+@inline function _engine_addressed_array(
+    rng,
+    codec,
+    ::Type{T},
+    indices::AbstractUnitRange{<:Integer},
+    threaded::Bool,
+) where {T}
+    _check_serviceability(rng, T)
+    isempty(indices) && return _allocate_draw_array(_engine_backend(rng), T, (0,))
+    count, width = _codec_takes(codec, T)
+    addressed = _addressed_state(rng, count, width, first(indices))
+    destination = _allocate_draw_array(_engine_backend(rng), T, (length(indices),))
+    return first(_engine_fill!(addressed, destination, threaded, codec))
+end

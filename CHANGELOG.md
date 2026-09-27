@@ -28,6 +28,12 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Sampling, permutation, and pick errors state the values that broke the rule, for example `cannot draw 5 elements without replacement from a population of 3`.
 - CUDA fills of 8- and 16-bit integers and `Float16`, and `Float16` normal and exponential fills, store 16 bytes per work item. On an A100 a 2^26 `UInt8` fill runs at 1015 GiB/s instead of 183, `UInt16` at 1176 instead of 292, and `Float16` at 715 instead of 145.
 - `Threefry2x64R13`, the thirteen-round `Threefry2x64` that Salmon, Moraes, Dror, and Shaw (2011, Table 2) report as the smallest passing BigCrush. It has no BigCrush run of its own in the evidence release yet.
+- A DimensionalData extension: `rand(rng, dims)` with a tuple of dimensions picks one of them, as for any tuple, instead of an ambiguity error when DimensionalData is loaded.
+- An internal engine interface through which a generator package outside PureRNGs can serve the distribution, normal, and exponential draws. `docs/dev/engine-interface.md` states the contract, which may change in any 0.0.x release.
+
+### Fixed
+
+- `MvNormal` draws on Metal apply the covariance factor with a dense product. The in-place triangular product gave many-column draws different values on repeated calls, up to 0.23 away from the host transform.
 
 ### Changed
 

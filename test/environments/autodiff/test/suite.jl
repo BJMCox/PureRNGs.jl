@@ -166,3 +166,18 @@ end
         end
     end
 end
+
+include(joinpath(@__DIR__, "..", "..", "..", "engine_fixture.jl"))
+
+@testset "an external engine reproduces dual distribution draws" begin
+    rng = Philox4x32(0xd0a1, 37)
+    engine = WrappedEngine(rng)
+    dual(x) = ForwardDiff.Dual{:engine}(x, one(x))
+    for d in (Normal(dual(0.5), 2.0), Gamma(dual(2.5), 1.5), Beta(dual(0.7), 1.8))
+        @test unwrap(rand_next(engine, d)) === rand_next(rng, d)
+        @test rand_at(engine, d, 7) === rand_at(rng, d, 7)
+        @test unwrap(rand_next(engine, d, 65)) == rand_next(rng, d, 65)
+    end
+    d = MvNormal([dual(0.5), dual(-1.0)], [2.0 0.3; 0.3 1.0])
+    @test unwrap(rand_next(engine, d)) == rand_next(rng, d)
+end
