@@ -614,7 +614,7 @@ end
 @inline _valid_position(position::_Position128, shift::UInt8, ::Nothing) =
     UInt64(position.bit) < (UInt64(1) << shift)
 
-@inline function _bit_span(count::UInt64, width::UInt16)
+@inline function _bit_span(count::UInt64, width::Union{UInt16,UInt64})
     hi, lo = _mulhilo64(count, UInt64(width))
     return lo, hi
 end

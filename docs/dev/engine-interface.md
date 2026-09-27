@@ -48,22 +48,89 @@ chooses. Methods dispatch on the engine's own types.
 | `_skip_takes(rng, cursor, count, Val(W))` | `cursor` | The cursor `count` takes later, without reading them. |
 | `_cursor_ordinal(rng, cursor)` | `UInt64` | The stream index of the cursor's next take. It keys the Gamma fallback's child stream. |
 | `_draw_cursor(rng, count, Val(W))` | `(cursor, next_rng)` | Reserves `count` takes at the held position: the cursor of the first take and the generator past the last. The engine applies its alignment and exhaustion rules here. |
-| `_addressed_state(rng, count, Val(W), i)` | generator | The generator at the start of draw `i`, counting from one, of `count`-take draws. `rng` does not change. Throws `ArgumentError` for `i < 1` and the engine's exhaustion error past the stream end. |
+| `_addressed_state(rng, count, Val(W), i)` | generator | The generator at the start of draw `i`, counting from one, of `count`-take draws. `rng` does not change. Throws `ArgumentError` for `i < 1` and the engine's exhaustion error when draw `i` ends past the stream end. `i` can be any `Integer`, including `BigInt`. |
 | `_fill_cursor(rng, count, Val(W), ordinal::UInt64)` | `cursor` | The cursor of zero-based draw `ordinal` of a fill that starts at the held position. The fill has reserved its span, so this hook does not check. |
 
 Optional overrides, with defaults built from the hooks above:
 
 | Hook | Default |
 |:--|:--|
+| `_reserve_draws(rng, draws, count, Val(W))` | `_draw_cursor` with `draws * count` takes. It throws `OverflowError` when that product passes `typemax(UInt64)`. Returns `next_rng`. |
 | `_engine_draw_next(rng, codec, T)` | `_draw_cursor`, then one `_codec_take`. |
 | `_engine_draw_at(rng, codec, T, i)` | `_addressed_state`, `_draw_cursor`, then one `_codec_take`. |
-| `_engine_fill!(rng, destination, threaded, codec)` | A host loop over one cursor, or over one `_fill_cursor` per chunk when `threaded`. It throws `ArgumentError` for a device-bound generator. Returns `(destination, next_rng)`. |
+| `_engine_fill!(rng, destination, threaded, codec)` | `_reserve_draws`, then a host loop over one cursor, or over one `_fill_cursor` per chunk when `threaded`. It throws `ArgumentError` for a device-bound generator. Returns `(destination, next_rng)`. |
+| `_engine_fill_columns!(rng, destination::AbstractMatrix, threaded, codec)` | `_reserve_draws` for `size(destination, 2)` draws, then `_foreach_column!` on the destination's backend, host or device, with one `_fill_cursor` per column. Returns `(destination, next_rng)`. |
 
 Override `_engine_fill!` to keep bulk generation fast. The default walks a cursor
 take by take, so an engine whose stream is cheapest in whole blocks or rows
 should generate those blocks and run `_codec_take` over a cursor into them. A
 device fill needs this override: a kernel can call `_codec_take` on the
 engine's own cursor type.
+
+## Spans
+
+The core never multiplies a count or an index before a hook sees it:
+
+- `_reserve_draws` gets the draw count and the per-draw take count as separate
+  factors.
+- `_addressed_state` gets the per-draw take count and the index as they are.
+- `count` in `_draw_cursor` is one draw's takes, or a product the core has
+  checked.
+
+The engine checks the whole span, `draws * count * W` bits or the end of draw
+`i`, before it returns. Check with division or wide arithmetic, because the
+product can pass `typemax(UInt64)`. A fill calls `_reserve_draws` before it
+writes anything, so a rejected span leaves the destination untouched. Override
+`_reserve_draws` to throw the engine's own exhaustion error instead of the
+default's `OverflowError`.
+
+## Column draws
+
+A multivariate draw that fills one matrix column per draw uses a *column codec*.
+Dirichlet is the column codec `PureRNGs._DirichletCodec(alpha)`, with `alpha` on
+the engine's backend:
+
+```julia
+count, width = PureRNGs._codec_takes(codec, T)   # one column's takes
+cursor = PureRNGs._column_take!(codec, rng, cursor, destination, column)
+```
+
+`_column_take!` writes `destination[:, column]` from the column's takes and
+returns the cursor past them. It reads one Gamma span per component through
+`_take_bits` and `_skip_takes`, then normalizes the column by log-sum-exp. The
+Gamma and log-Gamma mathematics and the normalization stay in PureRNGs.
+
+Override `_engine_fill_columns!` to feed the columns from the engine's bulk
+stream:
+
+1. Call `_reserve_draws(rng, size(destination, 2), count, width)` first.
+2. Start a cursor at the held position.
+3. Run `_column_take!` column by column. Each call starts where the previous
+   one returned.
+
+A threaded or device override starts each chunk or workitem at its own column
+start, as `_fill_cursor` with ordinal `column - 1` does. Addressed draw `i`
+fills one column from `_addressed_state(rng, count, width, i)`, so it passes the
+engine's `_engine_fill_columns!` too.
+
+A device override passes the codec to a kernel. The KernelAbstractions
+extension defines `Adapt.adapt_structure` for the codec, so its `alpha` becomes
+a device argument.
+
+### Differentiation
+
+`_column_take!` gets each component's log-Gamma draw from
+`_gamma_log_value(shape, gamma_codec, rng, ordinal, cursor)`, with `ordinal`
+from `_cursor_ordinal`. The AD rules attach there:
+
+- ForwardDiff: a dual shape dispatches to the rule's method. The column and the
+  destination hold duals, and the normalization differentiates as arithmetic.
+- Mooncake and Enzyme: rules on `_gamma_log_value` supply the implicit shape
+  derivative for float shapes.
+
+An override keeps these rules only when it calls `_column_take!` and no
+Gamma code of its own. The Enzyme rules for device fills still attach to the
+built-in launcher only.
 
 ## Public methods an engine defines
 
@@ -121,8 +188,8 @@ generator exactly.
 
 ## Known limits
 
-- Dirichlet starts each column with `_fill_cursor`. An engine that repositions
-  slowly pays that cost once per Dirichlet draw.
+- The default `_engine_fill_columns!` starts each column with `_fill_cursor`.
+  An engine that repositions slowly should override it.
 - The Enzyme rules for device fills attach to the built-in launcher, so they do
   not reach an engine's own device fill.
 - Categorical and the uniform, range, collection, and sampling draws stay on the

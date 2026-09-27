@@ -52,6 +52,27 @@ engine_result_type(d) = partype(d)
     end
 end
 
+@testset "an external engine serves Dirichlet columns and sees whole spans" begin
+    d = Dirichlet([0.5, 1.5, 2.0])
+    rng = Philox4x32(0xd17, 5)
+    engine = WrappedEngine(rng)
+    columns = COLUMN_FILLS[]
+    for threaded in (false, true)
+        a, b = zeros(3, 257), zeros(3, 257)
+        @test unwrap(rand_next!(engine, d, a; threaded)) == rand_next!(rng, d, b; threaded)
+    end
+    @test rand_at(engine, d, 9) == rand_at(rng, d, 9)
+    @test COLUMN_FILLS[] == columns + 3
+    @test LAST_RESERVATION[] == (1, 51, 52)
+    wide = UInt64(0x5555555555555557)
+    @test_throws OverflowError rand_at(engine, d, wide)
+    @test LAST_ADDRESS[] == (51, 52, wide)
+    huge = WriteCountingMatrix(3, 2^61)
+    @test_throws OverflowError rand_next!(engine, d, huge)
+    @test LAST_RESERVATION[] == (2^61, 51, 52)
+    @test huge.writes[] == 0
+end
+
 # One candidate sends about 5 % of shape-one draws to the child stream, so these
 # draws exercise the fallback's stream ordinal through the engine's cursor.
 @testset "an external engine keys the Gamma fallback by stream ordinal" begin

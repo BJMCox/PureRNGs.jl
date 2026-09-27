@@ -326,6 +326,12 @@ if Metal.functional()
                 @test count(near.(Array(values), expected)) >= 0.998 * length(expected)
                 @test next_rng.position == expected_next.position
             end
+            d = Dirichlet(ForwardDiff.Dual.(Float32[0.3, 2, 5], 1.0f0))
+            values, expected = Array(rand(rng, d, 100)), rand(cpu_rng, d, 100)
+            for part in (ForwardDiff.value, x -> ForwardDiff.partials(x, 1))
+                @test count(near.(part.(values), part.(expected))) >=
+                      0.998 * length(expected)
+            end
         end
     end
 

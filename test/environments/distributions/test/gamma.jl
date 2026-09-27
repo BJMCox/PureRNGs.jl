@@ -259,6 +259,39 @@ end
     @test maximum(abs.(sum(small; dims = 1) .- 1)) < 1e-12
 end
 
+# A Dirichlet draw is one column-codec draw, so its address and a fill's span
+# reach the stream check whole. A 128-bit position holds spans past 2^64 takes.
+@testset "Dirichlet spans past UInt64 stay exact" begin
+    d = Dirichlet(fill(1.0, 3))
+    stride = 3 * 17 * Int(IR._normal_bits(Float64))
+    skipped(rng, bits) = IR._rebuild(
+        rng,
+        IR._position_from_bits(
+            typeof(rng),
+            BigInt(rngposition(rng)) + bits,
+            IR._stream_capacity(typeof(rng)),
+        ),
+        rng.device,
+    )
+    wide = Threefry4x64(0xabc, 3)
+    for index in (UInt64(0x5555555555555557), big(2)^70 + 3)
+        @test rand_at(wide, d, index) ==
+              rand(skipped(wide, (BigInt(index) - 1) * stride), d)
+    end
+    reserved = IR._reserve_draws(wide, 2^61, 51, Val(52))
+    @test BigInt(rngposition(reserved)) - BigInt(rngposition(wide)) == big(2)^61 * stride
+    # Philox4x32 holds 2^71 bits, which both spans pass.
+    narrow = Philox4x32(42)
+    @test_throws StreamExhausted rand_at(narrow, d, UInt64(0x5555555555555557))
+    huge = WriteCountingMatrix(3, 2^61)
+    @test_throws StreamExhausted rand_next!(narrow, d, huge)
+    @test huge.writes[] == 0
+    # 100 components read more than 2^16 bits per draw.
+    many = Dirichlet(fill(0.7, 100))
+    rng = Philox4x32(7, 2)
+    @test rand_at(rng, many, 5) == first(rand_next(rng, many, 5))[:, 5]
+end
+
 # The shape derivative differentiates the incomplete gamma expansions term by
 # term. The reference is a Richardson-extrapolated central difference of the
 # incomplete gamma ratio, over the density, at Gamma quantiles.

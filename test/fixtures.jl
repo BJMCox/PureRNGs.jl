@@ -99,6 +99,23 @@ function Base.setindex!(array::IdentityAxesMatrix, value, row::Int, column::Int)
 end
 MLD.get_device(::IdentityAxesMatrix) = MLD.CPUDevice()
 
+# A matrix too large to allocate that counts its writes, so a test can show a fill
+# rejects its span before it writes anything.
+struct WriteCountingMatrix <: AbstractMatrix{Float64}
+    rows::Int
+    columns::Int
+    writes::Base.RefValue{Int}
+end
+
+WriteCountingMatrix(rows, columns) = WriteCountingMatrix(rows, columns, Ref(0))
+Base.size(array::WriteCountingMatrix) = (array.rows, array.columns)
+Base.getindex(::WriteCountingMatrix, ::Int, ::Int) = 0.0
+function Base.setindex!(array::WriteCountingMatrix, value, ::Int, ::Int)
+    array.writes[] += 1
+    return value
+end
+MLD.get_device(::WriteCountingMatrix) = MLD.CPUDevice()
+
 struct SamplingCUDAProbe{T} <: AbstractVector{T}
     values::Vector{T}
 end

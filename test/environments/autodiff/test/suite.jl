@@ -112,8 +112,29 @@ advanced(rng, bits) = PureRNGs._rebuild(
     shapes = [0.3, 1.0, 2.5]
     xs = [rand(advanced(rng, (j - 1) * GAMMA_SPAN), Gamma(shapes[j])) for j = 1:3]
     total = sum(xs)
-    @test derivative(q -> rand(rng, Dirichlet([q, 1.0, 2.5]))[1], AutoMooncake(), 0.3) ≈
-          gamma_oracle(0.3, xs[1]) * (total - xs[1]) / total^2 rtol = 1e-6
+    for backend in (AutoMooncake(), AutoForwardDiff())
+        @test derivative(q -> rand(rng, Dirichlet([q, 1.0, 2.5]))[1], backend, 0.3) ≈
+              gamma_oracle(0.3, xs[1]) * (total - xs[1]) / total^2 rtol = 1e-6
+    end
+end
+
+# A dual Dirichlet decodes the primal draw, so its value is the float draw, and
+# its fills and addresses follow the float stream law.
+@testset "dual Dirichlet draws follow the float draws" begin
+    rng = Philox4x32(0xd1c, 9)
+    shapes = [0.3, 1.0, 2.5]
+    dual(x) = ForwardDiff.Dual{:dirichlet}.(x, 1.0)
+    @test ForwardDiff.value.(rand(rng, Dirichlet(dual(shapes)))) ==
+          rand(rng, Dirichlet(shapes))
+    values, next_rng = rand_next(rng, Dirichlet(dual(shapes)), 9; threaded = true)
+    @test ForwardDiff.value.(values) == rand(rng, Dirichlet(shapes), 9)
+    @test next_rng == last(rand_next(rng, Dirichlet(shapes), 9))
+    @test rand_at(rng, Dirichlet(dual(shapes)), 4) == values[:, 4]
+    destination = similar(values)
+    @test rand!(rng, Dirichlet(dual(shapes)), destination) == values
+    at(x) = rand_at(rng, Dirichlet(x), 4)
+    @test jacobian(at, AutoForwardDiff(), shapes) ≈ jacobian(at, AutoMooncake(), shapes) rtol =
+        1e-10
 end
 
 # The implicit derivative is unbiased: E[dX/dshape] = dE[X]/dshape = 1 for
@@ -180,4 +201,8 @@ include(joinpath(@__DIR__, "..", "..", "..", "engine_fixture.jl"))
     end
     d = MvNormal([dual(0.5), dual(-1.0)], [2.0 0.3; 0.3 1.0])
     @test unwrap(rand_next(engine, d)) == rand_next(rng, d)
+    d = Dirichlet([dual(0.5), dual(1.5), dual(2.0)])
+    @test unwrap(rand_next(engine, d)) == rand_next(rng, d)
+    @test rand_at(engine, d, 5) == rand_at(rng, d, 5)
+    @test unwrap(rand_next(engine, d, 33)) == rand_next(rng, d, 33)
 end

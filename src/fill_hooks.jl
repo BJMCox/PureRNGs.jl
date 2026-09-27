@@ -17,8 +17,16 @@ end
 
 # Calls `f(destination, column, args...)` for every column of a matrix. The
 # host runs the columns in order or on threads, and the KernelAbstractions
-# extension gives GPU backends a workitem per column.
-function _foreach_column!(::_CPUBackend, f, destination, threaded::Bool, args...)
+# extension gives GPU backends a workitem per column. Julia does not specialize
+# on arguments it only passes on, so without the type parameters every column
+# made a dynamic call that boxed the generator.
+function _foreach_column!(
+    ::_CPUBackend,
+    f::F,
+    destination,
+    threaded::Bool,
+    args::Vararg{Any,N},
+) where {F,N}
     if threaded
         Threads.@threads for column in axes(destination, 2)
             f(destination, column, args...)

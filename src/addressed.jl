@@ -1,4 +1,6 @@
 const _AddressIndex64 = Union{Bool,Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
+# A column draw can read more than 2^16 bits, so its stride takes a UInt64.
+const _AddressWidth = Union{UInt16,UInt64}
 
 @noinline function _invalid_address_index()
     throw(ArgumentError("addressed draw index must be positive"))
@@ -6,7 +8,7 @@ end
 
 @inline function _addressed_rng_device(
     rng::_ScalarUniformGenerators,
-    width::UInt16,
+    width::_AddressWidth,
     i::_AddressIndex64,
 )
     i < 1 && _invalid_address_index()
@@ -20,14 +22,14 @@ end
     return _rebuild(rng, position, rng.device)
 end
 
-@inline _addressed_rng(rng::AbstractPureRNG, width::UInt16, i::_AddressIndex64) =
+@inline _addressed_rng(rng::AbstractPureRNG, width::_AddressWidth, i::_AddressIndex64) =
     _addressed_rng_device(rng, width, i)
 
 # An index too wide for UInt64 needs BigInt arithmetic, so this body stays out
 # of the fast path. Both position widths are the same walk over stream bits:
 # `rngposition` reads the current bit count and `_position_from_bits` writes it
 # back, and both report the terminal state as the full capacity.
-@noinline function _addressed_rng(rng::AbstractPureRNG, width::UInt16, i::Integer)
+@noinline function _addressed_rng(rng::AbstractPureRNG, width::_AddressWidth, i::Integer)
     i < 1 && _invalid_address_index()
     offset = (BigInt(i) - 1) * BigInt(width)
     span = offset + BigInt(width)

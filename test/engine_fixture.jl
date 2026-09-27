@@ -67,14 +67,35 @@ function PureRNGs._draw_cursor(engine::WrappedEngine, count::Integer, ::Val{W}) 
     return WrappedCursor(engine.inner, UInt64(0)), WrappedEngine(next)
 end
 
+# The engine's stream is 2^64 bits long. It checks each span from the factors
+# the core passes, and records them, so tests can see that no factor wrapped.
+const LAST_RESERVATION = Ref{Any}(nothing)
+const LAST_ADDRESS = Ref{Any}(nothing)
+
+_check_span(bits::Integer) =
+    bits <= typemax(UInt64) || throw(OverflowError("span past the engine's stream"))
+
+function PureRNGs._reserve_draws(
+    engine::WrappedEngine,
+    draws::Integer,
+    count::Integer,
+    ::Val{W},
+) where {W}
+    LAST_RESERVATION[] = (draws, count, W)
+    _check_span(BigInt(draws) * count * W)
+    return WrappedEngine(_advance(engine.inner, UInt64(draws) * UInt64(count) * UInt64(W)))
+end
+
 function PureRNGs._addressed_state(
     engine::WrappedEngine,
     count::Integer,
     ::Val{W},
     i::Integer,
 ) where {W}
+    LAST_ADDRESS[] = (count, W, i)
     i >= 1 || throw(ArgumentError("addressed draw index must be positive"))
-    return WrappedEngine(_advance(engine.inner, (i - 1) * count * W))
+    _check_span(BigInt(i) * count * W)
+    return WrappedEngine(_advance(engine.inner, UInt64(i - 1) * UInt64(count) * UInt64(W)))
 end
 
 PureRNGs._fill_cursor(
@@ -98,24 +119,54 @@ function PureRNGs._engine_fill!(
         return destination, WrappedEngine(next)
     end
     count, width = PureRNGs._codec_takes(codec, T)
-    span = UInt64(count) * UInt64(PureRNGs._val_count(width))
-    bits = span * UInt64(length(destination))
-    _, next = PureRNGs._draw_cursor(engine, count * length(destination), width)
-    words, _ = rand_next(engine.inner, UInt64, Int(cld(bits, 64)) + 1)
+    next = PureRNGs._reserve_draws(engine, length(destination), count, width)
+    _staged_draws!(engine, length(destination), count, width, threaded) do cursor, i
+        value, cursor = PureRNGs._codec_take(codec, engine, cursor, T)
+        destination[i] = value
+        cursor
+    end
+    return destination, next
+end
+
+# Runs `take(cursor, i)` over draws 1:n in order, or over one chunk per thread,
+# with each draw's cursor the one its predecessor returned.
+function _staged_draws!(take, engine, n, count, ::Val{W}, threaded) where {W}
+    iszero(n) && return nothing
+    span = UInt64(count) * UInt64(W)
+    words, _ = rand_next(engine.inner, UInt64, Int(cld(span * UInt64(n), 64)) + 1)
     base = rngposition(engine.inner) % UInt64
-    fill_range!(first, last) =
-        foldl(first:last; init = StagedCursor(words, base, (first - 1) * span)) do cursor, i
-            value, cursor = PureRNGs._codec_take(codec, engine, cursor, T)
-            destination[i] = value
-            cursor
-        end
+    run!(first, last) =
+        foldl(take, first:last; init = StagedCursor(words, base, (first - 1) * span))
     if threaded
-        chunk = cld(length(destination), Threads.nthreads())
-        Threads.@threads for first = 1:chunk:length(destination)
-            fill_range!(first, min(first + chunk - 1, length(destination)))
+        chunk = cld(n, Threads.nthreads())
+        Threads.@threads for first = 1:chunk:n
+            run!(first, min(first + chunk - 1, n))
         end
     else
-        fill_range!(1, length(destination))
+        run!(1, n)
+    end
+    return nothing
+end
+
+# The column fill stages its words the same way. The counter shows the core
+# reached this override.
+const COLUMN_FILLS = Threads.Atomic{Int}(0)
+
+function PureRNGs._engine_fill_columns!(
+    engine::WrappedEngine,
+    destination::AbstractMatrix{T},
+    threaded::Bool,
+    codec,
+) where {T}
+    if !(PureRNGs._engine_backend(engine) isa PureRNGs._CPUBackend)
+        _, next = PureRNGs._engine_fill_columns!(engine.inner, destination, threaded, codec)
+        return destination, WrappedEngine(next)
+    end
+    count, width = PureRNGs._codec_takes(codec, T)
+    next = PureRNGs._reserve_draws(engine, size(destination, 2), count, width)
+    Threads.atomic_add!(COLUMN_FILLS, 1)
+    _staged_draws!(engine, size(destination, 2), count, width, threaded) do cursor, column
+        PureRNGs._column_take!(codec, engine, cursor, destination, column)
     end
     return destination, next
 end

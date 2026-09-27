@@ -66,13 +66,52 @@ end
     return _dense_cursor(rng, _position_block(rng.position), rng.position.bit), next_rng
 end
 
+# The generator past `draws` draws of `count` takes. The engine gets both factors,
+# so it checks the whole span before a fill writes anything. The default rejects
+# a take count past UInt64 before it multiplies.
+@inline function _reserve_draws(rng, draws::Integer, count::Integer, width::Val)
+    takes = Base.checked_mul(UInt64(draws), UInt64(count))
+    return last(_draw_cursor(rng, takes, width))
+end
+
+@inline function _reserve_draws(
+    rng::AbstractPureRNG,
+    draws::Integer,
+    count::Integer,
+    ::Val{W},
+) where {W}
+    takes_hi, takes = _mulhilo64(UInt64(draws), UInt64(count))
+    iszero(takes_hi) || return _reserve_wide(rng, (BigInt(takes_hi) << 64) + takes, W)
+    bits_hi, bits_lo = _mulhilo64(takes, UInt64(W))
+    return _reserve(rng, bits_lo, bits_hi)
+end
+
+# A span of 2^64 takes or more needs BigInt arithmetic, as a wide address does.
+@noinline function _reserve_wide(rng::AbstractPureRNG, takes::BigInt, width::Integer)
+    span = takes * width
+    _, valid = _try_advance(rng, UInt64(0), UInt64(0))
+    valid || _stream_exhausted(typeof(rng), span)
+    current = BigInt(rngposition(rng))
+    capacity = _stream_capacity(typeof(rng))
+    current + span <= capacity || _stream_exhausted(typeof(rng), span)
+    return _rebuild(
+        rng,
+        _position_from_bits(typeof(rng), current + span, capacity),
+        rng.device,
+    )
+end
+
 # The generator at the start of draw `i`, counting from one, of `count`-take draws.
-@inline _addressed_state(
+@inline function _addressed_state(
     rng::AbstractPureRNG,
     count::Integer,
     ::Val{W},
     i::Integer,
-) where {W} = _addressed_rng(rng, UInt16(count * W), i)
+) where {W}
+    stride = UInt64(count) * UInt64(W)
+    stride <= typemax(UInt16) && return _addressed_rng(rng, UInt16(stride), i)
+    return _addressed_rng(rng, stride, i)
+end
 
 # The draws an engine gets from its hooks alone. A built-in generator overrides
 # all three with the paths its fills and draws were tuned on.
@@ -97,8 +136,9 @@ end
 function _engine_fill!(rng, destination::AbstractArray{T}, threaded::Bool, codec) where {T}
     _engine_backend(rng) isa _CPUBackend || _no_engine_device_fill()
     count, width = _codec_takes(codec, T)
-    cursor, next_rng = _draw_cursor(rng, length(destination) * count, width)
+    next_rng = _reserve_draws(rng, length(destination), count, width)
     isempty(destination) && return destination, next_rng
+    cursor = _fill_cursor(rng, count, width, UInt64(0))
     indices = eachindex(destination)
     if threaded
         _run_chunks(length(destination), _fill_chunk_elements(codec, T)) do first, last
@@ -168,4 +208,28 @@ function _engine_rand_at end
     addressed = _addressed_state(rng, count, width, first(indices))
     destination = _allocate_draw_array(_engine_backend(rng), T, (length(indices),))
     return first(_engine_fill!(addressed, destination, threaded, codec))
+end
+
+# A column codec fills a matrix column per draw: `_codec_takes` counts a column's
+# takes and `_column_take!` writes one column from a cursor. The default reserves
+# every column, then starts each column's cursor with `_fill_cursor`, on any
+# backend. An engine overrides it to feed sequential cursors from its bulk stream.
+function _engine_fill_columns!(
+    rng,
+    destination::AbstractMatrix{T},
+    threaded::Bool,
+    codec,
+) where {T}
+    count, width = _codec_takes(codec, T)
+    next_rng = _reserve_draws(rng, size(destination, 2), count, width)
+    backend = _fill_backend(_engine_backend(rng), destination)
+    _foreach_column!(backend, _column_fill!, destination, threaded, rng, codec)
+    return destination, next_rng
+end
+
+@inline function _column_fill!(destination, column, rng, codec)
+    count, width = _codec_takes(codec, eltype(destination))
+    cursor = _fill_cursor(rng, count, width, UInt64(column - 1))
+    _column_take!(codec, rng, cursor, destination, column)
+    return nothing
 end

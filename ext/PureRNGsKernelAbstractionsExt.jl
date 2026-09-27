@@ -79,10 +79,13 @@ end
     return destination
 end
 
-# A device population is an array on that device, and a kernel argument is only
-# converted at its top level, so the codec hands its field to the same adaptor.
+# A device population or Dirichlet shape vector is an array on that device, and
+# a kernel argument is only converted at its top level, so the codec hands its
+# field to the same adaptor.
 Adapt.adapt_structure(to, codec::IR._PopulationCodec) =
     IR._PopulationCodec(Adapt.adapt(to, codec.population), codec.cardinality)
+Adapt.adapt_structure(to, codec::IR._DirichletCodec) =
+    IR._DirichletCodec(Adapt.adapt(to, codec.alpha))
 
 # One workgroup folds the whole weight vector. Weighted sampling runs on CUDA and
 # AMDGPU, whose workgroups hold 1024 workitems; Metal has no Float64 to fold.

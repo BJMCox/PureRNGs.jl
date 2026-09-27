@@ -646,4 +646,14 @@ end
         @test ForwardDiff.value.(Array(values)) ≈ ForwardDiff.value.(expected)
         @test ForwardDiff.partials.(Array(values), 1) ≈ ForwardDiff.partials.(expected, 1)
     end
+    d = Dirichlet(dual.([0.3, 2.0, 5.0]))
+    values, next_rng = rand_next(device(Philox4x32(0x799)), d, 500)
+    expected, expected_next = rand_next(Philox4x32(0x799), d, 500)
+    @test values isa CuArray
+    @test next_rng.position == expected_next.position
+    near(x, y) = isapprox(x, y; rtol = sqrt(eps()), atol = sqrt(eps()))
+    for part in (ForwardDiff.value, x -> ForwardDiff.partials(x, 1))
+        @test count(near.(part.(Array(values)), part.(expected))) >=
+              0.998 * length(expected)
+    end
 end
