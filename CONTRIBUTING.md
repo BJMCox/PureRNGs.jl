@@ -211,7 +211,8 @@ Measure precompile cost, package load and first-call latency separately.
 
 ## Before pushing
 
-Hosted CI is manual-dispatch only, so this recipe is the gate.
+Hosted CI runs on every push to `main` and every pull request, but GPU and
+statistical checks stay outside it, so this recipe is the gate.
 
 1. Run `Pkg.test()` on the package. It sets `--check-bounds=yes`, so allocation
    assertions must hold under bounds checking.
@@ -276,7 +277,7 @@ Every successful coverage run uploads to Codecov using GitHub OIDC, without an o
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
-Automatic CI and documentation runs remain disabled. Both workflows support manual dispatch only.
+CI and documentation runs start on every push to `main` and every pull request. Both workflows also support manual dispatch.
 Dependabot checks GitHub Actions weekly and groups updates into one pull request.
 Version tags and GitHub releases are managed manually.
 

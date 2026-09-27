@@ -2,7 +2,9 @@ name: CI
 
 # GPU and statistical release gates stay outside hosted CI.
 on:
-  # Automatic runs are disabled. Trigger manually if needed.
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:

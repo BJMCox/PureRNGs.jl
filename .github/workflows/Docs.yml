@@ -1,7 +1,9 @@
 name: Documentation
 
 on:
-  # Automatic runs are disabled. Trigger manually if needed.
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
