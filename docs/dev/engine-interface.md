@@ -47,6 +47,7 @@ chooses. Methods dispatch on the engine's own types.
 | `_take_bits(rng, cursor, Val(W))` | `(raw::UInt64, cursor)` | The engine's next W-bit field, in the low bits of `raw`. |
 | `_skip_takes(rng, cursor, count, Val(W))` | `cursor` | The cursor `count` takes later, without reading them. |
 | `_cursor_ordinal(rng, cursor)` | `UInt64` | The stream index of the cursor's next take. It keys the Gamma fallback's child stream. |
+| `_child_cursor(rng, purpose::UInt64)` | `(child_rng, cursor)` | The child stream for `purpose`, as the engine's `subrng` derives it, and a cursor at its start. The Gamma fallback reads it through `_take_bits` alone, without a length bound. |
 | `_draw_cursor(rng, count, Val(W))` | `(cursor, next_rng)` | Reserves `count` takes at the held position: the cursor of the first take and the generator past the last. The engine applies its alignment and exhaustion rules here. |
 | `_addressed_state(rng, count, Val(W), i)` | generator | The generator at the start of draw `i`, counting from one, of `count`-take draws. `rng` does not change. Throws `ArgumentError` for `i < 1` and the engine's exhaustion error when draw `i` ends past the stream end. `i` can be any `Integer`, including `BigInt`. |
 | `_fill_cursor(rng, count, Val(W), ordinal::UInt64)` | `cursor` | The cursor of zero-based draw `ordinal` of a fill that starts at the held position. The fill has reserved its span, so this hook does not check. |
@@ -98,7 +99,20 @@ cursor = PureRNGs._column_take!(codec, rng, cursor, destination, column)
 `_column_take!` writes `destination[:, column]` from the column's takes and
 returns the cursor past them. It reads one Gamma span per component through
 `_take_bits` and `_skip_takes`, then normalizes the column by log-sum-exp. The
-Gamma and log-Gamma mathematics and the normalization stay in PureRNGs.
+Gamma and log-Gamma mathematics and the normalization stay in PureRNGs, in the
+two halves of the column:
+
+```julia
+count, width = PureRNGs._component_takes(codec, T)   # one component's takes
+value = PureRNGs._component_log(codec, rng, cursor, component, T)
+PureRNGs._normalize_column!(destination, column)     # log values to the draw
+```
+
+The components of a column sit in consecutive spans, so component `c` of column
+`j` is draw `(j - 1) * length(alpha) + c` of a fill of `count`-take draws. An
+engine whose bulk fill runs one workitem per draw can fill the log-gamma matrix
+as that element fill, `_component_log` per element, and then run
+`_normalize_column!` per column. The draws equal the column fill's.
 
 Override `_engine_fill_columns!` to feed the columns from the engine's bulk
 stream:
@@ -119,7 +133,7 @@ a device argument.
 
 ### Differentiation
 
-`_column_take!` gets each component's log-Gamma draw from
+`_component_log` gets the component's log-Gamma draw from
 `_gamma_log_value(shape, gamma_codec, rng, ordinal, cursor)`, with `ordinal`
 from `_cursor_ordinal`. The AD rules attach there:
 
@@ -128,18 +142,11 @@ from `_cursor_ordinal`. The AD rules attach there:
 - Mooncake and Enzyme: rules on `_gamma_log_value` supply the implicit shape
   derivative for float shapes.
 
-An override keeps these rules only when it calls `_column_take!` and no
-Gamma code of its own. The Enzyme rules for device fills still attach to the
-built-in launcher only.
+An override keeps these rules only when it calls `_column_take!` or
+`_component_log` and no Gamma code of its own. The Enzyme rules for device
+fills still attach to the built-in launcher only.
 
 ## Public methods an engine defines
-
-The Gamma fallback draws a child stream through public methods on the engine's
-type:
-
-- `subrng(rng, purpose)`
-- `randn_next(rng, F)` for the draw's float type `F`
-- `rand_next(rng, UInt64)`
 
 The engine's public entry points forward to the bodies, which take the public
 arguments unchanged:

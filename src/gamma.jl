@@ -58,11 +58,12 @@ const _GAMMA_TAG = 0x67616d6d61636869
 # `ordinal` is the stream index of the draw's first bit, so the child stream
 # depends on where the draw sits and not on how the engine counts positions.
 @noinline function _gamma_child(codec::_GammaCodec{F}, rng, ordinal::UInt64) where {F}
-    child = subrng(rng, xor(ordinal, _GAMMA_TAG))
+    child, cursor = _child_cursor(rng, xor(ordinal, _GAMMA_TAG))
     n = Int(_normal_bits(F))
     while true
-        x, child = randn_next(child, F)
-        raw, child = rand_next(child, UInt64)
+        normal_raw, cursor = _take_bits(child, cursor, Val(n))
+        raw, cursor = _take_bits(child, cursor, Val(64))
+        x = _normal_from_bits(codec.device, F, normal_raw)
         accepted, g =
             _gamma_candidate(x, _open_midpoint(F, raw >> (64 - n)), codec.d, codec.c)
         accepted && return g

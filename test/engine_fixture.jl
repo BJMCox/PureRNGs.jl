@@ -181,18 +181,18 @@ PureRNGs.rand_next(engine::WrappedEngine, d; kwargs...) =
     PureRNGs._engine_rand_next(engine, d; kwargs...)
 PureRNGs.rand_next(engine::WrappedEngine, d, dims::Integer...; kwargs...) =
     PureRNGs._engine_rand_next(engine, d, dims...; kwargs...)
+PureRNGs.rand_next(engine::WrappedEngine, d, dims::Dims; kwargs...) =
+    PureRNGs._engine_rand_next(engine, d, dims; kwargs...)
 PureRNGs.rand_next!(engine::WrappedEngine, d, destination; kwargs...) =
     PureRNGs._engine_rand_next!(engine, d, destination; kwargs...)
 PureRNGs.rand_at(engine::WrappedEngine, d, index::Integer) =
     PureRNGs._engine_rand_at(engine, d, index)
 
-# The public methods the Gamma fallback calls on an engine.
-function PureRNGs.rand_next(engine::WrappedEngine, ::Type{UInt64})
-    value, next = rand_next(engine.inner, UInt64)
-    return value, WrappedEngine(next)
+# The Gamma fallback's child stream, read through the same cursor.
+function PureRNGs._child_cursor(engine::WrappedEngine, purpose::UInt64)
+    child = WrappedEngine(subrng(engine.inner, purpose))
+    return child, WrappedCursor(child.inner, UInt64(0))
 end
-PureRNGs.subrng(engine::WrappedEngine, purpose::Integer) =
-    WrappedEngine(subrng(engine.inner, purpose))
 
 # The pair a draw returns, with the engine replaced by the generator it wraps.
 unwrap((value, engine)::Tuple{Any,WrappedEngine}) = (value, engine.inner)

@@ -13,6 +13,14 @@
 @inline _take_bits(rng, cursor::_DenseBitCursor, width::Val) =
     _take_dense_bits_unchecked(rng, cursor, width)
 
+# The child stream a Gamma draw continues on when every candidate rejects, keyed
+# by the draw's stream ordinal: the child generator and a cursor at its start.
+# The fallback reads the child through `_take_bits` alone.
+@inline function _child_cursor(rng::AbstractPureRNG, purpose::UInt64)
+    child = subrng(rng, purpose)
+    return child, _dense_cursor(child, _position_block(child.position), child.position.bit)
+end
+
 @inline _advance_block_unchecked(block::UInt64, count::UInt64) = block + count
 @inline function _advance_block_unchecked(block::NTuple{2,UInt64}, count::UInt64)
     lo = block[1] + count
