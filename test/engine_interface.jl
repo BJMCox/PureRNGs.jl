@@ -7,14 +7,17 @@ const ENGINE_GENERATORS = (
     Philox2x32(0xe19),
 )
 
+# The wrapped engine overrides the reservation and the fills; the minimal engine
+# takes the core's defaults for them.
 @testset "an external engine reproduces normal and exponential draws" begin
     for rng in ENGINE_GENERATORS,
+        wrap in (WrappedEngine, MinimalEngine),
         (next, next!, at, types) in (
             (randn_next, randn_next!, randn_at, (Float16, Float32, Float64, ComplexF64)),
             (randexp_next, randexp_next!, randexp_at, (Float16, Float32, Float64)),
         )
 
-        engine = WrappedEngine(rng)
+        engine = wrap(rng)
         for T in types
             @test unwrap(next(engine, T)) === next(rng, T)
             @test at(engine, T, 9) === at(rng, T, 9)

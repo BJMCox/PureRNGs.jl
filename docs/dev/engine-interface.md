@@ -189,9 +189,10 @@ package should:
 - change the pin only after the conformance test passes.
 
 `test/engine_fixture.jl` is a worked example. It wraps a built-in generator,
-serves every hook from public uniform draws, and runs its own staged fill. The
-core, distributions, and autodiff suites check that it reproduces the wrapped
-generator exactly.
+serves every hook from public uniform draws, and runs its own staged fill. A
+second engine in the same file defines only the required hooks and takes every
+default. The core, distributions, and autodiff suites check that the first
+reproduces the wrapped generator exactly, and the core suite checks the second.
 
 ## Known limits
 

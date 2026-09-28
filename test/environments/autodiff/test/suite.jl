@@ -106,13 +106,15 @@ advanced(rng, bits) = PureRNGs._rebuild(
             z * (1 / (2g) - 3 / (2g^2) * gamma_oracle(1.5, g) / 2) / (2sqrt(3 / (2g))),
         ),
     )
-    for (family, p, expected) in oracles, backend in (AutoMooncake(), AutoForwardDiff())
+    for (family, p, expected) in oracles,
+        backend in (AutoMooncake(), AutoMooncakeForward(), AutoForwardDiff())
+
         @test derivative(q -> rand(rng, family(q)), backend, p) ≈ expected rtol = 1e-6
     end
     shapes = [0.3, 1.0, 2.5]
     xs = [rand(advanced(rng, (j - 1) * GAMMA_SPAN), Gamma(shapes[j])) for j = 1:3]
     total = sum(xs)
-    for backend in (AutoMooncake(), AutoForwardDiff())
+    for backend in (AutoMooncake(), AutoMooncakeForward(), AutoForwardDiff())
         @test derivative(q -> rand(rng, Dirichlet([q, 1.0, 2.5]))[1], backend, 0.3) ≈
               gamma_oracle(0.3, xs[1]) * (total - xs[1]) / total^2 rtol = 1e-6
     end

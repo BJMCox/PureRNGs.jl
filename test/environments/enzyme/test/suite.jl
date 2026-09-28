@@ -283,6 +283,58 @@ end
         @test batched_derivative[1] ≈ sum(expected)
         @test batched_derivative[2] ≈ T(2) * sum(expected)
 
+        # A fill that returns its destination alone takes the same annotations.
+        direct_constant = zeros(T, 17)
+        direct_constant_derivative = only(
+            autodiff(
+                Forward,
+                pure_fill_objective!,
+                Const(Random.randexp!),
+                Const(rng),
+                Const(direct_constant),
+                Duplicated(T(2), one(T)),
+                Const(false),
+            ),
+        )
+        @test direct_constant == expected
+        @test direct_constant_derivative ≈ sum(expected)
+
+        direct_constant_batched = zeros(T, 17)
+        direct_constant_batched_derivative = only(
+            autodiff(
+                Forward,
+                pure_fill_objective!,
+                Const(Random.randexp!),
+                Const(rng),
+                Const(direct_constant_batched),
+                BatchDuplicated(T(2), (one(T), T(2))),
+                Const(false),
+            ),
+        )
+        @test direct_constant_batched == expected
+        @test direct_constant_batched_derivative[1] ≈ sum(expected)
+        @test direct_constant_batched_derivative[2] ≈ T(2) * sum(expected)
+
+        direct_batched = zeros(T, 17)
+        direct_shadow_one = fill(T(3), 17)
+        direct_shadow_two = fill(T(4), 17)
+        direct_batched_derivative = only(
+            autodiff(
+                Forward,
+                pure_fill_objective!,
+                Const(Random.randexp!),
+                Const(rng),
+                BatchDuplicated(direct_batched, (direct_shadow_one, direct_shadow_two)),
+                BatchDuplicated(T(2), (one(T), T(2))),
+                Const(false),
+            ),
+        )
+        @test direct_batched == expected
+        @test iszero(direct_shadow_one)
+        @test iszero(direct_shadow_two)
+        @test direct_batched_derivative[1] ≈ sum(expected)
+        @test direct_batched_derivative[2] ≈ T(2) * sum(expected)
+
         direct_values, next_rng =
             randexp_next!(rng, similar(batched_values); threaded = true)
         @test next_rng === expected_rng
@@ -488,6 +540,11 @@ function range_fill_result!(fill_function, rng, destination, range, threaded)
 end
 
 
+function range_fill_objective!(fill_function, rng, destination, range)
+    fill_function(rng, destination, range)
+    return sum(destination)
+end
+
 @testset "range fill keeps its destination second" begin
     rng = Philox4x32(0x650c)
     expected, _ = rand_next!(rng, Vector{Int}(undef, 8), 3:9)
@@ -505,6 +562,27 @@ end
         )
         @test values == expected
     end
+
+    # The rule holds the range fixed, so an active range gets a zero adjoint.
+    float_range = 0.0:0.25:2.0
+    float_expected, _ = rand_next!(rng, zeros(8), float_range)
+    float_values = zeros(8)
+    float_shadow = fill(5.0, 8)
+    adjoints = only(
+        autodiff(
+            Reverse,
+            range_fill_objective!,
+            Active,
+            Const(Random.rand!),
+            Const(rng),
+            Duplicated(float_values, float_shadow),
+            Active(float_range),
+        ),
+    )
+    @test float_values == float_expected
+    @test iszero(float_shadow)
+    @test iszero(adjoints[4].ref)
+    @test iszero(adjoints[4].step)
 end
 
 
@@ -544,6 +622,12 @@ end
     @test only(only(autodiff(Reverse, gamma_draw, Active, Active(2.5)))) ≈ expected rtol =
         1e-6
     @test only(autodiff(Forward, gamma_draw, Duplicated(2.5, 1.0))) ≈ expected rtol = 1e-6
+    batched = only(autodiff(Forward, gamma_draw, BatchDuplicated(2.5, (1.0, 2.0))))
+    @test collect(batched) ≈ [expected, 2expected] rtol = 1e-6
+    # A constant shape gives every lane a zero tangent, so only the scale moves.
+    scale_draw(q) = rand(rng, Gamma(2.5, q))
+    scaled = only(autodiff(Forward, scale_draw, BatchDuplicated(2.0, (1.0, 2.0))))
+    @test collect(scaled) ≈ [1, 2] .* rand(rng, Gamma(2.5))
     second = PureRNGs._rebuild(
         rng,
         PureRNGs._advance_position_unchecked(rng, UInt64(17 * 52), UInt64(0)),

@@ -1,3 +1,4 @@
+using Adapt
 using KernelAbstractions
 using PureRNGs
 using Random
@@ -107,4 +108,35 @@ end
     order = copy(reversed_ties)
     IR._resolve_key_ties!(order, view(keys, :), device_rng)
     @test order == host
+end
+
+# A device column fill runs one workitem per component when the columns are
+# fewer than the resident workitems, and one per column otherwise. The CPU
+# backend reports no limit, so a stand-in limit reaches both branches.
+IR._device_workitems(::KernelAbstractions.CPU) = 4
+
+@testset "device Dirichlet column fills equal the host column fill" begin
+    rng = Philox4x32(11, 5)
+    codec = IR._DirichletCodec([0.3, 2.0, 5.0])
+    for columns in (3, 4, 9), threaded in (false, true)
+        host = zeros(3, columns)
+        IR._fill_columns!(IR._CPU_BACKEND, rng, host, false, codec)
+        device = zeros(3, columns)
+        IR._fill_columns!(KernelAbstractions.CPU(), rng, device, threaded, codec)
+        @test device == host
+        @test all(≈(1), sum(device; dims = 1))
+    end
+end
+
+# A kernel argument converts only at its top level, so a codec that holds a
+# device array hands that field to the adaptor itself.
+@testset "codecs adapt their array fields" begin
+    dirichlet = Adapt.adapt(Array{Float32}, IR._DirichletCodec([0.3, 2.0]))
+    @test dirichlet.alpha isa Vector{Float32}
+    @test dirichlet.alpha == Float32[0.3, 2.0]
+    population =
+        Adapt.adapt(Array{Float32}, IR._PopulationCodec([1.0, 2.0, 3.0], UInt64(3)))
+    @test population.population isa Vector{Float32}
+    @test population.population == Float32[1, 2, 3]
+    @test population.cardinality == UInt64(3)
 end
