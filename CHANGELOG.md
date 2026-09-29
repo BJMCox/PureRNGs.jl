@@ -34,6 +34,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- StaticArrays addressed draws preserve wide indices and check the complete draw span.
 - Permutation fills check narrow destination index capacity before writing.
 - Clarified fixed parent consumption versus Gamma child-stream rejection, finite-grid permutation bias, and empty no-replacement sampling consumption.
 - A `Dirichlet` `rand_at` whose index times the component count passed 2^64 returned the draw at a wrapped address, and a Dirichlet fill whose span passed 2^64 takes reserved a wrapped span. Both now check the whole span and throw `StreamExhausted` past the stream end.
