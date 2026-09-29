@@ -188,18 +188,40 @@ generators, source revisions and available artifacts belong in
 Start Julia at the repository root with `julia --project=benchmark`.
 Set the device, family, result type, and sample size, then run
 `include("benchmark/throughput.jl")`.
-Keep runs long enough to measure steady-state performance.
+Warm compilation, then time each case for at least ten seconds.
 
 Compare the same workload and hardware against the exact base revision.
 Separate allocation, fills, kernel-local draws, and device transfers.
 Preserve benchmark results outside Git, except the regression pins below.
 
-`benchmark/regression.jl` times a fixed case list and compares each minimum with
-its pin in `benchmark/baselines/<name>.toml`: run
-`julia --project=benchmark benchmark/regression.jl a100` on the CUDA host, and
-`apple-cpu` with `--threads=auto` on the development Mac. A case slower than its
-pin by more than the file's tolerance fails the run. After an intended speed
-change, rerun with `--update` and commit the new pins with the change.
+`benchmark/regression.jl` compares each minimum with its pin in
+`benchmark/baselines/<name>.toml`. Use it from the benchmark REPL:
+
+```julia
+include("benchmark/regression.jl")
+report = run_regression("apple-cpu"; extra_cases = distribution_cases(),
+    report_path = "/tmp/purerngs-performance.toml")
+```
+
+Load CUDA first and select `"a100"` on the CUDA host. Use `--threads=auto` for
+the Mac pins. The command-line form `regression.jl <name> [--update]` remains
+available and exits unsuccessfully for regressions beyond the pin's tolerance.
+Update pins only after explaining and accepting the measured change.
+
+Reports record the source SHA and dirty state, Julia/package versions, device,
+threads, host load, minima, medians, and host allocations. GPU timings include
+synchronization but exclude copying results back to the host. GPU memory allocation is not the
+reported host allocation count. Check competing CPU/GPU usage before each run.
+Alternate exact base and candidate revisions, and repeat close results.
+
+The optional distribution sweep covers Gamma shapes below, at, and above one,
+Beta, narrow/wide Dirichlet columns, and diagonal/dense MvNormal. It times
+in-place public calls with prebuilt distributions, including each call's
+validation and device preparation. These cases have no pins until measured.
+Set `cached = true` on a weighted case to measure reused `WeightTable` input.
+Set `storage = "packed"` on a CPU Bool fill case to measure a `BitArray`.
+Use small, cache-sized, and large cases. Keep cold load/compilation and AD
+profiles separate from steady-state throughput.
 
 Load and first-call latency come from the PrecompileTools workload in
 `src/precompile.jl` and the matching one at the end of
