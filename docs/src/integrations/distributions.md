@@ -100,7 +100,8 @@ parameters need Float64 arithmetic, which Metal lacks.
 probability values as weights over those labels and the same 53-bit `Float64`
 weighted mapping as `randsample`; there is no extra normalization or alias
 table. The probabilities must convert to finite, nonnegative `Float64` values
-with a finite, positive left-fold total.
+with a finite, positive cumulative total. CUDA's parallel preparation can change
+rounding and selected categories compared with the CPU, as described in [Supply weights](@ref).
 
 ```julia
 rng = Philox4x32(123456)

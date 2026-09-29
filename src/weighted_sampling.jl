@@ -58,6 +58,9 @@ weights it was built from. A table lives on the device of its weights and serves
 generators on that device. Treat the prepared storage as read-only: a sampling
 destination must not share its memory.
 
+Rebuild the table when its source weights change. CUDA uses parallel accumulation
+for large tables, so selected elements need not match CPU accumulation.
+
 # Examples
 
 ```jldoctest

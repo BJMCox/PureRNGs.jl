@@ -32,6 +32,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - An internal engine interface through which a generator package outside PureRNGs can serve the distribution, normal, and exponential draws. `docs/dev/engine-interface.md` states the contract, which may change in any 0.0.x release. An engine can serve Dirichlet columns from its own bulk stream, as whole columns or as one log-gamma draw per element with a separate normalization, and it checks every span from unwrapped factors. The Gamma fallback reads an engine's child stream through one cursor hook instead of three public methods.
 - `Dirichlet` draws, fills, and addressed draws accept ForwardDiff `Dual` shapes, with the implicit shape derivative. A dual draw's value equals the float draw.
 
+### Changed
+
+- Large CUDA weight tables use parallel accumulation with monotone, zero-preserving cumulative boundaries. Weighted selections can differ from the CPU through rounding. Primitive bits, parent advancement, and cached-table reuse are unchanged.
+
 ### Fixed
 
 - Tiny positive Beta and Dirichlet concentrations avoid overflowing log differences without changing parent advancement. The repair shares held bits across CPU, CUDA, Metal, and supported Reactant forms. Extreme-shape AD limits are documented separately.

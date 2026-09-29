@@ -1781,44 +1781,45 @@ end
     @test sort(h2d_sizes) == [sizeof(Float64) * length(counted_weights)]
     @test d2h_sizes == [1]
 
-    fold_weights = CUDA.CuArray(
-        Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0],
-    )
-    fold_rng = device(Philox4x32(0x9750))
-    @test Array(
-        randsample(fold_rng, CUDA.CuArray(Int32[10, 20, 30, 40]), fold_weights, 1),
-    ) == Int32[10]
-
-    scan_destination = CUDA.CuArray{Int32}(undef, 1)
-    scan_weights_host = Float64[0x1p53, fill(1.0, 1023)..., 2.0]
-    scan_expected = similar(scan_weights_host)
-    scan_total = 0.0
-    for index in eachindex(scan_weights_host)
-        scan_total += scan_weights_host[index]
-        scan_expected[index] = scan_total
-    end
+    # Tree sums can round downward or assign a step to a zero weight. Neither
+    # is a valid CDF, even though matching the CPU's addition order is optional.
+    scan_weights_host = Float64[mod(7i, 19) for i = 1:65_537]
+    scan_weights_host[1:7:end] .= 0.0
+    scan_weights_host[31:257:end] .= 0x1p53
     scan_weights = CUDA.CuArray(scan_weights_host)
-    scan_population = CUDA.CuArray(Int32.(1:length(scan_weights_host)))
-    _, _, scan_cumulative = IR._prepare_weight_scan(range_rng, scan_weights, false)
-    @test reinterpret.(UInt64, Array(scan_cumulative)) ==
-          reinterpret.(UInt64, scan_expected)
-    IR._launch_weighted_scan!(
-        KernelAbstractions.get_backend(scan_destination),
-        scan_population,
-        scan_cumulative,
-        CUDA.CuArray(Float64[0x1p53]),
-        scan_destination,
-    )
-    @test Array(scan_destination) == Int32[1025]
+    scan_population = 1:length(scan_weights_host)
+    table = WeightTable(scan_weights)
+    cumulative = Array(table.cumulative)
+    oracle = Float64.(accumulate(+, BigFloat.(scan_weights_host)))
+    @test issorted(cumulative)
+    @test all(iszero, diff(cumulative)[iszero.(scan_weights_host[2:end])])
+    @test all(isapprox.(cumulative, oracle; rtol = 32eps(Float64)))
+    draws, after = randsample_next(range_rng, scan_population, table, 17)
+    @test all(>(0), scan_weights_host[Array(draws)])
+    @test Array(draws) == Array(randsample(range_rng, scan_population, scan_weights, 17))
+    @test Array(draws) ==
+          Array(randsample(range_rng, scan_population, scan_weights .* 8, 17))
+    @test rngposition(after) - rngposition(range_rng) == 17 * 53
+    cursor = range_rng
+    for expected in Array(draws)
+        value, cursor = randsample_next(cursor, scan_population, table, 1)
+        @test only(Array(value)) == expected
+    end
+    @test cursor == after
 
     invalid_scan_weights = copy(scan_weights_host)
-    invalid_scan_weights[end] = NaN
-    @test_throws ArgumentError randsample(
-        range_rng,
-        scan_population,
-        CUDA.CuArray(invalid_scan_weights),
-        1,
-    )
+    destination = CUDA.fill(-1, 17)
+    for invalid in (-1.0, NaN, Inf)
+        invalid_scan_weights[32_769] = invalid
+        @test_throws ArgumentError randsample_next!(
+            range_rng,
+            scan_population,
+            CUDA.CuArray(invalid_scan_weights),
+            destination,
+        )
+        @test all(==(-1), Array(destination))
+    end
+    @test_throws ArgumentError WeightTable(CUDA.zeros(Float64, length(scan_weights)))
 
     wrong_weights = copy(cpu_weights)
     error = try

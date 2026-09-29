@@ -94,8 +94,8 @@ function Adapt.adapt_structure(to, codec::IR._DirichletCodec)
     return IR._DirichletCodec(alpha, recover)
 end
 
-# One workgroup folds the whole weight vector. Weighted sampling runs on CUDA and
-# AMDGPU, whose workgroups hold 1024 workitems; Metal has no Float64 to fold.
+# One workgroup folds short CUDA inputs and all AMDGPU inputs. Both backends
+# support 1024 workitems; large CUDA inputs use the CUDA extension's parallel scan.
 @inline _weight_fold_lanes(_backend) = Val(1024)
 @inline _weight_fold_lane_count(::Val{lanes}) where {lanes} = lanes
 

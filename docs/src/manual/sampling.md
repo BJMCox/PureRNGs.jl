@@ -110,7 +110,7 @@ draws
 
 Pass a plain vector of real weights.
 
-Weights follow population positions. They must convert to finite, nonnegative `Float64` values with a finite, positive left-fold total.
+Weights follow population positions. They must convert to finite, nonnegative `Float64` values with a finite, positive cumulative total.
 Zero weights exclude elements. Zero requested samples still require valid weights.
 
 Each weighted batch builds its cumulative `Float64` weights once per call and
@@ -120,6 +120,11 @@ weighted scratch space, so an in-place weighted fill does not promise zero
 allocations. CPU weighted fills follow the `threaded` keyword like the other
 fills.
 
+CUDA prepares large cumulative tables with parallel sums, then preserves
+monotonicity and zero-weight plateaus. The changed addition order can change
+selected elements compared with the CPU or another backend version.
+The random bits, parent advancement, and within-backend batch/chained equality stay unchanged.
+
 ```julia
 table = WeightTable([1.0, 3.0, 0.0])
 draws, rng = randsample_next(rng, population, table, 12)
@@ -127,6 +132,7 @@ draws, rng = randsample_next(rng, population, table, 12)
 
 Build a `WeightTable` once to reuse the cumulative table across calls.
 A table of device weights folds on their device and serves generators on that device.
+Rebuild the table when the source weights change. Raw mutable weights are not cached automatically.
 
 Each category's realized share is a whole number of `2^-53` cells of the
 cumulative total. Shares below about `1e-16` of the total are not represented

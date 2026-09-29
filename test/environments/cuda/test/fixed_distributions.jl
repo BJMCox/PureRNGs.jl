@@ -328,7 +328,7 @@ end
 
 @testset "CUDA Categorical allocating and fill forms" begin
     rng = device(Philox4x32(0x64c7))
-    probabilities = CUDA.CuArray(Float64[0, 1, 0, 3])
+    probabilities = CUDA.CuArray(Float64[mod(7i, 19) for i = 1:65_537])
     distribution = Categorical(probabilities; check_args = false)
     expected, expected_next =
         randsample_next(rng, 1:length(probabilities), probabilities, 33)
