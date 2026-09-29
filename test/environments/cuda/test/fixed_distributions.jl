@@ -553,6 +553,29 @@ end
     end
 end
 
+@testset "CUDA normalizes tiny concentrations" begin
+    cpu_rng = Philox4x32(123)
+    rng = CUDADevice()(cpu_rng)
+    for T in (Float32, Float64)
+        tiny = T === Float32 ? T(1e-40) : T(1e-320)
+        for d in (Beta(tiny, 2tiny), Dirichlet(T[tiny, 2tiny, 3tiny]))
+            values, next_rng = rand_next(rng, d, 3)
+            expected, expected_next = rand_next(cpu_rng, d, 3)
+            @test Array(values) == expected
+            @test next_rng.position == expected_next.position
+            if d isa Beta
+                addressed = similar(values)
+                CUDA.@sync CUDA.@cuda threads = 1 _expanded_addressed_kernel!(
+                    addressed,
+                    rng,
+                    d,
+                )
+                @test Array(addressed) == Array(values)
+            end
+        end
+    end
+end
+
 # Beta subtracts two log-gammas and exponentiates, so device rounding reaches
 # further than for Gamma; the tolerance allows it.
 @testset "CUDA Gamma family fills equal device draws and track the CPU" begin

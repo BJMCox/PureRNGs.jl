@@ -135,6 +135,10 @@ end
 @inline IR._check_serviceability(rng, d::_NativeDistribution) =
     IR._check_serviceability(rng, _result_type(d))
 
+# Bernoulli returns Bool but still computes a uniform in its parameter type.
+@inline IR._check_serviceability(rng, ::Distributions.Bernoulli{T}) where {T<:_FloatType} =
+    IR._check_serviceability(rng, T)
+
 # Categorical labels come from a Float64 cumulative table, as weighted samples do.
 @inline function IR._check_serviceability(rng, d::Distributions.Categorical)
     IR._check_weighted_serviceability(rng)

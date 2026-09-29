@@ -589,6 +589,14 @@ end
     return _shl(position[1], trailing_zeros(_block_bits(R))) + position[end]
 end
 
+@inline function IR._gamma_boost_log(
+    codec::IR._GammaCodec{T},
+    rng::_ReactantRNG,
+    ::Nothing,
+) where {T}
+    return log(_open_midpoint(_raw(rng, Val(Int(IR._normal_bits(T)))), T))
+end
+
 function IR._traced_gamma(
     rng::_ReactantRNG{R},
     shape::T,

@@ -2,8 +2,8 @@
 # reserves one boost uniform and K candidates, each a normal and an open uniform
 # on the normal's lattice: (2K + 1) n bits for n normal bits, whatever the shape.
 # The first accepted candidate is the value; if all K reject, the draw continues
-# the same test on a child stream keyed by its position, so the law stays exactly
-# Gamma and the parent stream still advances by the fixed span. Shapes below one
+# the same test on a child stream keyed by its position, preserving the rejection
+# rule while the parent stream advances by the fixed span. Shapes below one
 # draw Gamma(shape + 1) and multiply by u^(1/shape), with the power taken in log
 # space. The boost comes first, so it shares its block with the first candidate.
 #
@@ -16,6 +16,9 @@ const _GAMMA_CANDIDATES = 8
 # The floating-point type a parameter's value decodes in. AD extensions add
 # methods for their number types.
 @inline _primal_float(::Type{T}) where {T<:AbstractFloat} = T
+@inline _primal_value(value::AbstractFloat) = value
+@inline _scale_tangent(direction, derivative) =
+    iszero(direction) ? zero(direction) : direction * derivative
 
 @inline _gamma_span(::Type{F}, candidates::Int) where {F} =
     UInt16((2candidates + 1) * _normal_bits(F))
@@ -267,6 +270,58 @@ end
 @inline _gamma_log_draw(codec::_GammaCodec, rng, cursor) =
     _gamma_log_value(codec.shape, codec, rng, _cursor_ordinal(rng, cursor), cursor)
 
+# Subnormal shapes can overflow both log-Gamma draws before their ratio is
+# formed. Compare the boost terms at a common scale, then add the finite base
+# logs only when that difference is representable. The same held bits are read.
+@inline function _gamma_boost_log(codec::_GammaCodec, rng, cursor)
+    F = _codec_float(codec)
+    raw, _ = _take_bits(rng, cursor, Val(Int(_normal_bits(F))))
+    return log(_open_midpoint(F, raw))
+end
+
+@inline function _tiny_gamma_log_difference(a, b, rng, cursor_a, cursor_b)
+    boost_a = _gamma_boost_log(a, rng, cursor_a)
+    boost_b = _gamma_boost_log(b, rng, cursor_b)
+    delta = _scaled_boost_difference(a.shape, b.shape, boost_a, boost_b)
+    isinf(delta) && return delta
+    base_a = _GammaCodec(a.shape + one(a.shape), a.scale, a.device, a.candidates)
+    base_b = _GammaCodec(b.shape + one(b.shape), b.scale, b.device, b.candidates)
+    return delta +
+           (_gamma_log_draw(base_a, rng, cursor_a) - _gamma_log_draw(base_b, rng, cursor_b))
+end
+
+@inline function _scaled_boost_difference(a, b, boost_a, boost_b)
+    F = _primal_float(typeof(a))
+    shift = 8sizeof(F)
+    # ldexp preserves subnormals even on Metal, whose division flushes them.
+    scaled_a, scaled_b = ldexp(a, shift), ldexp(b, shift)
+    scale = min(scaled_a, scaled_b)
+    delta = (boost_a * (scale / scaled_a) - boost_b * (scale / scaled_b)) / scale
+    return delta * ldexp(one(F), shift)
+end
+
+@noinline function _tiny_beta_value(codec::_BetaCodec, rng, cursor_a, cursor_b)
+    delta = _tiny_gamma_log_difference(codec.b, codec.a, rng, cursor_b, cursor_a)
+    # The rounded endpoint has zero pathwise tangent. Avoid 0 * Inf in AD.
+    isinf(delta) && return delta > zero(delta) ? zero(codec.a.shape) : one(codec.a.shape)
+    return inv(one(delta) + exp(delta))
+end
+
+@inline function _tiny_beta_shapes(codec::_BetaCodec)
+    F = _codec_float(codec.a)
+    return max(_primal_value(codec.a.shape), _primal_value(codec.b.shape)) <
+           _gamma_log_overflow_bound(F)
+end
+
+# Leave a factor of two for rounding at the largest boost's overflow bound.
+@inline _gamma_log_overflow_bound(::Type{F}) where {F} =
+    F(2 * (Int(_normal_bits(F)) + 1)) * log(F(2)) / floatmax(F)
+
+@noinline function _tiny_beta_at(codec::_BetaCodec, rng, position, ::Type)
+    cursor = _gamma_cursor(rng, position)
+    return _tiny_beta_value(codec, rng, cursor, _second_gamma_cursor(codec, rng, cursor))
+end
+
 # The second Gamma draw of a Beta draw starts where the first one's span ends.
 @inline function _second_gamma_cursor(codec::_BetaCodec, rng, cursor)
     count, width = _codec_takes(codec.a, Nothing)
@@ -284,10 +339,21 @@ end
     codec.scale * _gamma_draw(codec, rng, cursor)
 @inline _family_value(codec::_InverseGammaCodec, rng, cursor) =
     codec.gamma.scale / _gamma_draw(codec.gamma, rng, cursor)
-@inline _beta_value(log_x, log_y) = inv(one(log_x) + exp(log_y - log_x))
+@inline function _beta_value(log_x, log_y)
+    delta = log_y - log_x
+    isinf(delta) && return delta > zero(delta) ? zero(log_x) : one(log_x)
+    return inv(one(log_x) + exp(delta))
+end
 @inline function _family_value(codec::_BetaCodec, rng, cursor)
+    _tiny_beta_shapes(codec) && return _tiny_beta_value(
+        codec,
+        rng,
+        cursor,
+        _second_gamma_cursor(codec, rng, cursor),
+    )
     log_x = _gamma_log_draw(codec.a, rng, cursor)
-    log_y = _gamma_log_draw(codec.b, rng, _second_gamma_cursor(codec, rng, cursor))
+    second = _second_gamma_cursor(codec, rng, cursor)
+    log_y = _gamma_log_draw(codec.b, rng, second)
     return _beta_value(log_x, log_y)
 end
 @inline function _family_value(codec::_TDistCodec, rng, cursor)
@@ -308,11 +374,21 @@ end
     position,
     ::Type,
 )
+    return _draw_transform(codec)(codec, rng, position, _codec_float(codec.a))
+end
+
+# A bulk launch chooses once on the host. Keeping the rare repair out of the
+# ordinary kernel avoids raising its A100 register count from 68 to 102.
+@inline _draw_transform(codec::_BetaCodec) =
+    _tiny_beta_shapes(codec) ? _tiny_beta_at : _beta_at
+
+@inline function _beta_at(codec::_BetaCodec, rng, position, ::Type)
     log_x = _gamma_log_draw(codec.a, rng, _gamma_cursor(rng, position))
     count, width = _codec_takes(codec.a, Nothing)
     bits = UInt64(count) * UInt64(_val_count(width))
     second = _advance_position_unchecked(position, bits, UInt64(0), _block_shift(rng))
-    return _beta_value(log_x, _gamma_log_draw(codec.b, rng, _gamma_cursor(rng, second)))
+    log_y = _gamma_log_draw(codec.b, rng, _gamma_cursor(rng, second))
+    return _beta_value(log_x, log_y)
 end
 
 # The tangent of a family draw along a codec tangent, with every Gamma draw
@@ -322,7 +398,7 @@ end
 @inline _gamma_tangent(codec, dcodec, g) =
     dcodec.shape * _gamma_shape_derivative(codec.shape, g)
 @inline _gamma_log_tangent(codec, dcodec, log_g) =
-    dcodec.shape * _gamma_log_shape_derivative(codec.shape, log_g)
+    _scale_tangent(dcodec.shape, _gamma_log_shape_derivative(codec.shape, log_g))
 
 @inline function _family_tangent(codec::_GammaCodec, dcodec, rng, cursor)
     g = _gamma_draw(codec, rng, cursor)
@@ -335,8 +411,12 @@ end
 end
 @inline function _family_tangent(codec::_BetaCodec, dcodec, rng, cursor)
     log_x = _gamma_log_draw(codec.a, rng, cursor)
-    log_y = _gamma_log_draw(codec.b, rng, _second_gamma_cursor(codec, rng, cursor))
-    value = _beta_value(log_x, log_y)
+    second = _second_gamma_cursor(codec, rng, cursor)
+    log_y = _gamma_log_draw(codec.b, rng, second)
+    value =
+        _tiny_beta_shapes(codec) ? _tiny_beta_value(codec, rng, cursor, second) :
+        _beta_value(log_x, log_y)
+    (iszero(value) || value == one(value)) && return zero(value)
     slope =
         _gamma_log_tangent(codec.b, dcodec.b, log_y) -
         _gamma_log_tangent(codec.a, dcodec.a, log_x)

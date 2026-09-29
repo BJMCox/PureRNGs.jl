@@ -261,7 +261,7 @@ function _fill_columns!(backend, rng, destination, threaded::Bool, codec)
     size(destination, 2) >= _device_workitems(backend) &&
         return _foreach_column!(backend, _column_fill!, destination, threaded, rng, codec)
     _foreach_element!(backend, _component_fill!, destination, rng, codec)
-    _foreach_column!(backend, _normalize_fill!, destination, threaded)
+    _foreach_column!(backend, _normalize_fill!, destination, threaded, rng, codec)
     return destination
 end
 
@@ -278,3 +278,6 @@ end
     _normalize_column!(destination, column)
     return nothing
 end
+
+@inline _normalize_fill!(destination, column, rng, codec) =
+    _normalize_fill!(destination, column)

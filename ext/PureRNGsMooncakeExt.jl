@@ -43,7 +43,7 @@ for (draw, slope) in (
         ) where {F<:Base.IEEEFloat}
             s = primal(shape)
             value = $draw(s, primal(codec), primal(rng), primal(ordinal), primal(cursor))
-            return Dual(value, tangent(shape) * $slope(s, value))
+            return Dual(value, IR._scale_tangent(tangent(shape), $slope(s, value)))
         end
         function rrule!!(
             ::CoDual{typeof($draw)},
@@ -58,7 +58,7 @@ for (draw, slope) in (
             derivative = $slope(s, value)
             adjoint(dvalue) = (
                 NoRData(),
-                dvalue * derivative,
+                IR._scale_tangent(dvalue, derivative),
                 zero_rdata(primal(codec)),
                 zero_rdata(primal(rng)),
                 zero_rdata(primal(ordinal)),

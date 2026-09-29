@@ -16,6 +16,7 @@ function gamma_reference(
     scale::T;
     candidates = 8,
     logarithm = false,
+    wide_log = false,
 ) where {T}
     n = Int(IR._normal_bits(T))
     field(offset) = begin
@@ -30,12 +31,46 @@ function gamma_reference(
         u = IR._open_midpoint(T, field(2k * n))
         accepted, g = gamma_reference_candidate(x, u, d, c)
         accepted || continue
+        if logarithm
+            F = wide_log ? BigFloat : T
+            boost = log(F(IR._open_midpoint(T, field(0)))) / F(shape)
+            return boosted ? log(F(g)) + boost : log(F(g))
+        end
         boost = log(IR._open_midpoint(T, field(0))) / shape
-        logarithm && return boosted ? log(g) + boost : log(g)
         boosted && (g *= exp(boost))
         return scale * g
     end
     return nothing
+end
+
+@testset "tiny Beta and Dirichlet shapes normalize without log overflow" begin
+    for T in (Float64, Float32),
+        small in (nextfloat(zero(T)), T === Float64 ? T(1e-320) : T(1e-40), 32floatmin(T))
+
+        rng = Philox4x32(123)
+        shape = T(small)
+        span = 17 * Int(IR._normal_bits(T))
+        logdraw(i, a) = gamma_reference(
+            Philox4x32(123, span * (i - 1)),
+            a,
+            one(T);
+            logarithm = true,
+            wide_log = true,
+        )
+        a, b = logdraw(1, shape), logdraw(2, 2shape)
+        beta, after = rand_next(rng, Beta(shape, 2shape))
+        @test beta == T(inv(1 + exp(b - a)))
+        @test after == last(rand_next(rng, Beta(one(T), one(T))))
+        shapes = T[shape, 2shape, 3shape]
+        logs = [logdraw(i, shapes[i]) for i in eachindex(shapes)]
+        weights = exp.(logs .- maximum(logs))
+        values, next_rng = rand_next(rng, Dirichlet(shapes), 2)
+        @test values[:, 1] == T.(weights ./ sum(weights))
+        @test all(isfinite, values) && all(>=(zero(T)), values)
+        @test vec(sum(values; dims = 1)) == ones(T, 2)
+        @test values[:, 2] == rand_at(rng, Dirichlet(shapes), 2)
+        @test next_rng == last(rand_next(rng, Dirichlet(ones(T, 3)), 2))
+    end
 end
 
 gamma_ks(values, d) = begin

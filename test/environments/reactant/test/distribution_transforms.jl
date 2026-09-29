@@ -75,6 +75,8 @@ _gamma_snapshot(rng, d) = (rand(rng, d), rand_next(rng, d), rand_at(rng, d, 3))
         Chisq(3.0),
         InverseGamma(2.5f0, 1.5f0),
         Beta(0.3, 0.4),
+        Beta(1e-320, 2e-320),
+        Beta(1.0f-40, 1.0f-40),
         TDist(3.0f0),
     )
         T = partype(d)

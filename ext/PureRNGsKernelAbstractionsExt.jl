@@ -17,13 +17,14 @@ KernelAbstractions.@kernel function _transformed_fill_kernel!(
     destination,
     ::Val{T},
     codec,
+    transform,
 ) where {T}
     ordinal = @index(Global, Linear)
     indices = eachindex(destination)
     index = @inbounds IR._destination_index(indices, ordinal)
     bits_lo, bits_hi = IR._bit_span(UInt64(ordinal - 1), IR._fill_width(codec, T))
     position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
-    @inbounds destination[index] = IR._transformed_draw_unchecked(codec, rng, position, T)
+    @inbounds destination[index] = transform(codec, rng, position, T)
 end
 
 KernelAbstractions.@kernel function _grouped_fill_kernel!(
@@ -52,7 +53,8 @@ end
         rng,
         destination,
         Val(T),
-        codec;
+        codec,
+        IR._draw_transform(codec);
         ndrange = length(destination),
     )
     return destination
@@ -84,8 +86,13 @@ end
 # field to the same adaptor.
 Adapt.adapt_structure(to, codec::IR._PopulationCodec) =
     IR._PopulationCodec(Adapt.adapt(to, codec.population), codec.cardinality)
-Adapt.adapt_structure(to, codec::IR._DirichletCodec) =
-    IR._DirichletCodec(Adapt.adapt(to, codec.alpha))
+function Adapt.adapt_structure(to, codec::IR._DirichletCodec)
+    alpha = Adapt.adapt(to, codec.alpha)
+    recover =
+        eltype(alpha) === eltype(codec.alpha) ? Val(IR._recover_log_overflow(codec)) :
+        Val(true)
+    return IR._DirichletCodec(alpha, recover)
+end
 
 # One workgroup folds the whole weight vector. Weighted sampling runs on CUDA and
 # AMDGPU, whose workgroups hold 1024 workitems; Metal has no Float64 to fold.

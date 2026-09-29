@@ -213,6 +213,7 @@ end
     dual = ForwardDiff.Dual(0.5, 1.0)
     for distribution in (
         Categorical([0.25, 0.75]),
+        Bernoulli(0.25),
         Gamma(2.0, 1.0),
         Dirichlet([0.5, 2.0]),
         Normal(dual, one(dual)),
@@ -222,9 +223,22 @@ end
     end
     destination = MetalDeviceArrayProbe(Vector{typeof(dual)}())
     _check_metal_error(() -> rand!(rng, Normal(dual, one(dual)), destination))
+    bools = MetalDeviceArrayProbe(fill(true, 4))
+    _check_metal_error(() -> rand!(rng, Bernoulli(0.25), bools))
+    @test all(bools.data)
 end
 
 if Metal.functional()
+    @testset "Metal normalizes tiny concentrations" begin
+        cpu_rng = Philox4x32(123)
+        rng = MetalDevice()(cpu_rng)
+        for d in (Beta(1.0f-40, 2.0f-40), Dirichlet(Float32[1.0f-40, 2.0f-40, 3.0f-40]))
+            values, next_rng = rand_next(rng, d, 3)
+            expected, expected_next = rand_next(cpu_rng, d, 3)
+            @test Array(values) == expected
+            @test next_rng.position == expected_next.position
+        end
+    end
     @testset "Metal served primitive smoke" begin
         served = (
             Bool,

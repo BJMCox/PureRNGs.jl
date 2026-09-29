@@ -14,7 +14,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Char` draws, uniform over the Unicode scalar values as in `Random`.
 - Permutations: `randperm_next`, `randcycle_next`, `shuffle_next`, their in-place forms, and `Random.randperm`, `randcycle`, `shuffle` and their in-place forms for pure generators. A permutation orders one uniform `UInt64` key per element, so it is the same on the CPU and on a GPU. `StatefulRNG` uses the same law.
 - `randsample(...; replace = false)` samples without replacement: the leading elements of the shuffled population. With weights, it orders the population by `E / w` with one exponential draw `E` per element, which is successive sampling proportional to the remaining weights.
-- `Gamma`, `Chisq`, `InverseGamma`, `Beta`, `TDist`, and `Dirichlet` draws. A Gamma draw reserves eight Marsaglia and Tsang candidates in a fixed span and continues on a child stream in the rare case that all reject, so the law stays exact. Shape gradients use the implicit derivative of the Gamma CDF with Enzyme, Mooncake, and ForwardDiff.
+- `Gamma`, `Chisq`, `InverseGamma`, `Beta`, `TDist`, and `Dirichlet` draws. A Gamma draw reserves eight Marsaglia and Tsang candidates in a fixed span and continues on a child stream if all reject, without changing parent advancement. Shape gradients use the implicit derivative of the Gamma CDF with Enzyme, Mooncake, and ForwardDiff.
 - `MvNormal` draws: `μ + L z` over the next standard normal draws, with continuation, addressed, matrix, and fill forms on every backend.
 - Device permutations, shuffles, and samples without replacement stay on the device: runs of equal keys are ordered by a kernel instead of on the host. Device weighted sampling reads back only its validation results.
 - A `WeightTable` of device weights folds on their device and serves generators there.
@@ -34,6 +34,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Tiny positive Beta and Dirichlet concentrations avoid overflowing log differences without changing parent advancement. The repair shares held bits across CPU, CUDA, Metal, and supported Reactant forms. Extreme-shape AD limits are documented separately.
+- Metal array draws and fills reject Float64 Bernoulli parameters before writing, even though the result type is Bool.
 - Sampling fills reject destinations that alias prepared weight storage or multivariate distribution parameters before writing.
 - StaticArrays addressed draws preserve wide indices and check the complete draw span.
 - Permutation fills check narrow destination index capacity before writing.
