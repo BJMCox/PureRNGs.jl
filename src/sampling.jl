@@ -356,8 +356,9 @@ splits a CPU fill across threads without changing the values.
 
 Inputs and the complete random span are validated before writing. A destination
 that might alias `population` is rejected; it may alias `weights` after the
-weights have been privately prepared. Empty destinations still validate inputs
-and consume no bits. Weighted fills may allocate preparation scratch space.
+weights have been privately prepared. Empty destinations still validate inputs.
+They consume no bits with replacement; without replacement, consumption still
+depends on the population size. Weighted fills may allocate preparation scratch space.
 
 # Examples
 

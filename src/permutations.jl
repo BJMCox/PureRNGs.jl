@@ -1,8 +1,8 @@
 # A permutation orders `n` uniform 64-bit keys, drawn at the held position. The
 # ordering is the same on every backend, so device results equal CPU results.
 # Equal keys (probability about n^2 / 2^65) are shuffled within their run with
-# draws from a child of the key's value, which keeps the permutation exactly
-# uniform and the consumption at 64n bits.
+# draws from a child of the key's value, which keeps parent consumption at 64n
+# bits. The tie shuffle inherits the fixed-width range mapping's small bias.
 
 @noinline _permutation_length_error(n) =
     throw(ArgumentError("permutation length must be non-negative, got $n"))
@@ -175,11 +175,12 @@ _shuffle_next(rng::AbstractPureRNG, values::AbstractArray, threaded::Bool) =
 """
     randperm_next(rng, n; threaded=false) -> (permutation, next_rng)
 
-Return a uniform permutation of `1:n` and the advanced immutable generator. The
+Return a random permutation of `1:n` and the advanced immutable generator. The
 permutation orders `n` uniform `UInt64` draws at the held position, so it
 consumes `64n` bits, and it is the same on the CPU and on a GPU. Draws that tie
-are shuffled within their run with draws from `subrng(rng, key)`, which keeps
-the permutation exactly uniform without changing the consumption.
+are shuffled within their run with draws from `subrng(rng, key)` without changing
+parent consumption. The fixed-width range mapping used for ties has finite-grid
+bias, so permutations are not exactly uniform.
 
 The result has the element type of `n` and lives on the generator's device.
 `threaded=true` splits the CPU key draw across threads without changing values.
@@ -215,10 +216,10 @@ randperm_next!(
 """
     randcycle_next(rng, n; threaded=false) -> (cycle, next_rng)
 
-Return a uniform cyclic permutation of `1:n` and the advanced immutable
+Return a random cyclic permutation of `1:n` and the advanced immutable
 generator. With `p = first(randperm_next(rng, n))`, the cycle sends `p[i]` to
 `p[i + 1]` and `p[n]` to `p[1]`, so it consumes what [`randperm_next`](@ref)
-does.
+does, with the same finite-grid limitation.
 """
 randcycle_next(rng::AbstractPureRNG, n::Integer; threaded::Bool = false) =
     _randcycle_next(rng, n, threaded)

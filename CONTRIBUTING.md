@@ -129,7 +129,8 @@ Start a separate Julia session with multiple threads to check parallel CPU execu
 For example, start Julia with `julia --threads=4 --project`, then run `Pkg.test()`.
 Do not change the Julia version merely to bypass a failure.
 
-Tests must preserve stream order, counter advancement, device placement, and fixed random-work contracts.
+Tests must preserve stream order, counter advancement, device placement, and each sampler's random-work contract.
+Gamma-family rejection can continue on child streams without changing the fixed parent advancement.
 Prefer small public-behavior tests and independent mathematical oracles.
 
 ## Documentation

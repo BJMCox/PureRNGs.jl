@@ -88,10 +88,11 @@ hand
 
 A permutation draws one uniform `UInt64` key per element at the held position and orders the elements by key, ties by index.
 It consumes 64 bits per element, and it gives the same result on the CPU and on a GPU.
-Equal keys have probability about `n^2 / 2^65`. They are shuffled within their run with draws from `subrng(rng, key)`, so the permutation stays exactly uniform and the consumption stays fixed.
+Equal keys have probability about `n^2 / 2^65`. They are shuffled within their run with draws from `subrng(rng, key)`, so parent consumption stays fixed.
+Tie shuffles use the fixed-width range mapping described above, including its finite-grid bias. Permutations are therefore not exactly uniform.
 
 `shuffle_next` moves elements in linear order by that permutation.
-`randcycle_next` sends `p[i]` to `p[i + 1]`, which gives a uniform cyclic permutation.
+`randcycle_next` sends `p[i]` to `p[i + 1]`, which gives a cyclic permutation with the same finite-grid limitation.
 `randsample(...; replace = false)` returns the leading elements of the shuffled population, so it consumes 64 bits per population element whatever the count.
 `Random.randperm`, `randcycle`, `shuffle`, and their in-place forms accept a generator too, and `StatefulRNG` uses the same law.
 
@@ -164,7 +165,8 @@ type.
 
 All inputs, including weights and the complete random span, are validated
 before the destination is changed. Empty destinations still validate the
-population and weights, then consume no bits. A destination that might alias
+population and weights. With replacement they consume no bits; without replacement
+they still consume the population-sized span. A destination that might alias
 the population is rejected. It may alias weights only after those weights have
 been validated and privately prepared. On CPU, a fill uses the calling task
 directly unless `threaded=true`; it does not look up or launch a backend.
