@@ -22,6 +22,15 @@ end
     _check_backend_serviceability(_engine_backend(rng), T)
 @inline _check_backend_serviceability(::_BackendToken, ::Type) = nothing
 
+@inline function _check_parameter_overlap(destination, parameter, name)
+    parameter isa AbstractArray &&
+        Base.mightalias(destination, parameter) &&
+        throw(
+            ArgumentError("the destination shares memory with $name; use a separate array"),
+        )
+    return nothing
+end
+
 @noinline function _host_only_type(::Type{T}) where {T}
     throw(ArgumentError("$T draws run on the CPU only; move the generator to the CPU"))
 end

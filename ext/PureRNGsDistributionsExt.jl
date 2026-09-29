@@ -248,6 +248,10 @@ const _FloatMvNormal = Distributions.MvNormal{<:_FloatType}
 const _PDMats = Distributions.PDMats
 const _LinearAlgebra = Distributions.LinearAlgebra
 
+_covariance_storage(Σ::_PDMats.PDMat) = _LinearAlgebra.cholesky(Σ).factors
+_covariance_storage(Σ::_PDMats.PDiagMat) = Σ.diag
+_covariance_storage(Σ::_PDMats.ScalMat) = nothing
+
 _device_factor(device, Σ::_PDMats.PDMat) =
     IR._transfer_array(device, Matrix(_PDMats.chol_lower(_LinearAlgebra.cholesky(Σ))))
 _device_unwhiten!(device, Σ::_PDMats.PDMat, values) =
@@ -297,6 +301,12 @@ function IR._engine_rand_next!(
         DimensionMismatch(
             "destination has $(size(destination, 1)) rows for a $(length(d))-dimensional MvNormal",
         ),
+    )
+    IR._check_parameter_overlap(destination, d.μ, "the mean")
+    IR._check_parameter_overlap(
+        destination,
+        _covariance_storage(d.Σ),
+        "the covariance factor",
     )
     _, next_rng = IR._engine_randn_next!(rng, destination; threaded)
     return _whitened_to_mvnormal!(IR._engine_backend(rng), d, destination), next_rng

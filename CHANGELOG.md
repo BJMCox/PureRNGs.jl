@@ -34,6 +34,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Sampling fills reject destinations that alias prepared weight storage or multivariate distribution parameters before writing.
 - StaticArrays addressed draws preserve wide indices and check the complete draw span.
 - Permutation fills check narrow destination index capacity before writing.
 - Clarified fixed parent consumption versus Gamma child-stream rejection, finite-grid permutation bias, and empty no-replacement sampling consumption.

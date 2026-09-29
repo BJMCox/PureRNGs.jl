@@ -123,6 +123,8 @@ device-executing allocation and fills, since the cumulative table is Float64.
 
 ## MvNormal
 
+Fill destinations must not share storage with the mean or covariance factor.
+
 An `MvNormal` draw applies Distributions' own map, `μ + L z`, to the next `length(d)` standard normal draws, where `L` is the covariance's lower factor.
 `n` draws are one normal fill, a column per draw, so a matrix of draws equals the chained single draws.
 
@@ -155,6 +157,8 @@ mixture, rng = rand_next(rng, Dirichlet([0.3, 1.0, 2.5]))
 
 `Chisq(ν)` is `Gamma(ν/2, 2)`, and `InverseGamma(α, θ)` is `θ` over a `Gamma(α)` draw.
 `Beta` and `Dirichlet` normalize the logarithms of Gamma draws in consecutive spans, so shapes as small as 0.01 give finite draws that sum to one.
+
+A Dirichlet fill destination must not share storage with its concentration vector.
 `TDist(ν)` divides a normal by the square root of a following chi-square over `ν`.
 Every member runs on the CPU, CUDA, AMDGPU, and, with `Float32` parameters, Metal; a 2^26 `Gamma` fill takes about 6.7 ms on an A100. A device `Dirichlet` fill runs one work item per draw.
 Under Reactant the scalar members have scalar, continuation, and addressed forms: a compiled draw evaluates all eight candidates, selects the first accepted one without branching, and runs the child stream as a traced loop.

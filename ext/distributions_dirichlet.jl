@@ -20,6 +20,7 @@ function IR._engine_rand_next!(
     _validate_dirichlet(d)
     IR._check_serviceability(rng, IR._primal_float(T))
     IR._check_fill_device(rng, destination)
+    IR._check_parameter_overlap(destination, d.alpha, "the concentrations")
     size(destination, 1) == length(d) || throw(
         DimensionMismatch(
             "destination has $(size(destination, 1)) rows for a $(length(d))-component Dirichlet",

@@ -55,7 +55,8 @@ Prepared weights for repeated weighted sampling. Holds the cumulative table the
 weighted forms build on every call, so a caller with fixed weights pays that cost
 once. Accepted wherever a weight vector is. Draws with a table equal draws with the
 weights it was built from. A table lives on the device of its weights and serves
-generators on that device.
+generators on that device. Treat the prepared storage as read-only: a sampling
+destination must not share its memory.
 
 # Examples
 
@@ -400,6 +401,10 @@ function _randsample_next_weighted!(
     population_agnostic = _check_population_device(rng, population)
     weights_agnostic = _check_sampling_device(rng, weights, "weights")
     _check_sampling_population_overlap(destination, population)
+    if weights isa WeightTable
+        _check_parameter_overlap(destination, weights.cumulative, "the weight table")
+        _check_parameter_overlap(destination, weights.total, "the weight total")
+    end
     _prevalidate_sampling_cardinality(population, length(destination))
     indexed = _prepare_population(rng.device, population, population_agnostic)
     cardinality = _sampling_cardinality(indexed)

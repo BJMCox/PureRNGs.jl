@@ -170,6 +170,7 @@ they still consume the population-sized span. A destination that might alias
 the population is rejected. It may alias weights only after those weights have
 been validated and privately prepared. On CPU, a fill uses the calling task
 directly unless `threaded=true`; it does not look up or launch a backend.
+A destination must not alias a `WeightTable`'s prepared storage.
 
 ## Keep data on the right device
 
