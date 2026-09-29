@@ -126,6 +126,8 @@ _resolve_key_ties!(permutation::AbstractVector, keys::AbstractVector, rng) =
 function _randperm_next!(rng::AbstractPureRNG, destination::AbstractArray, threaded::Bool)
     _check_fill_device(rng, destination)
     _check_permutation_serviceability(rng)
+    # The largest index must fit before sorting can write any destination slot.
+    isempty(destination) || convert(eltype(destination), length(destination))
     keys, next_rng = _permutation_keys(rng, length(destination), threaded)
     permutation = reshape(destination, :)
     _order_keys!(rng, permutation, keys)
