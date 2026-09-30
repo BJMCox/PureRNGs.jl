@@ -15,8 +15,8 @@ PureRNGs implements the Philox and Threefry keyed bijections, but its public str
 ## Statistical validation
 
 The Philox and Threefry cores reproduce the Random123 known-answer vectors, and the ChaCha core reproduces the ChaCha8, ChaCha12, and ChaCha20 test vectors.
-RNGTest BigCrush over the packed uniform stream of every generator in both the `UInt32` and `Float64` lanes is best-effort release evidence, run on explicit request, and the release notes record which cases ran.
-PractRand also runs as a diagnostic on the native word stream and on the split and `subrng` children.
+RNGTest BigCrush tests the packed uniform stream in the `UInt32` and `Float64` lanes.
+PractRand tests the native word stream and the split and `subrng` children.
 The [current evidence release](https://github.com/BJMCox/PureRNGs.jl/releases/tag/statistical-evidence-2026-09-22)
 collects the latest saved results for all tested configurations.
 The [combined archive](https://github.com/BJMCox/PureRNGs.jl/releases/download/statistical-evidence-2026-09-22/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz)
@@ -29,6 +29,34 @@ These results cover the unchanged streams. Logs retain their original tested
 revisions and dates and remain outside Git. Publication does not imply that
 every battery ran again on the latest commit.
 Hosted CI has CPU tests only, including separate extension jobs.
+
+The published archive does not yet cover every named configuration:
+
+| Configuration | BigCrush | PractRand |
+|:--|:--|:--|
+| Eight default-round Philox and Threefry generators | Both lanes | No complete runs |
+| `Philox4x32R7`, `Philox2x64R6`, `Philox4x64R7`, `Threefry4x32R12`, `Threefry4x64R13` | Both lanes | Root, split, and `subrng` |
+| `ChaCha8`, `ChaCha12` (also `ChaCha`), `ChaCha20` | Both lanes | Root, split, and `subrng` |
+| `Threefry2x64R13` | No run | No run |
+
+Results for another round count, or for a prior implementation, do not fill these gaps.
+Statistical stream tests do not validate distribution transforms or GPU performance.
+
+### Statistical release gate
+
+Before the first package release, complete both batteries for all 17 named
+configurations above. `ChaCha` and `ChaCha12` denote the same configuration.
+BigCrush requires both `UInt32` and `Float64` lanes. PractRand requires a 1 TiB
+root stream and 256 GiB each of split-eight and `subrng`-eight streams, with
+one native word per child in round-robin order. Every stream starts from
+`F(12345)` or children derived from that root.
+
+Use the pinned RNGTest/TestU01 and PractRand harnesses and their recorded
+acceptance criteria. Preserve diagnostic flags as well as failures. Resolve
+failures and publish the complete logs before release; a pending run is not
+a pass. Earlier results remain usable only when their tested streams are
+unchanged. Record the tested revisions and the basis for carrying results
+forward instead of relabeling old runs as new ones.
 
 ## Separate bits from floating-point transforms
 
