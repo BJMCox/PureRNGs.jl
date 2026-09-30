@@ -34,6 +34,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- CUDA fills with partial packed stores retain cooperative execution. CUDA Dirichlet scheduling accounts for the column kernel's register-limited occupancy.
 - Large CUDA weight tables use parallel accumulation with monotone, zero-preserving cumulative boundaries. Weighted selections can differ from the CPU through rounding. Primitive bits, parent advancement, and cached-table reuse are unchanged.
 
 ### Fixed

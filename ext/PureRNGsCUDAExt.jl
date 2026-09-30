@@ -510,7 +510,7 @@ end
 ) where {T<:_CUDAPackedValue,O,L,P}
     below_integer_crossover =
         T <: IR._UniformInteger && length(destination) < _packed_integer_min_length(rng, T)
-    if below_integer_crossover || !_packed_16byte_layout(destination, T, plan[4])
+    if below_integer_crossover
         return IR._launch_device_fill!(
             backend,
             rng,
@@ -518,6 +518,15 @@ end
             T,
             codec,
             (Val(:grouped), _fill_group_elements(codec, rng, T)),
+        )
+    elseif !_packed_16byte_layout(destination, T, plan[4])
+        return IR._launch_device_fill!(
+            backend,
+            rng,
+            destination,
+            T,
+            codec,
+            (Val(:cooperative), plan[2], plan[3]),
         )
     end
 
@@ -531,40 +540,6 @@ end
         plan,
         aligned ? Val(true) : Val(false),
         _packed_type(T),
-    )
-    return destination
-end
-
-@inline function IR._launch_device_fill!(
-    backend::CUDA.CUDABackend,
-    rng::_CUDAPhilox4x32,
-    destination,
-    ::Type{Float32},
-    codec::_CUDAPackedCodec,
-    plan::Tuple{Val{:cooperative},Val{O},Val{L},Val{4}},
-) where {O,L}
-    if !_packed_16byte_layout(destination, Float32, plan[4])
-        return IR._launch_device_fill!(
-            backend,
-            rng,
-            destination,
-            Float32,
-            codec,
-            (Val(:cooperative), plan[2], plan[3]),
-        )
-    end
-
-    aligned =
-        _stream_aligned_fill(rng, destination, plan[2], IR._fill_width(codec, Float32))
-    _launch_cooperative_fill!(
-        backend,
-        rng,
-        destination,
-        Float32,
-        codec,
-        plan,
-        aligned ? Val(true) : Val(false),
-        _CUDA_F32X4,
     )
     return destination
 end
@@ -756,11 +731,27 @@ end
 @inline IR._materialize_population(::IR._CUDABackend, population) =
     CUDA.CuArray(IR._collect_population(population))
 
-# The threads the current device holds resident: multiprocessors times the
-# threads each one schedules at once.
-IR._device_workitems(::CUDA.CUDABackend) =
-    CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT) *
-    CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR)
+# Match KA's dynamic launch context so occupancy includes this kernel's register
+# use. CUDA caches compilation; this query does not launch the column kernel.
+function IR._column_workitems(backend::CUDA.CUDABackend, rng, destination, codec)
+    columns = size(destination, 2)
+    multiprocessors =
+        CUDA.attribute(CUDA.device(), CUDA.DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT)
+    # Fewer columns cannot give even one workitem to every multiprocessor.
+    columns < multiprocessors && return Int(multiprocessors)
+    extension = Base.get_extension(IR, :PureRNGsKernelAbstractionsExt)
+    object = extension._column_kernel!(backend)
+    ndrange, _, iterspace, _ = KernelAbstractions.launch_config(object, columns, nothing)
+    context = KernelAbstractions.mkcontext(object, ndrange, iterspace)
+    kernel = CUDA.@cuda launch = false always_inline = backend.always_inline object.f(
+        context,
+        IR._column_fill!,
+        destination,
+        (rng, codec),
+    )
+    config = CUDA.launch_configuration(kernel.fun; max_threads = columns)
+    return config.blocks * config.threads
+end
 
 # Cache host wrappers without creating a device context or compiling a kernel.
 let rng_type = _CUDAPhilox4x32{10}, array_type = CUDA.CuArray{Float32,1,CUDA.DeviceMemory}

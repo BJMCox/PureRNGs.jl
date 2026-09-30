@@ -113,7 +113,7 @@ end
 # A device column fill runs one workitem per component when the columns are
 # fewer than the resident workitems, and one per column otherwise. The CPU
 # backend reports no limit, so a stand-in limit reaches both branches.
-IR._device_workitems(::KernelAbstractions.CPU) = 4
+IR._column_workitems(::KernelAbstractions.CPU, rng, destination, codec) = 4
 
 @testset "device Dirichlet column fills equal the host column fill" begin
     rng = Philox4x32(11, 5)

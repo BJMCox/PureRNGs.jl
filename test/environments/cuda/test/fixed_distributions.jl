@@ -655,6 +655,14 @@ end
     @test isempty(events.host_to_device)
     @test _event_sizes(profile, events.device_to_host) == [sizeof(UInt8)]
 
+    # A large column batch takes the occupancy-selected path. Addressed draws
+    # still use component scheduling, with the same values and continuation.
+    count = 1 << 17
+    columns, next = rand_next(rng, distribution, count)
+    @test Array(columns[:, end]) == Array(rand_at(rng, distribution, count))
+    @test Array(rand(next, distribution)) == Array(rand_at(rng, distribution, count + 1))
+    @test all(isfinite, Array(columns))
+
     host = fill(-1.0, 3, 5)
     @test_throws ArgumentError rand_next!(Philox4x32(0x795), distribution, host)
     @test all(==(-1.0), host)
