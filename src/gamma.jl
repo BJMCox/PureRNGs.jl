@@ -317,7 +317,7 @@ end
 @inline _gamma_log_overflow_bound(::Type{F}) where {F} =
     F(2 * (Int(_normal_bits(F)) + 1)) * log(F(2)) / floatmax(F)
 
-@noinline function _tiny_beta_at(codec::_BetaCodec, rng, position, ::Type)
+@noinline function _tiny_beta_at(codec::_BetaCodec, rng, position, ::Type{T}) where {T}
     cursor = _gamma_cursor(rng, position)
     return _tiny_beta_value(codec, rng, cursor, _second_gamma_cursor(codec, rng, cursor))
 end

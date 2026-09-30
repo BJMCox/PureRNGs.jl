@@ -246,19 +246,18 @@ _fill_columns!(backend::_CPUBackend, rng, destination, threaded::Bool, codec) =
     return nothing
 end
 
-# The workitems a device holds resident at once. The device extensions that
-# can ask the device define it. A backend without the query fills by element.
-_device_workitems(backend) = typemax(Int)
+# The workitems that fill the column kernel's resident blocks. A backend without
+# a kernel occupancy query fills by element.
+_column_workitems(backend, rng, destination, codec) = typemax(Int)
 
 # A device with a column for every resident workitem fills whole columns, one
 # cursor each. With fewer columns it fills the log-gamma matrix with a workitem
 # per element, so the lanes stay busy however wide the columns are, then
 # normalizes each column. The components of a column sit in consecutive spans,
-# so element `i` is draw `i - 1` of the component spans. On an A100 with 2^20
-# components, 3 to 16 Float64 components per column cost 13 to 23 % more per
-# element than per column, and 128 to 513 per column cost 36 to 59 % less.
+# so element `i` is draw `i - 1` of the component spans.
 function _fill_columns!(backend, rng, destination, threaded::Bool, codec)
-    size(destination, 2) >= _device_workitems(backend) &&
+    isempty(destination) && return destination
+    size(destination, 2) >= _column_workitems(backend, rng, destination, codec) &&
         return _foreach_column!(backend, _column_fill!, destination, threaded, rng, codec)
     _foreach_element!(backend, _component_fill!, destination, rng, codec)
     _foreach_column!(backend, _normalize_fill!, destination, threaded, rng, codec)
