@@ -17,8 +17,14 @@ function _validate_dirichlet(d)
     return iszero(flags & UInt8(2)) ? Val(false) : Val(true)
 end
 
+_dirichlet_storage(rng, alpha::Array) = IR._transfer_array(IR._engine_backend(rng), alpha)
+function _dirichlet_storage(rng, alpha)
+    IR._check_fill_device(rng, alpha)
+    return alpha
+end
+
 _dirichlet_codec(rng, d, recover = _validate_dirichlet(d)) =
-    IR._DirichletCodec(IR._transfer_array(IR._engine_backend(rng), d.alpha), recover)
+    IR._DirichletCodec(_dirichlet_storage(rng, d.alpha), recover)
 
 function IR._engine_rand_next!(
     rng,

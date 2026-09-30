@@ -38,6 +38,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Dirichlet draws and fills accept resident device concentrations and views without copying them. Mismatched device storage is rejected before output writes.
 - Tiny positive Beta and Dirichlet concentrations avoid overflowing log differences without changing parent advancement. The repair shares held bits across CPU, CUDA, Metal, and supported Reactant forms. Extreme-shape AD limits are documented separately.
 - Metal array draws and fills reject Float64 Bernoulli parameters before writing, even though the result type is Bool.
 - Sampling fills reject destinations that alias prepared weight storage or multivariate distribution parameters before writing.

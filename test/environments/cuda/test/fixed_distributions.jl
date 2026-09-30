@@ -628,6 +628,38 @@ end
     end
 end
 
+@testset "CUDA resident Dirichlet parameters" begin
+    rng = device(Philox4x32(0x795, 1))
+    storage = CuArray([0.3, 0.0, 2.0, 0.0, 5.0])
+    for alpha in
+        (CuArray([0.3, 2.0, 5.0]), view(storage, 1:2:5), CuArray([1e-320, 2e-320, 3e-320]))
+        distribution = Dirichlet(alpha)
+        expected, after = rand_next(rng, Dirichlet(Array(alpha)), 5)
+        actual, next = rand_next(rng, distribution, 5)
+        @test Array(actual) == Array(expected)
+        @test next == after
+        @test all(isfinite, Array(actual))
+        @test vec(sum(Array(actual); dims = 1)) ≈ ones(5)
+        @test Array(rand_at(rng, distribution, 3)) == Array(expected[:, 3])
+        @test rand_next!(rng, distribution, actual)[2] == after
+        @test Array(actual) == Array(expected)
+    end
+
+    distribution = Dirichlet(CuArray([0.3, 2.0, 5.0]))
+    destination = CUDA.zeros(Float64, 3, 5)
+    rand_next!(rng, distribution, destination)
+    profile = CUDA.Profile.profile_internally(; concurrent = false, trace = true) do
+        rand_next!(rng, distribution, destination)
+    end
+    events = _cuda_profile_events(profile)
+    @test isempty(events.host_to_device)
+    @test _event_sizes(profile, events.device_to_host) == [sizeof(UInt8)]
+
+    host = fill(-1.0, 3, 5)
+    @test_throws ArgumentError rand_next!(Philox4x32(0x795), distribution, host)
+    @test all(==(-1.0), host)
+end
+
 # A dual distribution fills a device array through the generic kernel, which
 # also runs the Gamma shape's implicit derivative. Values and partials track the
 # CPU draw; a dual MvNormal applies its factor on the device.

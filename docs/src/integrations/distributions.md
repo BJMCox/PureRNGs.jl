@@ -162,6 +162,9 @@ When tiny positive shapes overflow those logs, a scaled comparison reuses the sa
 Results can round to zero or one. Dirichlet columns remain normalized, and the parent span stays unchanged.
 
 A Dirichlet fill destination must not share storage with its concentration vector.
+Host concentration arrays transfer to the generator's backend when needed.
+Concentrations already on that backend stay there, including device views.
+Concentrations on another backend are rejected rather than copied through the CPU.
 `TDist(ν)` divides a normal by the square root of a following chi-square over `ν`.
 Every member runs on the CPU, CUDA, AMDGPU, and, with `Float32` parameters, Metal; a 2^26 `Gamma` fill takes about 6.7 ms on an A100. A device `Dirichlet` fill runs one work item per draw.
 Under Reactant the scalar members have scalar, continuation, and addressed forms: a compiled draw evaluates all eight candidates, selects the first accepted one without branching, and runs the child stream as a traced loop.

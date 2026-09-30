@@ -114,6 +114,8 @@ engine whose bulk fill runs one workitem per draw can fill the log-gamma matrix
 as that element fill, `_component_log` per element, and then run
 `_normalize_fill!` per column, with the original held generator and codec.
 That context lets normalization reread a column's bits if every log-Gamma value overflowed.
+An engine with its own column-start cursor can instead call
+`_normalize_column!(destination, column, codec, engine, cursor)`.
 The older two-argument `_normalize_column!` only handles representable logs.
 The draws equal the column fill's.
 
