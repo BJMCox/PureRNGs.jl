@@ -6,6 +6,61 @@ import KernelAbstractions
 using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
+
+KernelAbstractions.@kernel function _weight_values_kernel!(
+    cumulative,
+    source,
+    ::Val{scanned},
+) where {scanned}
+    index = @index(Global, Linear)
+    weight = Float64(IR._population_value(source, UInt64(index)))
+    if scanned
+        # A tree sum can invent a step at a zero weight through reassociation.
+        iszero(weight) && (@inbounds cumulative[index] = 0.0)
+    else
+        @inbounds cumulative[index] = isfinite(weight) && weight >= 0.0 ? weight : NaN
+    end
+end
+
+KernelAbstractions.@kernel function _weight_total_kernel!(
+    total_result,
+    invalid_result,
+    cumulative,
+)
+    total = @inbounds cumulative[end]
+    @inbounds total_result[1] = total
+    @inbounds invalid_result[1] = !isfinite(total) || total <= 0.0
+end
+
+function IR._fold_device_weights(device::IR._CUDABackend, weights, agnostic::Bool)
+    # A single workgroup avoids scan-launch overhead for short vectors.
+    length(weights) <= 8192 && return invoke(
+        IR._fold_device_weights,
+        Tuple{Any,Any,Bool},
+        device,
+        weights,
+        agnostic,
+    )
+    source = agnostic ? IR._transfer_array(device, IR._collect_weights(weights)) : weights
+    cumulative = IR._allocate_array(device, Float64, (length(source),))
+    total_result = IR._allocate_array(device, Float64, (1,))
+    invalid_result = IR._allocate_array(device, Bool, (1,))
+    backend = IR._fill_backend(device, cumulative)
+    _weight_values_kernel!(backend)(
+        cumulative,
+        source,
+        Val(false);
+        ndrange = length(source),
+    )
+    accumulate!(+, cumulative, cumulative)
+    _weight_values_kernel!(backend)(cumulative, source, Val(true); ndrange = length(source))
+    # Restore monotonicity and zero-weight plateaus after rounded tree sums.
+    accumulate!(max, cumulative, cumulative)
+    _weight_total_kernel!(backend)(total_result, invalid_result, cumulative; ndrange = 1)
+    only(Array(invalid_result)) && IR._invalid_weights()
+    return nothing, total_result, cumulative
+end
+
 const _CUDAGenerators = IR._BackendGenerators{IR._CUDABackend}
 const _CUDAPhilox4x32 = IR.Philox4x32{IR._CUDABackend}
 const _CUDAThreefry4x32 = IR.Threefry4x32{IR._CUDABackend}

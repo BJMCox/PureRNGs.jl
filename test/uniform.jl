@@ -194,6 +194,17 @@ end
           expected_rng.position
 end
 
+@testset "packed block stores preserve tails and chunk boundaries" begin
+    for (bit, n) in ((0, 511), (0, 513), (64, 513), (127, 513), (0, 2^19 + 3))
+        rng = Philox4x32(123, bit)
+        expected, after = rand_next(rng, Bool, n)
+        bits = falses(n)
+        @test last(rand_next!(rng, bits; threaded = true)) == after
+        @test bits == expected
+        @test count(bits) == count(expected)
+    end
+end
+
 @testset "parallel packed fills cross CPU chunks" begin
     for F in (Philox2x32, Philox4x32, Philox4x64), T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x5251, UInt64(4), UInt16(61))

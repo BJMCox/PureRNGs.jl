@@ -328,7 +328,7 @@ end
 
 @testset "CUDA Categorical allocating and fill forms" begin
     rng = device(Philox4x32(0x64c7))
-    probabilities = CUDA.CuArray(Float64[0, 1, 0, 3])
+    probabilities = CUDA.CuArray(Float64[mod(7i, 19) for i = 1:65_537])
     distribution = Categorical(probabilities; check_args = false)
     expected, expected_next =
         randsample_next(rng, 1:length(probabilities), probabilities, 33)
@@ -550,6 +550,29 @@ end
             IR._GammaCodec(T(1), T(1), cpu_rng.device, 1),
         )
         @test count(isapprox.(Array(forced), host_forced; rtol = 100eps(T))) >= 9_980
+    end
+end
+
+@testset "CUDA normalizes tiny concentrations" begin
+    cpu_rng = Philox4x32(123)
+    rng = CUDADevice()(cpu_rng)
+    for T in (Float32, Float64)
+        tiny = T === Float32 ? T(1e-40) : T(1e-320)
+        for d in (Beta(tiny, 2tiny), Dirichlet(T[tiny, 2tiny, 3tiny]))
+            values, next_rng = rand_next(rng, d, 3)
+            expected, expected_next = rand_next(cpu_rng, d, 3)
+            @test Array(values) == expected
+            @test next_rng.position == expected_next.position
+            if d isa Beta
+                addressed = similar(values)
+                CUDA.@sync CUDA.@cuda threads = 1 _expanded_addressed_kernel!(
+                    addressed,
+                    rng,
+                    d,
+                )
+                @test Array(addressed) == Array(values)
+            end
+        end
     end
 end
 

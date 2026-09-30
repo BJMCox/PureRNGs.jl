@@ -60,7 +60,7 @@ Optional overrides, with defaults built from the hooks above:
 | `_engine_draw_next(rng, codec, T)` | `_draw_cursor`, then one `_codec_take`. |
 | `_engine_draw_at(rng, codec, T, i)` | `_addressed_state`, `_draw_cursor`, then one `_codec_take`. |
 | `_engine_fill!(rng, destination, threaded, codec)` | `_reserve_draws`, then a host loop over one cursor, or over one `_fill_cursor` per chunk when `threaded`. It throws `ArgumentError` for a device-bound generator. Returns `(destination, next_rng)`. |
-| `_engine_fill_columns!(rng, destination::AbstractMatrix, threaded, codec)` | `_reserve_draws` for `size(destination, 2)` draws, then on the host one `_fill_cursor` and `_column_take!` per column, and on a device the same per column when there is a column for every resident workitem (`_device_workitems(backend)`), otherwise one `_fill_cursor` and `_component_log` per element followed by `_normalize_column!` per column. Returns `(destination, next_rng)`. |
+| `_engine_fill_columns!(rng, destination::AbstractMatrix, threaded, codec)` | `_reserve_draws` for `size(destination, 2)` draws, then on the host one `_fill_cursor` and `_column_take!` per column, and on a device the same per column when there is a column for every resident workitem (`_device_workitems(backend)`), otherwise one `_fill_cursor` and `_component_log` per element followed by `_normalize_fill!(destination, column, rng, codec)` per column. Returns `(destination, next_rng)`. |
 
 Override `_engine_fill!` to keep bulk generation fast. The default walks a cursor
 take by take, so an engine whose stream is cheapest in whole blocks or rows
@@ -105,14 +105,21 @@ two halves of the column:
 ```julia
 count, width = PureRNGs._component_takes(codec, T)   # one component's takes
 value = PureRNGs._component_log(codec, rng, cursor, component, T)
-PureRNGs._normalize_column!(destination, column)     # log values to the draw
+PureRNGs._normalize_fill!(destination, column, rng, codec) # log values to the draw
 ```
 
 The components of a column sit in consecutive spans, so component `c` of column
 `j` is draw `(j - 1) * length(alpha) + c` of a fill of `count`-take draws. An
 engine whose bulk fill runs one workitem per draw can fill the log-gamma matrix
 as that element fill, `_component_log` per element, and then run
-`_normalize_column!` per column. The draws equal the column fill's.
+`_normalize_fill!` per column, with the original held generator and codec.
+That context lets normalization reread a column's bits if every log-Gamma value overflowed.
+The older two-argument `_normalize_column!` only handles representable logs.
+The draws equal the column fill's.
+
+The Dirichlet codec also records whether log overflow can occur. Preserve this
+tag when adapting storage; reset it to recovery-enabled when changing precision.
+The one-argument codec constructor enables recovery by default.
 
 Override `_engine_fill_columns!` to feed the columns from the engine's bulk
 stream:

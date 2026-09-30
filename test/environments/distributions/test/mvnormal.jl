@@ -1,5 +1,24 @@
 using LinearAlgebra
 
+@testset "distribution parameters cannot alias their destination" begin
+    rng = Philox4x32(123)
+    diagonal = MvNormal([1.0, 2.0], Diagonal([1.0, 4.0]))
+    dense = MvNormal([1.0, 2.0], [1.0 0.2; 0.2 2.0])
+    dirichlet = Dirichlet([0.2, 0.3])
+    for (d, destination) in (
+        (diagonal, diagonal.μ),
+        (diagonal, diagonal.Σ.diag),
+        (dense, view(cholesky(dense.Σ).factors, :, 1)),
+        (dirichlet, dirichlet.alpha),
+    )
+        saved = copy(destination)
+        expected = rand(rng, d)
+        @test_throws ArgumentError rand!(rng, d, destination)
+        @test destination == saved
+        @test rand!(rng, d, similar(destination)) == expected
+    end
+end
+
 # A multivariate normal draw maps length(d) standard normal draws by `μ + L z`,
 # and n draws are one fill, a column per draw.
 @testset "an MvNormal draw whitens the next standard normal draws" begin

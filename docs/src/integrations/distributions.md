@@ -100,7 +100,8 @@ parameters need Float64 arithmetic, which Metal lacks.
 probability values as weights over those labels and the same 53-bit `Float64`
 weighted mapping as `randsample`; there is no extra normalization or alias
 table. The probabilities must convert to finite, nonnegative `Float64` values
-with a finite, positive left-fold total.
+with a finite, positive cumulative total. CUDA's parallel preparation can change
+rounding and selected categories compared with the CPU, as described in [Supply weights](@ref).
 
 ```julia
 rng = Philox4x32(123456)
@@ -123,6 +124,8 @@ device-executing allocation and fills, since the cumulative table is Float64.
 
 ## MvNormal
 
+Fill destinations must not share storage with the mean or covariance factor.
+
 An `MvNormal` draw applies Distributions' own map, `μ + L z`, to the next `length(d)` standard normal draws, where `L` is the covariance's lower factor.
 `n` draws are one normal fill, a column per draw, so a matrix of draws equals the chained single draws.
 
@@ -143,7 +146,7 @@ Gradients with respect to `μ` and the covariance are pathwise with Enzyme, Moon
 `Gamma`, `Chisq`, `InverseGamma`, `Beta`, `TDist`, and `Dirichlet` draws use the rejection sampler of Marsaglia and Tsang (2000) with a fixed stream span.
 Each Gamma draw reserves one boost uniform and eight candidates, each a normal and an open uniform, and takes the first candidate the test accepts.
 If all eight reject, which happens about once in 3·10¹⁰ draws at shape 1 and far less often at larger shapes, the draw continues the same test on a child stream keyed by its position.
-The law stays exactly Gamma, and the stream advances by the same 17 normal widths either way.
+The fallback preserves the rejection rule, and the parent stream advances by the same 17 normal widths either way.
 Shapes below one draw `Gamma(shape + 1)` and multiply by `u^(1/shape)` from the boost uniform.
 
 ```julia
@@ -154,7 +157,11 @@ mixture, rng = rand_next(rng, Dirichlet([0.3, 1.0, 2.5]))
 ```
 
 `Chisq(ν)` is `Gamma(ν/2, 2)`, and `InverseGamma(α, θ)` is `θ` over a `Gamma(α)` draw.
-`Beta` and `Dirichlet` normalize the logarithms of Gamma draws in consecutive spans, so shapes as small as 0.01 give finite draws that sum to one.
+`Beta` and `Dirichlet` normalize log-Gamma draws in consecutive spans.
+When tiny positive shapes overflow those logs, a scaled comparison reuses the same bits to avoid subtracting infinities.
+Results can round to zero or one. Dirichlet columns remain normalized, and the parent span stays unchanged.
+
+A Dirichlet fill destination must not share storage with its concentration vector.
 `TDist(ν)` divides a normal by the square root of a following chi-square over `ν`.
 Every member runs on the CPU, CUDA, AMDGPU, and, with `Float32` parameters, Metal; a 2^26 `Gamma` fill takes about 6.7 ms on an A100. A device `Dirichlet` fill runs one work item per draw.
 Under Reactant the scalar members have scalar, continuation, and addressed forms: a compiled draw evaluates all eight candidates, selects the first accepted one without branching, and runs the child stream as a traced loop.
@@ -164,6 +171,9 @@ Differentiating through the rejection test would bias the gradient, so the sampl
 The derivative differentiates the series and continued fraction of the incomplete gamma function term by term, in the shape's type, so it also runs in device kernels.
 Its cost grows with the square root of the shape near the mode: about 40 ns at shape 2.5 and 0.6 µs at shape 10⁴ on the CPU.
 In Float32 it is accurate to about 10⁻⁶ up to shape 100 and 10⁻⁴ at shape 10⁴.
+Finite draws do not guarantee finite derivatives at extreme shapes: derivative arithmetic and upstream distribution constructors can overflow.
+Rounded endpoints have zero pathwise tangents where the sampler controls differentiation.
+In particular, Mooncake can produce NaN gradients for subnormal concentrations even when the sampled values are finite.
 
 ## Other distributions
 

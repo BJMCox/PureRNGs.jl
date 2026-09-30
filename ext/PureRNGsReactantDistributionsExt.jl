@@ -192,8 +192,18 @@ end
     d.θ / _traced_gamma(rng, d.invd.α)
 @inline function _gamma_family_value(rng, d::Distributions.Beta{T}) where {T}
     width = IR._gamma_span(T, IR._GAMMA_CANDIDATES)
+    second = IR._addressed_rng(rng, width, 2)
+    codec = _distribution_codec(d, IR._CPU_BACKEND)
+    if IR._tiny_beta_shapes(codec)
+        boost_x = IR._gamma_boost_log(codec.a, rng, nothing)
+        boost_y = IR._gamma_boost_log(codec.b, second, nothing)
+        delta = IR._scaled_boost_difference(d.β, d.α, boost_y, boost_x)
+        base =
+            _traced_log_gamma(second, d.β + one(T)) - _traced_log_gamma(rng, d.α + one(T))
+        return inv(one(T) + exp(delta + base))
+    end
     log_x = _traced_log_gamma(rng, d.α)
-    log_y = _traced_log_gamma(IR._addressed_rng(rng, width, 2), d.β)
+    log_y = _traced_log_gamma(second, d.β)
     return inv(one(T) + exp(log_y - log_x))
 end
 @inline function _gamma_family_value(rng, d::Distributions.TDist{T}) where {T}

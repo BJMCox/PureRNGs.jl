@@ -88,10 +88,11 @@ hand
 
 A permutation draws one uniform `UInt64` key per element at the held position and orders the elements by key, ties by index.
 It consumes 64 bits per element, and it gives the same result on the CPU and on a GPU.
-Equal keys have probability about `n^2 / 2^65`. They are shuffled within their run with draws from `subrng(rng, key)`, so the permutation stays exactly uniform and the consumption stays fixed.
+Equal keys have probability about `n^2 / 2^65`. They are shuffled within their run with draws from `subrng(rng, key)`, so parent consumption stays fixed.
+Tie shuffles use the fixed-width range mapping described above, including its finite-grid bias. Permutations are therefore not exactly uniform.
 
 `shuffle_next` moves elements in linear order by that permutation.
-`randcycle_next` sends `p[i]` to `p[i + 1]`, which gives a uniform cyclic permutation.
+`randcycle_next` sends `p[i]` to `p[i + 1]`, which gives a cyclic permutation with the same finite-grid limitation.
 `randsample(...; replace = false)` returns the leading elements of the shuffled population, so it consumes 64 bits per population element whatever the count.
 `Random.randperm`, `randcycle`, `shuffle`, and their in-place forms accept a generator too, and `StatefulRNG` uses the same law.
 
@@ -109,7 +110,7 @@ draws
 
 Pass a plain vector of real weights.
 
-Weights follow population positions. They must convert to finite, nonnegative `Float64` values with a finite, positive left-fold total.
+Weights follow population positions. They must convert to finite, nonnegative `Float64` values with a finite, positive cumulative total.
 Zero weights exclude elements. Zero requested samples still require valid weights.
 
 Each weighted batch builds its cumulative `Float64` weights once per call and
@@ -119,6 +120,11 @@ weighted scratch space, so an in-place weighted fill does not promise zero
 allocations. CPU weighted fills follow the `threaded` keyword like the other
 fills.
 
+CUDA prepares large cumulative tables with parallel sums, then preserves
+monotonicity and zero-weight plateaus. The changed addition order can change
+selected elements compared with the CPU or another backend version.
+The random bits, parent advancement, and within-backend batch/chained equality stay unchanged.
+
 ```julia
 table = WeightTable([1.0, 3.0, 0.0])
 draws, rng = randsample_next(rng, population, table, 12)
@@ -126,6 +132,7 @@ draws, rng = randsample_next(rng, population, table, 12)
 
 Build a `WeightTable` once to reuse the cumulative table across calls.
 A table of device weights folds on their device and serves generators on that device.
+Rebuild the table when the source weights change. Raw mutable weights are not cached automatically.
 
 Each category's realized share is a whole number of `2^-53` cells of the
 cumulative total. Shares below about `1e-16` of the total are not represented
@@ -164,10 +171,12 @@ type.
 
 All inputs, including weights and the complete random span, are validated
 before the destination is changed. Empty destinations still validate the
-population and weights, then consume no bits. A destination that might alias
+population and weights. With replacement they consume no bits; without replacement
+they still consume the population-sized span. A destination that might alias
 the population is rejected. It may alias weights only after those weights have
 been validated and privately prepared. On CPU, a fill uses the calling task
 directly unless `threaded=true`; it does not look up or launch a backend.
+A destination must not alias a `WeightTable`'s prepared storage.
 
 ## Keep data on the right device
 

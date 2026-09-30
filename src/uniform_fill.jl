@@ -636,6 +636,16 @@ end
     return nothing
 end
 
+@inline function _store_bool_blocks4!(destination::BitArray, index, blocks)
+    chunk = ((index - 1) >> 6) + 1
+    @inbounds for block_lane = 1:4, word_lane = 1:2
+        words = blocks[block_lane]
+        raw = (UInt64(words[2word_lane-1]) << 32) | UInt64(words[2word_lane])
+        destination.chunks[chunk+2(block_lane-1)+word_lane-1] = bitreverse(raw)
+    end
+    return nothing
+end
+
 @inline function _store_bits32_blocks4!(
     destination::AbstractArray{T},
     index,
@@ -801,6 +811,19 @@ end
 ) where {T<:Union{Bool,_UniformInteger,Float32}} =
     _fill_uniform_blocks4_cpu!(rng, position, destination, T, indices)
 
+@inline _fill_packed_blocks!(rng, position, destination, first, last) =
+    (first, _position_block(position))
+@inline function _fill_packed_blocks!(
+    rng::Philox4x32,
+    position::_Position64,
+    destination,
+    first,
+    last,
+)
+    iszero(position.bit) || return first, position.block
+    return _fill_aligned_blocks4!(rng, destination, first, last, position.block)
+end
+
 @inline function _fill_uniform_cpu!(
     rng,
     position,
@@ -813,10 +836,11 @@ end
     iszero((first_index - 1) & 63) ||
         return _fill_uniform_position_cpu!(rng, position, destination, Bool, indices)
 
-    cursor = _dense_cursor(rng, _position_block(position), position.bit)
-    index = first_index
     last_index = last(indices)
-    chunk = ((first_index - 1) >> 6) + 1
+    index, block = _fill_packed_blocks!(rng, position, destination, first_index, last_index)
+    index > last_index && return nothing
+    cursor = _dense_cursor(rng, block, position.bit)
+    chunk = ((index - 1) >> 6) + 1
     while index + 63 <= last_index
         raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(64))
         # Stream bits are MSB-first; BitArray chunks store their first bit lowest.

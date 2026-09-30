@@ -39,7 +39,7 @@ function measure_fill(next_fill_function, rng, values, seconds, threaded)
     trial = @benchmark begin
         $next_fill_function($rng, $values; threaded = $threaded)
         KernelAbstractions.synchronize($backend)
-    end seconds = seconds
+    end seconds = seconds evals = 1 samples = 100_000_000
     median_ns = median(trial).time
     values_per_second = length(values) / (median_ns / 1.0e9)
     return (;

@@ -40,15 +40,21 @@ The two normal formulas read the same random bits and the same uniform value, an
 A device-placed generator keeps its device when you draw from it on the host, so `randn(cuda_rng, T)` does not equal `randn(cpu_rng, T)`.
 Within one formula, matching random bits still do not force different `log` or `sqrt` implementations to return identical values.
 
+Weighted sampling and `Categorical` also depend on cumulative-sum rounding.
+CUDA uses parallel sums for large tables, so selected elements can differ across backends or backend versions.
+Primitive bits and parent advancement do not change. A `WeightTable` reuses the same prepared boundaries within its backend.
+
 Reactant permits further compiler-dependent transformations.
 Its exact limits appear in [Differentiation and compilation](@ref).
 
-## Fixed random work
+## Fixed parent-stream consumption
 
-Package-owned samplers consume a fixed number of random bits for each result.
-They do not retry rejected candidates.
+Package-owned samplers reserve a fixed span of the parent stream for each result.
+Primitive draws and fixed-work distribution transforms do not retry rejected candidates.
+Gamma-family draws reserve eight candidates, then continue rejection sampling on a child stream if all eight reject.
+Their parent advancement stays fixed, but their total random work is not bounded.
 
-This does not promise constant runtime. Allocation, table preparation, backend scheduling, and validation still have costs.
+Fixed consumption does not promise constant runtime. Allocation, table preparation, backend scheduling, and validation still have costs.
 Foreign consumers of `StatefulRNG` may use rejection algorithms.
 
 All draw kinds read one stream of bits at the generator's position.

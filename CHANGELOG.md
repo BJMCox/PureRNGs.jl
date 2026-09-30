@@ -14,7 +14,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `Char` draws, uniform over the Unicode scalar values as in `Random`.
 - Permutations: `randperm_next`, `randcycle_next`, `shuffle_next`, their in-place forms, and `Random.randperm`, `randcycle`, `shuffle` and their in-place forms for pure generators. A permutation orders one uniform `UInt64` key per element, so it is the same on the CPU and on a GPU. `StatefulRNG` uses the same law.
 - `randsample(...; replace = false)` samples without replacement: the leading elements of the shuffled population. With weights, it orders the population by `E / w` with one exponential draw `E` per element, which is successive sampling proportional to the remaining weights.
-- `Gamma`, `Chisq`, `InverseGamma`, `Beta`, `TDist`, and `Dirichlet` draws. A Gamma draw reserves eight Marsaglia and Tsang candidates in a fixed span and continues on a child stream in the rare case that all reject, so the law stays exact. Shape gradients use the implicit derivative of the Gamma CDF with Enzyme, Mooncake, and ForwardDiff.
+- `Gamma`, `Chisq`, `InverseGamma`, `Beta`, `TDist`, and `Dirichlet` draws. A Gamma draw reserves eight Marsaglia and Tsang candidates in a fixed span and continues on a child stream if all reject, without changing parent advancement. Shape gradients use the implicit derivative of the Gamma CDF with Enzyme, Mooncake, and ForwardDiff.
 - `MvNormal` draws: `μ + L z` over the next standard normal draws, with continuation, addressed, matrix, and fill forms on every backend.
 - Device permutations, shuffles, and samples without replacement stay on the device: runs of equal keys are ordered by a kernel instead of on the host. Device weighted sampling reads back only its validation results.
 - A `WeightTable` of device weights folds on their device and serves generators there.
@@ -32,13 +32,24 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - An internal engine interface through which a generator package outside PureRNGs can serve the distribution, normal, and exponential draws. `docs/dev/engine-interface.md` states the contract, which may change in any 0.0.x release. An engine can serve Dirichlet columns from its own bulk stream, as whole columns or as one log-gamma draw per element with a separate normalization, and it checks every span from unwrapped factors. The Gamma fallback reads an engine's child stream through one cursor hook instead of three public methods.
 - `Dirichlet` draws, fills, and addressed draws accept ForwardDiff `Dual` shapes, with the implicit shape derivative. A dual draw's value equals the float draw.
 
+### Changed
+
+- Large CUDA weight tables use parallel accumulation with monotone, zero-preserving cumulative boundaries. Weighted selections can differ from the CPU through rounding. Primitive bits, parent advancement, and cached-table reuse are unchanged.
+
 ### Fixed
 
+- Tiny positive Beta and Dirichlet concentrations avoid overflowing log differences without changing parent advancement. The repair shares held bits across CPU, CUDA, Metal, and supported Reactant forms. Extreme-shape AD limits are documented separately.
+- Metal array draws and fills reject Float64 Bernoulli parameters before writing, even though the result type is Bool.
+- Sampling fills reject destinations that alias prepared weight storage or multivariate distribution parameters before writing.
+- StaticArrays addressed draws preserve wide indices and check the complete draw span.
+- Permutation fills check narrow destination index capacity before writing.
+- Clarified fixed parent consumption versus Gamma child-stream rejection, finite-grid permutation bias, and empty no-replacement sampling consumption.
 - A `Dirichlet` `rand_at` whose index times the component count passed 2^64 returned the draw at a wrapped address, and a Dirichlet fill whose span passed 2^64 takes reserved a wrapped span. Both now check the whole span and throw `StreamExhausted` past the stream end.
 - `MvNormal` draws on Metal apply the covariance factor with a dense product. The in-place triangular product gave many-column draws different values on repeated calls, up to 0.23 away from the host transform.
 
 ### Changed
 
+- Aligned Philox4x32 CPU `BitArray` fills write four generated blocks directly to packed storage, preserving bit order, tails, and threaded chunk ownership.
 - CPU fills, allocating draws, sampling, and `splitrng(rng, n)` run serially by default, as `Random` does. Pass `threaded = true` to split a CPU fill across threads. Values are unchanged either way. Large fills that relied on the old threaded default run slower until they opt in.
 - Allocating draws, addressed array draws, and allocating sampling now accept the `threaded` keyword.
 - `threaded` is a typed `Bool` keyword. A non-`Bool` value throws a `TypeError` instead of an `ArgumentError`.

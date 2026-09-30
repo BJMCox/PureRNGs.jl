@@ -33,6 +33,20 @@ _chi_square(counts, expected) = sum((count - expected)^2 / expected for count in
     @test_throws ArgumentError randperm_next(Philox4x32(1), -1)
 end
 
+@testset "permutation indices fit before the destination changes" begin
+    rng = Philox4x32(1)
+    for T in (Bool, Int8, UInt8)
+        n = Int(typemax(T))
+        destination = zeros(T, n)
+        @test first(randperm_next!(rng, destination)) == randperm(rng, T(n))
+        for draw! in (randperm_next!, randcycle_next!)
+            too_short = fill(typemax(T), n + 1)
+            @test_throws InexactError draw!(rng, too_short)
+            @test all(==(typemax(T)), too_short)
+        end
+    end
+end
+
 @testset "equal keys are shuffled within their run" begin
     keys = UInt64[5, 3, 5, 1, 3, 5, 9, 1]
     permutation = sortperm(keys)

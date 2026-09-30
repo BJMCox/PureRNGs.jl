@@ -18,6 +18,7 @@ const _DualGammaFamily = _GammaFamily{<:ForwardDiff.Dual}
 const _DualDistribution = Union{_DualMapped,_DualGammaFamily}
 
 IR._primal_float(::Type{<:ForwardDiff.Dual{<:Any,V}}) where {V} = IR._primal_float(V)
+IR._primal_value(value::ForwardDiff.Dual) = IR._primal_value(ForwardDiff.value(value))
 
 # A dual shape draws the primal Gamma and carries the implicit shape derivative
 # into the partials; the family maps carry every other parameter. Nested duals
@@ -41,9 +42,15 @@ for (draw, slope) in (
             codec.candidates,
         )
         value = IR.$draw(s, primal, rng, ordinal, cursor)
+        derivative = IR.$slope(s, value)
         return ForwardDiff.Dual{Tag}(
             value,
-            IR.$slope(s, value) * ForwardDiff.partials(shape),
+            ForwardDiff.Partials(
+                map(
+                    p -> IR._scale_tangent(p, derivative),
+                    ForwardDiff.partials(shape).values,
+                ),
+            ),
         )
     end
 end

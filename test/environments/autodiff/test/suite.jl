@@ -137,6 +137,13 @@ end
     at(x) = rand_at(rng, Dirichlet(x), 4)
     @test jacobian(at, AutoForwardDiff(), shapes) ≈ jacobian(at, AutoMooncake(), shapes) rtol =
         1e-10
+    tiny_rng = Philox4x32(123)
+    tiny_draw(a) = rand(tiny_rng, Dirichlet(a))
+    @test iszero(jacobian(tiny_draw, AutoForwardDiff(), [1e-320, 2e-320, 3e-320]))
+    mixed = jacobian(tiny_draw, AutoForwardDiff(), [1e-320, 1.0, 2.0])
+    @test all(isfinite, mixed) && iszero(mixed[:, 1])
+    @test mixed[2, :] ≈ -mixed[3, :]
+    @test mixed[2, 2] > 0 && mixed[2, 3] < 0
 end
 
 # The implicit derivative is unbiased: E[dX/dshape] = dE[X]/dshape = 1 for

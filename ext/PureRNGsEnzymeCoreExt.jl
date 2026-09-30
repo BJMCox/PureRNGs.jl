@@ -290,7 +290,8 @@ end
 # the draw the implicit shape derivative of the Gamma CDF instead; only the
 # shape carries a derivative.
 @inline _scaled(config, direction, derivative) =
-    ER.width(config) == 1 ? direction * derivative : map(d -> d * derivative, direction)
+    ER.width(config) == 1 ? IR._scale_tangent(direction, derivative) :
+    map(d -> IR._scale_tangent(d, derivative), direction)
 @inline _zero_tangent(config, value) =
     ER.width(config) == 1 ? EnzymeCore.make_zero(value) :
     ntuple(_ -> EnzymeCore.make_zero(value), Val(ER.width(config)))

@@ -33,9 +33,8 @@ end
 
 # Static array `i` starts at scalar draw `(i - 1) * N + 1`.
 @inline function _static_address(rng, width::UInt16, n::Int, i::Integer)
-    i < 1 && IR._invalid_address_index()
-    offset = Base.Checked.checked_mul(UInt64(i) - one(UInt64), UInt64(n))
-    return IR._addressed_rng(rng, width, Base.Checked.checked_add(offset, one(UInt64)))
+    span = Base.Checked.checked_mul(UInt64(width), UInt64(n))
+    return IR._addressed_rng(rng, span, i)
 end
 
 @inline function _static_array_next(

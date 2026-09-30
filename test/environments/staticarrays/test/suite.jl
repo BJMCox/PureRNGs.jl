@@ -60,6 +60,19 @@ end
     end
 end
 
+@testset "static addresses preserve wide indices and complete spans" begin
+    rng = Philox4x64(1)
+    index = big(1) << 64
+    for (at, T) in ((rand_at, UInt32), (randn_at, Float64), (randexp_at, Float64))
+        @test at(rng, SVector{2,T}, index) ==
+              SVector(at(rng, T, 2index - 1), at(rng, T, 2index))
+    end
+    capacity = big(256) << 128
+    last_rng = Philox4x64(1, capacity - 32)
+    @test rand_at(last_rng, SVector{1,UInt32}, 1) == SVector(rand(last_rng, UInt32))
+    @test_throws StreamExhausted rand_at(last_rng, SVector{2,UInt32}, 1)
+end
+
 @testset "a static pick is N chained picks" begin
     rng = Philox4x32(0x5a4)
     picks, after = rand_next(rng, 1:6, 4)

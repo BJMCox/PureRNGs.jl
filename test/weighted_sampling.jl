@@ -330,6 +330,24 @@ end
           8 * (length(wide_weights) - length(weights))
 end
 
+@testset "prepared weights cannot alias the sampling destination" begin
+    rng = Philox4x32(1)
+    population = [10.0, 20.0, 30.0]
+    weights = [1.0, 2.0, 3.0]
+    table = WeightTable(weights)
+    expected = randsample(rng, population, table, 3)
+    saved = copy(table.cumulative)
+    @test_throws ArgumentError randsample!(
+        rng,
+        population,
+        table,
+        view(table.cumulative, :),
+    )
+    @test table.cumulative == saved
+    @test randsample!(rng, population, weights, weights) == expected
+    @test randsample(rng, population, table, 3) == expected
+end
+
 # Without replacement, the sample orders the population by `E / w` with one
 # exponential draw per element, ties by index.
 @testset "a weighted sample without replacement orders E / w" begin

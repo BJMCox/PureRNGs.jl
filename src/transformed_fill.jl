@@ -17,6 +17,8 @@ const _TransformedFillCodec =
 # `nothing` keeps the generic one-work-item-per-element kernel.
 @inline _device_fill_plan(backend, rng, codec, ::Type{T}) where {T} = nothing
 
+@inline _draw_transform(codec) = _transformed_draw_unchecked
+
 @inline _transformed_draw_unchecked(::Val{:uniform}, rng, position, T) =
     _draw_unchecked(rng, position, T)
 @inline _transformed_draw_unchecked(::_NormalCodec, rng, position, T) =

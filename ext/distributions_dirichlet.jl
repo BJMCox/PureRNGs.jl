@@ -3,13 +3,22 @@
 # ForwardDiff extension forwards the dual ones.
 const _FloatDirichlet = Distributions.Dirichlet{<:_FloatType}
 
-function _validate_dirichlet(d)
-    all(_positive_finite, d.alpha) || throw(ArgumentError("invalid Dirichlet parameters"))
-    return nothing
+@inline function _dirichlet_shape_flags(a)
+    value = IR._primal_value(a)
+    tiny = value < IR._gamma_log_overflow_bound(typeof(value))
+    return UInt8(_positive_finite(a)) | (UInt8(tiny) << 1)
 end
 
-_dirichlet_codec(rng, d) =
-    IR._DirichletCodec(IR._transfer_array(IR._engine_backend(rng), d.alpha))
+# One validation reduction also checks whether all log-Gamma draws can overflow.
+# Ordinary device kernels then omit the cold repair and its live cursor state.
+function _validate_dirichlet(d)
+    flags = mapreduce(_dirichlet_shape_flags, &, d.alpha; init = UInt8(3))
+    iszero(flags & UInt8(1)) && throw(ArgumentError("invalid Dirichlet parameters"))
+    return iszero(flags & UInt8(2)) ? Val(false) : Val(true)
+end
+
+_dirichlet_codec(rng, d, recover = _validate_dirichlet(d)) =
+    IR._DirichletCodec(IR._transfer_array(IR._engine_backend(rng), d.alpha), recover)
 
 function IR._engine_rand_next!(
     rng,
@@ -17,16 +26,18 @@ function IR._engine_rand_next!(
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,
 ) where {T<:Real}
-    _validate_dirichlet(d)
+    recover = _validate_dirichlet(d)
     IR._check_serviceability(rng, IR._primal_float(T))
     IR._check_fill_device(rng, destination)
+    IR._check_parameter_overlap(destination, d.alpha, "the concentrations")
     size(destination, 1) == length(d) || throw(
         DimensionMismatch(
             "destination has $(size(destination, 1)) rows for a $(length(d))-component Dirichlet",
         ),
     )
     columns = reshape(destination, length(d), :)
-    _, next_rng = IR._engine_fill_columns!(rng, columns, threaded, _dirichlet_codec(rng, d))
+    _, next_rng =
+        IR._engine_fill_columns!(rng, columns, threaded, _dirichlet_codec(rng, d, recover))
     return destination, next_rng
 end
 
@@ -44,9 +55,9 @@ IR._engine_rand_next(rng, d::Distributions.Dirichlet, n::Integer; threaded::Bool
 
 # Draw `index` is one column-codec draw, so the engine sees the index whole.
 function IR._engine_rand_at(rng, d::Distributions.Dirichlet, index::Integer)
-    _validate_dirichlet(d)
+    recover = _validate_dirichlet(d)
     index < 1 && IR._invalid_address_index()
-    codec = _dirichlet_codec(rng, d)
+    codec = _dirichlet_codec(rng, d, recover)
     count, width = IR._codec_takes(codec, Distributions.partype(d))
     addressed = IR._addressed_state(rng, count, width, index)
     destination = _dirichlet_array(rng, d, (length(d),))

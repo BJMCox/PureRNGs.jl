@@ -134,6 +134,10 @@ end
     dirichlet = Adapt.adapt(Array{Float32}, IR._DirichletCodec([0.3, 2.0]))
     @test dirichlet.alpha isa Vector{Float32}
     @test dirichlet.alpha == Float32[0.3, 2.0]
+    tiny = Adapt.adapt(Array{Float32}, IR._DirichletCodec([1e-40, 2e-40], Val(false)))
+    values = zeros(Float32, 2, 1)
+    IR._fill_columns!(IR._CPU_BACKEND, Philox4x32(123), values, false, tiny)
+    @test all(isfinite, values) && sum(values) == 1
     population =
         Adapt.adapt(Array{Float32}, IR._PopulationCodec([1.0, 2.0, 3.0], UInt64(3)))
     @test population.population isa Vector{Float32}
