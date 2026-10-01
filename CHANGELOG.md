@@ -4,9 +4,9 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.0.1 - 2026-10-01
 
-Changes for the first package release, 0.0.1.
+Initial release.
 
 ### Added
 
