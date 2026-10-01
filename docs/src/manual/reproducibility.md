@@ -19,27 +19,30 @@ RNGTest BigCrush tests the packed uniform stream in the `UInt32` and `Float64` l
 PractRand tests the native word stream and the split and `subrng` children.
 The [current evidence release](https://github.com/BJMCox/PureRNGs.jl/releases/tag/statistical-evidence-2026-09-22)
 collects the latest saved results for all tested configurations.
-The [combined archive](https://github.com/BJMCox/PureRNGs.jl/releases/download/statistical-evidence-2026-09-22/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz)
-and its [SHA-256 checksum](https://github.com/BJMCox/PureRNGs.jl/releases/download/statistical-evidence-2026-09-22/PureRNGs-0.0.1-statistical-evidence-8c0e646.tar.gz.sha256)
-are available together. The archive contains 32
-BigCrush cases across 16 named generator configurations and 24 PractRand streams
-across eight configurations. Each PractRand configuration has a 1 TiB root
+The [combined archive](https://github.com/BJMCox/PureRNGs.jl/releases/download/statistical-evidence-2026-09-22/PureRNGs-0.0.1-evidence-2026-10-01.tar.gz)
+and its [SHA-256 checksum](https://github.com/BJMCox/PureRNGs.jl/releases/download/statistical-evidence-2026-09-22/PureRNGs-0.0.1-evidence-2026-10-01.tar.gz.sha256)
+are available together. The archive contains 34 BigCrush cases and 51 PractRand
+streams across all 17 named configurations, plus saved GPU validation and
+performance records. Each PractRand configuration has a 1 TiB root
 stream and 256 GiB split and `subrng` streams.
 These results cover the unchanged streams. Logs retain their original tested
 revisions and dates and remain outside Git. Publication does not imply that
 every battery ran again on the latest commit.
 Hosted CI has CPU tests only, including separate extension jobs.
 
-The published archive does not yet cover every named configuration:
+The published archive covers every named configuration at its recorded revision:
 
 | Configuration | BigCrush | PractRand |
 |:--|:--|:--|
-| Eight default-round Philox and Threefry generators | Both lanes | No complete runs |
+| Eight default-round Philox and Threefry generators | Both lanes | Root, split, and `subrng` |
 | `Philox4x32R7`, `Philox2x64R6`, `Philox4x64R7`, `Threefry4x32R12`, `Threefry4x64R13` | Both lanes | Root, split, and `subrng` |
 | `ChaCha8`, `ChaCha12` (also `ChaCha`), `ChaCha20` | Both lanes | Root, split, and `subrng` |
-| `Threefry2x64R13` | No run | No run |
+| `Threefry2x64R13` | Both lanes | Root, split, and `subrng` |
 
-Results for another round count, or for a prior implementation, do not fill these gaps.
+All cases pass their recorded campaign acceptance criteria. The archive retains
+13 BigCrush diagnostic flags and four non-failing PractRand unusual results.
+No failures are hidden by repacking. Tests at another round count or with a
+changed stream do not establish coverage of the current stream.
 Statistical stream tests do not validate distribution transforms or GPU performance.
 
 ### Statistical release gate
