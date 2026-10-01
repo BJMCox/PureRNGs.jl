@@ -308,7 +308,7 @@ Version tags and GitHub releases are managed manually.
 
 - Check every required gate on the exact release revision.
 - Review the exported interface and backend support levels.
-- Upload and link the complete statistical evidence.
+- Complete the [statistical release gate](docs/src/manual/reproducibility.md#statistical-release-gate) for every named configuration, then upload and link the evidence. Missing or failed cases block release.
 - Update the changelog with the chosen version and date.
 - Match the version in `Project.toml`.
 - Confirm repository visibility and documentation hosting before registration.
