@@ -201,11 +201,11 @@ function _snapshot(rng)
         rand(rng, UInt64),
         rand(rng, Int64),
         rand(rng, Float32),
-        rand(rng, Float64),
+        rand(rng),
         rand(rng, wide_range),
         first(rand_next(rng, wide_range)),
     )
-    pure_exponentials = (randexp(rng, Float32), randexp(rng, Float64))
+    pure_exponentials = (randexp(rng, Float32), randexp(rng))
     pure_addressed = (
         rand(rng, range),
         rand(rng, linrange),
@@ -217,7 +217,7 @@ function _snapshot(rng)
     pure = (pure_values, pure_exponentials, pure_addressed, pure_addressed_exponentials)
     normals = (
         _normal_observation(rng, Float32, randn(rng, Float32)),
-        _normal_observation(rng, Float64, randn(rng, Float64)),
+        _normal_observation(rng, Float64, randn(rng)),
         _normal_at_observation(rng, Float32, 3),
         _normal_at_observation(rng, Float64, 3),
     )
@@ -228,17 +228,17 @@ function _snapshot(rng)
     uint64_value, next_rng = rand_next(next_rng, UInt64)
     int64_value, next_rng = rand_next(next_rng, Int64)
     float32_value, next_rng = rand_next(next_rng, Float32)
-    float64_value, next_rng = rand_next(next_rng, Float64)
+    float64_value, next_rng = rand_next(next_rng)
     normal32_rng = next_rng
     normal32_value, next_rng = randn_next(normal32_rng, Float32)
     normal64_rng = next_rng
-    normal64_value, next_rng = randn_next(normal64_rng, Float64)
+    normal64_value, next_rng = randn_next(normal64_rng)
     continuation_normals = (
         _normal_observation(normal32_rng, Float32, normal32_value),
         _normal_observation(normal64_rng, Float64, normal64_value),
     )
     exponential32_value, next_rng = randexp_next(next_rng, Float32)
-    exponential64_value, next_rng = randexp_next(next_rng, Float64)
+    exponential64_value, next_rng = randexp_next(next_rng)
     range_value, next_rng = rand_next(next_rng, range)
     linrange_value, next_rng = rand_next(next_rng, linrange)
     continuation_values = (
@@ -910,11 +910,11 @@ function _fill_snapshot(rng)
         rand(rng, UInt64, 3, 2),
         rand(rng, Int64, 4),
         rand(rng, Float32, 70),
-        rand(rng, Float64, 33),
+        rand(rng, 33),
     )
-    normals = (randn(rng, Float32, 6), randn(rng, Float64, 2, 3))
-    exponentials = (randexp(rng, Float32, 6), randexp(rng, Float64, 5))
-    values, next_rng = rand_next(rng, Float64, 7)
+    normals = (randn(rng, Float32, 6), randn(rng, (2, 3)))
+    exponentials = (randexp(rng, Float32, 6), randexp(rng, (5,)))
+    values, next_rng = rand_next(rng, 7)
     return uniform, normals, exponentials, values, next_rng
 end
 
@@ -972,8 +972,11 @@ function _range_snapshot(rng)
     linear = rand(rng, LinRange{Int64}(-20, 20, 5), 4)
     values = randsample(rng, [1.5, 2.5, 3.5], 6)
     whole, after_whole = randsample_next(rng, 10:20)
-    tupled =
-        (rand(rng, Float32, (2, 3)), rand(rng, 1:1000, (3, 2)), rand_next(rng, (4,))...)
+    tupled = (
+        rand(rng, Float32, (2, 3)),
+        rand(rng, 1:1000, (3, 2)),
+        rand_next(rng, Float64, (4,))...,
+    )
     addressed = rand_at(rng, Float64, 3:7)
     return narrow,
     stepped,

@@ -84,7 +84,7 @@ One line per file in `src/`, in include order:
 - `allocation.jl` — `_allocate_draw_array` and the per-backend `_allocate_array`.
 - `bits.jl` — block evaluation and the scalar bit extractors.
 - `derive.jl` — `splitrng`, `subrng`, and the tagged key derivation behind them.
-- `uniform_scalar.jl` — the generator and result-type unions, `_draw_bits`, `_from_bits`, scalar `rand`, and the untyped-draw guards.
+- `uniform_scalar.jl` — the generator and result-type unions, `_draw_bits`, `_from_bits`, and scalar `rand`.
 - `validation.jl` — device, keyword, and serviceability checks for fills and sampling.
 - `uniform_fill.jl` — `_DenseBitCursor`, the uniform CPU fill, and the uniform grouped stores.
 - `fill_hooks.jl` — the uniform codec accessors, `_fill_backend`, and the `_launch_device_fill!` declaration the KernelAbstractions extension fills in.

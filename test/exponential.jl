@@ -84,12 +84,6 @@ end
     end
 end
 
-@testset "exponential scalar defaults" begin
-    rng = Philox4x32(0x864)
-    @test randexp_next(rng) === randexp_next(rng, Float64)
-    @test_throws ArgumentError randexp(rng)
-end
-
 @testset "exponential stream" begin
     for F in GENERATOR_TYPES, T in EXPONENTIAL_TYPES
         rng = _positioned(F, 0x865, UInt64(4), UInt16(61))

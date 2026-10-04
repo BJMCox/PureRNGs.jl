@@ -3,21 +3,23 @@
 # methods are spread over several files.
 
 @doc """
-    rand(rng::AbstractPureRNG, T) -> value
-    rand(rng::AbstractPureRNG, T, dims...) -> Array{T}
-    rand(rng::AbstractPureRNG, range) -> value
-    rand(rng::AbstractPureRNG, range, dims...) -> Array
+    rand(rng::AbstractPureRNG[, T]) -> value
+    rand(rng::AbstractPureRNG[, T], dims...) -> Array{T}
+    rand(rng::AbstractPureRNG, collection) -> value
+    rand(rng::AbstractPureRNG, collection, dims...) -> Array
 
 Draw uniform values at the held position of `rng` without advancing it. Two
 calls on the same generator return the same values. Use [`rand_next`](@ref) to
 continue the stream.
 
-`T` is required: `rand(rng)` throws. Supported result types are `Bool`, the 8- to 128-bit signed and unsigned integers,
+Omitting `T` selects `Float64`. Supported result types are `Bool`, the 8- to 128-bit signed and unsigned integers,
 `Float16`, `Float32`, `Float64`, and `Complex` values of those three.
 Integer draws cover the whole type, floating-point draws lie in `[0, 1)`, and a
 complex draw is a real draw followed by an imaginary one. A `range` argument
 draws from an integer range with signed or unsigned element type through 128
-bits. The array forms allocate on the generator's device.
+bits. Other collections follow [`rand_next`](@ref). A lone tuple is a collection;
+use `rand(rng, Float64, (m, n))` for tuple dimensions. The array forms allocate
+on the generator's device.
 
 # Examples
 
@@ -54,17 +56,16 @@ The keyword picks how the work is scheduled and never changes the values written
 """ Random.rand!(::AbstractPureRNG, ::AbstractArray, ::Any...)
 
 @doc """
-    randn(rng::AbstractPureRNG, T) -> value
-    randn(rng::AbstractPureRNG, T, dims...) -> Array{T}
+    randn(rng::AbstractPureRNG[, T]) -> value
+    randn(rng::AbstractPureRNG[, T], dims...) -> Array{T}
 
 Draw standard normal values at the held position of `rng` without advancing it.
 Two calls on the same generator return the same values. Use
 [`randn_next`](@ref) to continue the stream.
 
-`T` is required and is `Float16`, `Float32`, `Float64`, or a `Complex` of one of
-them: `randn(rng)` throws. A complex normal has variance 1/2 in each part, as in
-`Random`. The array
-forms allocate on the generator's device.
+Omitting `T` selects `Float64`. `T` may be `Float16`, `Float32`, `Float64`, or a
+`Complex` of one of them. A complex normal has variance 1/2 in each part, as in
+`Random`. The array forms allocate on the generator's device.
 """ Random.randn(::AbstractPureRNG, ::Any...)
 
 @doc """
@@ -80,15 +81,15 @@ values written.
 """ Random.randn!(::AbstractPureRNG, ::AbstractArray, ::Any...)
 
 @doc """
-    randexp(rng::AbstractPureRNG, T) -> value
-    randexp(rng::AbstractPureRNG, T, dims...) -> Array{T}
+    randexp(rng::AbstractPureRNG[, T]) -> value
+    randexp(rng::AbstractPureRNG[, T], dims...) -> Array{T}
 
 Draw standard exponential values at the held position of `rng` without
 advancing it. Two calls on the same generator return the same values. Use
 [`randexp_next`](@ref) to continue the stream.
 
-`T` is required and is `Float16`, `Float32`, or `Float64`: `randexp(rng)` throws. The array
-forms allocate on the generator's device.
+Omitting `T` selects `Float64`. `T` may be `Float16`, `Float32`, or `Float64`.
+The array forms allocate on the generator's device.
 """ Random.randexp(::AbstractPureRNG, ::Any...)
 
 @doc """

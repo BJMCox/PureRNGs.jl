@@ -345,9 +345,6 @@ end
             :negative_exponential_continuation_dimension,
             () -> randexp_next(rng, Float32, -1),
         ),
-        (:untyped_uniform, () -> rand(rng)),
-        (:untyped_normal, () -> randn(rng)),
-        (:untyped_exponential, () -> randexp(rng)),
         (:uniform_device_mismatch, () -> rand!(rng, wrong_uniform_destination)),
         (
             :uniform_continuation_device_mismatch,

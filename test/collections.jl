@@ -55,13 +55,15 @@ end
     end
 end
 
-@testset "a tuple of Int is a shape, and an empty collection is an error" begin
+@testset "a tuple of Int is a population" begin
     rng = Philox4x32(0x7d4)
-    @test size(first(rand_next(rng, (2, 3)))) == (2, 3)
-    @test_throws ArgumentError rand(rng, (2, 3))
-    @test rand(rng, (2, 3.0)) in (2, 3.0)
+    @test rand_next(rng, (2, 3)) == rand_next(rng, [2, 3])
+    @test rand(rng, (2, 3)) == first(rand_next(rng, (2, 3)))
+end
+
+@testset "an empty collection is an error" begin
+    rng = Philox4x32(0x7d4)
     for empty in (Int[], (), "", Dict{Int,Int}(), Set{Int}())
-        empty === () && continue
         @test_throws ArgumentError rand_next(rng, empty)
         @test_throws ArgumentError rand_at(rng, empty, 1)
     end

@@ -12,11 +12,8 @@ const IR = PureRNGs
 
 @inline _element(::Type{SA}) where {SA<:StaticArray} = _element(eltype(SA), SA)
 @inline _element(::Type{T}, ::Type) where {T} = T
-@noinline _element(::Type{Any}, ::Type{SA}) where {SA} = throw(
-    ArgumentError(
-        "untyped immutable draws are forbidden: $SA has no element type; use a type such as $SA{Float64}",
-    ),
-)
+@noinline _element(::Type{Any}, ::Type{SA}) where {SA} =
+    throw(ArgumentError("$SA has no element type; use a type such as $SA{Float64}"))
 
 # The draws are unrolled over `N`, so they allocate nothing and run in a kernel.
 @inline _chain(draw, rng, ::Val{0}) = ((), rng)

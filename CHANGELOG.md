@@ -57,6 +57,7 @@ Initial release.
 
 ### Changed
 
+- Primitive `rand`, `randn`, and `randexp` calls default to `Float64`, as in `Random`. A lone tuple is a population for both `rand` and `rand_next`. Use `rand_next(rng, Float64, dims)` instead of `rand_next(rng, dims)` when `dims` is a tuple.
 - CUDA fills with partial packed stores retain cooperative execution. CUDA Dirichlet scheduling accounts for the column kernel's register-limited occupancy.
 - Large CUDA weight tables use parallel accumulation with monotone, zero-preserving cumulative boundaries. Weighted selections can differ from the CPU through rounding. Primitive bits, parent advancement, and cached-table reuse are unchanged.
 - Aligned Philox4x32 CPU `BitArray` fills write four generated blocks directly to packed storage, preserving bit order, tails, and threaded chunk ownership.

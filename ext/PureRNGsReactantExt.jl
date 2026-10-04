@@ -748,9 +748,20 @@ for (draw, draw_next, bits, finish, types) in (
         end
     end
     @eval begin
-        @inline $draw_next(rng::_ReactantRNG, dims::Dims) = $draw_next(rng, Float64, dims)
+        @inline $draw(rng::_ReactantRNG) = $draw(rng, Float64)
+        @inline $draw_next(rng::_ReactantRNG) = $draw_next(rng, Float64)
+        @inline $draw(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
+            $draw(rng, Float64, dim1, dims...)
         @inline $draw_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
             $draw_next(rng, Float64, Int.((dim1, dims...)))
+    end
+    # Uniform tuple arguments name a population, not dimensions.
+    if draw != :(Random.rand)
+        @eval begin
+            @inline $draw(rng::_ReactantRNG, dims::Dims) = $draw(rng, Float64, dims)
+            @inline $draw_next(rng::_ReactantRNG, dims::Dims) =
+                $draw_next(rng, Float64, dims)
+        end
     end
 end
 

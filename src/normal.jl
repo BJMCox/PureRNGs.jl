@@ -311,12 +311,7 @@ end
     )
 end
 
-Random.randn(::AbstractPureRNG) = _untyped_draw_error("randn(rng, T)", "randn_next(rng, T)")
-Random.randn(::AbstractPureRNG, ::Integer, ::Integer...) =
-    _untyped_draw_error("randn(rng, T, dims...)", "randn_next(rng, dims...)")
-Random.randn(::AbstractPureRNG, ::Dims) =
-    _untyped_draw_error("randn(rng, T, dims...)", "randn_next(rng, dims...)")
-
+@inline Random.randn(rng::_ScalarUniformGenerators) = randn(rng, Float64)
 @inline randn_next(rng::_ScalarUniformGenerators) = randn_next(rng, Float64)
 
 @inline Random.randn(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_NormalResult} =
@@ -423,6 +418,15 @@ never changes.
 end
 @inline randn_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
     _engine_randn_next(rng, Float64, dims; threaded)
+
+@inline Random.randn(
+    rng::_ScalarUniformGenerators,
+    dim1::Integer,
+    dims::Integer...;
+    threaded::Bool = false,
+) = randn(rng, Float64, dim1, dims...; threaded)
+@inline Random.randn(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
+    randn(rng, Float64, dims; threaded)
 
 @inline function Random.randn(
     rng::_ScalarUniformGenerators,

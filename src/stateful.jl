@@ -170,7 +170,6 @@ for (Population, Repetition) in (
     ) = _StatefulPickSampler(population)
 end
 
-# The internal pick keeps a tuple of `Int` a collection; `rand_next` reads it as a shape.
 @inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulPickSampler) =
     _commit_bridge!(mutable_rng, _rand_next_pick(_held(mutable_rng), sampler.population))
 

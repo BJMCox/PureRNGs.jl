@@ -47,7 +47,14 @@ letters
 A pick accepts any array or range, a tuple, a string, a dict, or a set, as `rand` does in `Random`.
 It consumes and returns exactly what `randsample_next(rng, collection, 1)` does, and the array forms equal `randsample_next`.
 Strings, dicts, and sets reach the drawn position by iteration, so one pick costs time linear in their length.
-A tuple of `Int` passed to `rand_next` is a shape, not a collection.
+A lone tuple is a collection, including a tuple of integers. Use an explicit type for tuple dimensions:
+
+```@example sampling
+choice, rng = rand_next(rng, (2, 3))
+@assert choice in (2, 3)
+matrix, rng = rand_next(rng, Float64, (2, 3))
+@assert size(matrix) == (2, 3)
+```
 
 `rand_next(rng, Char)` is uniform over the 1,112,064 Unicode scalar values, as in `Random`.
 It draws the offset `k` from `0:0x10f7ff` and skips the surrogates: `k < 0xd800 ? Char(k) : Char(k + 0x800)`.

@@ -45,8 +45,12 @@ never changes.
         threaded,
     )
 end
-@inline rand_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
-    _rand_transformed_next_array(rng, Float64, dims, Val(:uniform), threaded)
+@inline Random.rand(
+    rng::_ScalarUniformGenerators,
+    dim1::Integer,
+    dims::Integer...;
+    threaded::Bool = false,
+) = rand(rng, Float64, dim1, dims...; threaded)
 
 @inline function Random.rand(
     rng::_ScalarUniformGenerators,

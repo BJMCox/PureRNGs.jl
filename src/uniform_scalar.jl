@@ -95,25 +95,6 @@ end
     return Complex{T}(_draw_unchecked(rng, position, T), _draw_unchecked(rng, imaginary, T))
 end
 
-@noinline function _untyped_draw_error(held_form::String, next_form::String)
-    throw(
-        ArgumentError(
-            "untyped immutable draws are forbidden; use $held_form to draw at the " *
-            "held position, or $next_form to advance",
-        ),
-    )
-end
-
-# Nine guard methods keep Base's untyped fallbacks unreachable. The dims
-# spellings would otherwise reach `Random.Sampler` through the collection path.
-Random.rand(::AbstractPureRNG) = _untyped_draw_error("rand(rng, T)", "rand_next(rng, T)")
-Random.rand(::AbstractPureRNG, ::Integer, ::Integer...) =
-    _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
-# The collection picks take tuples, so this guard names the same generator union
-# they do and stays more specific for a tuple of `Int`, which is a shape.
-Random.rand(::_ScalarUniformGenerators, ::Dims) =
-    _untyped_draw_error("rand(rng, T, dims...)", "rand_next(rng, dims...)")
-
 @inline function _rand_next_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T}
     next_rng = _reserve_scalar(rng, _draw_bits(T))
     return _from_bits(T, _chain_bits(rng, next_rng, Val(Int(_draw_bits(T))))), next_rng
@@ -132,6 +113,7 @@ end
 @inline _rand_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
     first(_rand_next_scalar(rng, T))
 
+@inline Random.rand(rng::_ScalarUniformGenerators) = rand(rng, Float64)
 @inline rand_next(rng::_ScalarUniformGenerators) = rand_next(rng, Float64)
 
 @inline Random.rand(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformResult} =
@@ -155,8 +137,9 @@ the CPU only.
 
 A collection is an integer range, any other array or range, a tuple, a string, a
 dict, or a set. A pick from it consumes and returns what one
-[`randsample_next`](@ref) draw does. A tuple of `Int` is a shape, not a
-collection. Strings, dicts, and sets reach the drawn position by iteration.
+[`randsample_next`](@ref) draw does. A lone tuple is a collection, including a
+tuple of integers. Use `rand_next(rng, Float64, (m, n))` for tuple dimensions.
+Strings, dicts, and sets reach the drawn position by iteration.
 
 The allocating forms create an array on the generator's device. The input
 generator never changes.
