@@ -308,7 +308,7 @@ end
     # The codegen check targets the kernel-facing generator. CPU-bound 64-bit
     # Philox uses the host widening multiply, which is 128-bit by design.
     rng = MLD.CUDADevice()(Philox4x64(0x52a))
-    @test_throws ArgumentError rand(rng)
+    @test rand(rng) === rand(rng, Float64)
     for (function_, signature) in (
         (rand, Tuple{typeof(rng),Type{UInt64}}),
         (rand_next, Tuple{typeof(rng),Type{Float64}}),

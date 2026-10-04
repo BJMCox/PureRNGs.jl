@@ -89,4 +89,4 @@ faces = rand(rng, 1:6, SVector{4})
 The scalar forms allocate nothing, so a GPU kernel can call them, and `rand_at(rng, SA, i)` gives each thread its own array without chaining.
 An array of static arrays fills as its `reinterpret` to `T`, so it runs on the same CPU and GPU fill paths.
 `rand(rng, X, SA)` picks `N` times from a collection or distribution `X`.
-The element type must be part of the type: `SVector{3}` alone throws, as an untyped draw does.
+The element type must be part of the static array type: use `SVector{3,Float64}`, not `SVector{3}`.

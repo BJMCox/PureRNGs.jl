@@ -43,6 +43,9 @@ end
 
 @inline Random.rand(rng::_ScalarUniformGenerators, population::_PickPopulation) =
     first(_rand_next_pick(rng, population))
+# Resolve Random's `rand(X, dims::Dims)` intersection as a population pick.
+@inline Random.rand(rng::_ScalarUniformGenerators, population::Dims) =
+    first(_rand_next_pick(rng, population))
 @inline rand_next(rng::_ScalarUniformGenerators, population::_PickPopulation) =
     _rand_next_pick(rng, population)
 

@@ -130,13 +130,7 @@ end
     return _exponential_from_bits(rng.device, T, value)
 end
 
-Random.randexp(::AbstractPureRNG) =
-    _untyped_draw_error("randexp(rng, T)", "randexp_next(rng, T)")
-Random.randexp(::AbstractPureRNG, ::Integer, ::Integer...) =
-    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
-Random.randexp(::AbstractPureRNG, ::Dims) =
-    _untyped_draw_error("randexp(rng, T, dims...)", "randexp_next(rng, dims...)")
-
+@inline Random.randexp(rng::_ScalarUniformGenerators) = Random.randexp(rng, Float64)
 @inline randexp_next(rng::_ScalarUniformGenerators) = randexp_next(rng, Float64)
 
 @inline Random.randexp(
@@ -224,6 +218,15 @@ never changes.
 end
 @inline randexp_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
     _engine_randexp_next(rng, Float64, dims; threaded)
+
+@inline Random.randexp(
+    rng::_ScalarUniformGenerators,
+    dim1::Integer,
+    dims::Integer...;
+    threaded::Bool = false,
+) = Random.randexp(rng, Float64, dim1, dims...; threaded)
+@inline Random.randexp(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
+    Random.randexp(rng, Float64, dims; threaded)
 
 @inline function Random.randexp(
     rng::_ScalarUniformGenerators,

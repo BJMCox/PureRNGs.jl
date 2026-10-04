@@ -41,12 +41,12 @@ Without a result type, these continuation functions default to `Float64`. Thus, 
 Functions without `_next` return only the result. They do not advance the generator.
 
 ```@example start
-a = rand(rng, Float64, 4)
+a = rand(rng, 4)
 b = rand(rng, Float64, 4)
 @assert a == b
 ```
 
-Always specify the type for primitive `rand`, `randn`, and `randexp` calls on an immutable generator.
+Primitive `rand`, `randn`, and `randexp` calls default to `Float64`, just like their `_next` forms.
 
 ## Choose a result type
 

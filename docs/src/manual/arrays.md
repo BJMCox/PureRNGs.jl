@@ -14,6 +14,8 @@ result, rng = rand_next!(rng, buffer)
 ```
 
 Dimensions are positional integers or one `Dims` tuple, as in `Random`.
+For uniform draws, put a result type before tuple dimensions: `rand_next(rng, Float64, (3, 4))`.
+A lone tuple is a population to pick from.
 Arrays use Julia's native column-major order.
 
 A bang modifies the destination, not the immutable generator.

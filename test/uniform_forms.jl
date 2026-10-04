@@ -48,26 +48,21 @@ end
     end
 end
 
-@testset "CPU allocating defaults and return order" begin
-    # The untyped array form of each family draws Float64 and reaches the same
-    # generator as the typed one.
-    for F in GENERATOR_TYPES
-        rng = F(0x62b)
-        for (typed_form, default_form) in (
-            ((rng, dims...) -> rand_next(rng, Float64, dims...), rand_next),
-            ((rng, dims...) -> randn_next(rng, Float64, dims...), randn_next),
-            ((rng, dims...) -> randexp_next(rng, Float64, dims...), randexp_next),
-        )
-            typed, typed_next = typed_form(rng, 2, 3)
-            default, default_next = default_form(rng, 2, 3)
-            @test default == typed
-            @test default_next === typed_next
-
-            empty, empty_next = default_form(rng, 0)
-            @test isempty(empty)
-            @test eltype(empty) === Float64
-            @test empty_next === rng
+@testset "primitive defaults equal explicit Float64 draws" begin
+    rng = Philox4x32(0x62b)
+    for (draw, draw_next) in
+        ((rand, rand_next), (randn, randn_next), (randexp, randexp_next))
+        @test draw(rng) === draw(rng, Float64)
+        @test draw_next(rng) === draw_next(rng, Float64)
+        for threaded in (false, true)
+            typed = draw_next(rng, Float64, 2, 3; threaded)
+            @test draw_next(rng, 2, 3; threaded) == typed
+            @test draw(rng, 2, 3; threaded) == first(typed)
         end
+
+        empty, empty_next = draw_next(rng, 0)
+        @test empty == draw(rng, 0) == Float64[]
+        @test empty_next === rng
     end
 end
 
@@ -80,6 +75,8 @@ end
     @test rand_next(rng, UInt32, (3, 2)) == rand_next(rng, UInt32, 3, 2)
     @test randn_next(rng, (5,)) == randn_next(rng, 5)
     @test randexp_next(rng, (2, 3)) == randexp_next(rng, 2, 3)
+    @test randn(rng, (5,); threaded = true) == randn(rng, Float64, 5)
+    @test randexp(rng, (2, 3); threaded = true) == randexp(rng, Float64, 2, 3)
     @test rand_next(rng, 1:6, (3, 4)) == rand_next(rng, 1:6, 3, 4)
     @test size(rand(rng, Float64, ())) == ()
 end

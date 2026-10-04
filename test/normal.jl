@@ -231,8 +231,6 @@ end
         @test default_next === typed_next
         @test default_value === typed_value
 
-        @test_throws ArgumentError randn(rng)
-
         for T in NORMAL_TYPES
             normal_allocations(rng, T)
             @test normal_allocations(rng, T) == (0, 0, 0)
