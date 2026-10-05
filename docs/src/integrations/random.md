@@ -1,5 +1,65 @@
 # Random interoperability
 
+## Write code for pure or mutable generators
+
+Use the `!!` adapter when code must accept either kind of generator. Always
+rebind both returned values:
+
+```@example unified
+using PureRNGs, Random
+
+function draw_and_fill(rng)
+    die, rng = randgen!!(rng, 1:6)
+    values, rng = randngen!!(rng, 4)
+    values, rng = randnset!!(rng, values)
+    return die, values, rng
+end
+
+pure_result = draw_and_fill(Philox4x32(7))
+mutable_result = draw_and_fill(Xoshiro(7))
+@assert 1 <= pure_result[1] <= 6
+@assert length(mutable_result[2]) == 4
+```
+
+`randgen!!(rng, source, dims...)` accepts types, populations, and supported
+distributions. `randset!!(rng, source, old_value)` puts the source before the
+destination for all three. It reuses writable arrays and replaces scalars,
+ranges, and immutable StaticArrays. A type source can replace an array with a
+different element type. Views with writable storage remain reusable.
+A static array type with a static array template denotes one whole sample:
+`randset!!(rng, SVector{3,Float64}, old_static_vector)`.
+
+`randugen!!`/`randuset!!`, `randngen!!`/`randnset!!`, and
+`randexpgen!!`/`randexpset!!` serve uniform, standard normal, and standard
+exponential draws without a source argument. Generators accept an optional
+result type, defaulting to `Float64`. Setters use the destination's existing
+element type. Tuple arguments to the primitive generators mean dimensions:
+`randugen!!(rng, (2, 3))` makes a matrix, while
+`randgen!!(rng, (2, 3))` picks either `2` or `3`.
+
+Nonempty tuple dimensions are equivalent to separate dimensions. For example,
+`randgen!!(rng, d, (n,))` and `randgen!!(rng, d, n)` both use the native `n` layout,
+even for a multivariate distribution. Empty tuples keep the native zero-dimensional
+array form where supported. Supported keywords follow the native methods. In
+particular, distribution fills keep their multivariate rules: a vector is one
+sample and matrix columns hold separate samples. Arrays of immutable samples
+use existing bulk methods. Arbitrary tuples and structs are single values,
+not recursively filled containers.
+
+Treat the old RNG and destination as consumed in generic code. The returned RNG
+may be the same mutable object or a new pure value. Pure snapshots remain valid.
+The adapter does not convert through `StatefulRNG`, move data to the host, or
+change any native stream. Existing device checks and bulk kernels still apply.
+
+The source stays unchanged. If a destination aliases a supported source, the
+adapter allocates replacement storage before drawing. Population elements may
+still be borrowed references. Unknown sources with references use replacement
+storage conservatively, without scanning their contents. Native mutable-RNG fills
+of arrays of array-valued distribution samples replace each inner sample, so
+they cannot overwrite a borrowed or immutable sample. A custom source must
+preserve this ownership contract in its own methods. Failed native calls are not retried and can leave
+mutable state advanced or a destination partly written.
+
 ## Wrap state for existing Julia code
 
 ```@example bridge

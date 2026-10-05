@@ -222,23 +222,23 @@ function _snapshot(rng)
         _normal_at_observation(rng, Float64, 3),
     )
 
-    bool_value, next_rng = rand_next(rng, Bool)
+    bool_value, next_rng = randgen!!(rng, Bool)
     uint32_value, next_rng = rand_next(next_rng, UInt32)
     int32_value, next_rng = rand_next(next_rng, Int32)
     uint64_value, next_rng = rand_next(next_rng, UInt64)
     int64_value, next_rng = rand_next(next_rng, Int64)
     float32_value, next_rng = rand_next(next_rng, Float32)
-    float64_value, next_rng = rand_next(next_rng)
+    float64_value, next_rng = randugen!!(next_rng)
     normal32_rng = next_rng
     normal32_value, next_rng = randn_next(normal32_rng, Float32)
     normal64_rng = next_rng
-    normal64_value, next_rng = randn_next(normal64_rng)
+    normal64_value, next_rng = randngen!!(normal64_rng)
     continuation_normals = (
         _normal_observation(normal32_rng, Float32, normal32_value),
         _normal_observation(normal64_rng, Float64, normal64_value),
     )
     exponential32_value, next_rng = randexp_next(next_rng, Float32)
-    exponential64_value, next_rng = randexp_next(next_rng)
+    exponential64_value, next_rng = randexpgen!!(next_rng)
     range_value, next_rng = rand_next(next_rng, range)
     linrange_value, next_rng = rand_next(next_rng, linrange)
     continuation_values = (
@@ -993,9 +993,9 @@ end
 _addressed_transforms(rng) = (randn_at(rng, Float32, 2:5), randexp_at(rng, Float64, 4:9))
 
 function _destination_snapshot(rng, uniform, normal, exponential)
-    _, after_uniform = rand_next!(rng, uniform)
-    _, after_normal = randn_next!(after_uniform, normal)
-    randexp!(after_normal, exponential)
+    uniform, after_uniform = randset!!(rng, eltype(uniform), uniform)
+    normal, after_normal = randnset!!(after_uniform, normal)
+    exponential, _ = randexpset!!(after_normal, exponential)
     return uniform, normal, exponential, after_normal
 end
 

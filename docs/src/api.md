@@ -60,6 +60,22 @@ randexp_next
 randexp_next!
 ```
 
+## Unified pure and mutable calls
+
+These adapters return `(value, next_rng)` for either kind of generator. Source
+arguments precede destinations in `randset!!`, including for distributions.
+
+```@docs
+randgen!!
+randset!!
+randugen!!
+randuset!!
+randngen!!
+randnset!!
+randexpgen!!
+randexpset!!
+```
+
 ## Addressed draws
 
 ```@docs

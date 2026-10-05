@@ -6,9 +6,28 @@ module PureRNGsStaticArraysExt
 
 import PureRNGs
 import Random
-using StaticArrays: StaticArray
+using StaticArrays: StaticArrays, StaticArray
 
 const IR = PureRNGs
+
+# A static type with a static template denotes one sample, not an array of them.
+@inline IR.randset!!(
+    rng,
+    ::Type{SA},
+    destination::StaticArray;
+    kwargs...,
+) where {SA<:StaticArray} = IR.randgen!!(rng, SA; kwargs...)
+@inline IR.randset!!(
+    rng,
+    ::Type{MA},
+    destination::MA;
+    kwargs...,
+) where {MA<:StaticArrays.MArray} = IR.randuset!!(rng, destination; kwargs...)
+
+@inline IR._randset_storage(destination::StaticArrays.SArray, ::Type{T}) where {T} =
+    similar(destination, T)
+@inline IR._randset_finish(destination::StaticArrays.SArray, values) =
+    StaticArrays.similar_type(typeof(destination), eltype(values))(values)
 
 @inline _element(::Type{SA}) where {SA<:StaticArray} = _element(eltype(SA), SA)
 @inline _element(::Type{T}, ::Type) where {T} = T
