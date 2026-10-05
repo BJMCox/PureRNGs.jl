@@ -4,4 +4,5 @@ using Test
 # instead of thrown. A thrown failure would abort every later testset in the file.
 @testset "distributions" begin
     include("suite.jl")
+    include("unified.jl")
 end

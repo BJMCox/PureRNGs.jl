@@ -556,6 +556,9 @@ primary = first(devices)
 CUDA.device!(primary)
 device = MLD.CUDADevice(primary)
 
+include(joinpath(@__DIR__, "..", "..", "..", "unified_device.jl"))
+test_unified_device(Philox4x32(25) |> device)
+
 # Device code takes the widening product from `mul.hi.u64` and the host keeps
 # the portable four-product form, so the two must agree bit for bit.
 @testset "CUDA high product matches the portable product" begin

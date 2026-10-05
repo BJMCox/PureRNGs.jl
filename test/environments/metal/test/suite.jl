@@ -229,6 +229,8 @@ end
 end
 
 if Metal.functional()
+    include(joinpath(@__DIR__, "..", "..", "..", "unified_device.jl"))
+    test_unified_device(Philox4x32(25) |> MetalDevice())
     @testset "Metal normalizes tiny concentrations" begin
         cpu_rng = Philox4x32(123)
         rng = MetalDevice()(cpu_rng)

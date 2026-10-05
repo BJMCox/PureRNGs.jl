@@ -3,6 +3,44 @@ using Random
 using StaticArrays
 using Test
 
+@testset "unified setters replace static values and fill their batches" begin
+    for F in (Philox4x32, Xoshiro),
+        (set, fill!, next!) in (
+            (randuset!!, rand!, rand_next!),
+            (randnset!!, randn!, randn_next!),
+            (randexpset!!, randexp!, randexp_next!),
+        )
+
+        rng, reference = F(23), F(23)
+        expected = MVector{3,Float64}(undef)
+        expected_rng = if reference isa AbstractPureRNG
+            last(next!(reference, expected))
+        else
+            fill!(reference, expected)
+            reference
+        end
+        value, after = set(rng, SVector(0.0, 0.0, 0.0))
+        @test value === SVector{3,Float64}(expected)
+        @test first(randgen!!(after, UInt64)) == first(randgen!!(expected_rng, UInt64))
+    end
+    rng = Philox4x32(24)
+    target = MVector(0.0, 0.0)
+    value, after = randset!!(rng, typeof(target), target)
+    @test value === target
+    @test (value, after) == rand_next(rng, typeof(target))
+    values = Vector{SVector{2,Float32}}(undef, 4)
+    result, after = randset!!(rng, SVector{2,Float32}, values)
+    @test result === values
+    @test (result, after) == rand_next(rng, SVector{2,Float32}, 4)
+    @test randset!!(rng, UInt32, SVector(0.0, 0.0)) == rand_next(rng, SVector{2,UInt32})
+    for F in (Philox4x32, Xoshiro)
+        value, after = randset!!(F(28), SVector{2,Float64}, SVector(0.0, 0.0))
+        expected, reference = randgen!!(F(28), SVector{2,Float64})
+        @test value == expected
+        @test first(randgen!!(after, UInt64)) == first(randgen!!(reference, UInt64))
+    end
+end
+
 # A static array of N elements is the next N scalar draws, so it equals a
 # length-N fill.
 @testset "a static draw is the next N scalar draws" begin

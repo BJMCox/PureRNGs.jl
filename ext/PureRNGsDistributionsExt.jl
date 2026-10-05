@@ -242,6 +242,7 @@ end
 ) = IR._engine_rand_next!(rng, d, destination; threaded)
 
 include("distributions_categorical.jl")
+include("distributions_unified.jl")
 
 # A multivariate normal draw is Distributions' own map, `μ + L z`, applied to
 # `length(d)` standard normal draws at the held position, where `L` is the

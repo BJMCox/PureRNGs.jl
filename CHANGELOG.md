@@ -10,6 +10,7 @@ Initial release.
 
 ### Added
 
+- Unified `randgen!!`/`randset!!` adapters and uniform, normal, and exponential variants for pure and mutable generators, with native bulk fills and mutate-or-replace destinations.
 - Immutable Philox, Threefry, and ChaCha generators with explicit continuation and purpose-based key derivation. Continuation functions return `(value, next_rng)`.
 - Primitive, integer-range, and population sampling, including weighted sampling with replacement. Every draw kind reads one stream of bits at the generator's position.
 - Fixed-work `Normal`, `Uniform`, `Exponential`, `LogNormal`, `Weibull`, `Rayleigh`, `Laplace`, `Logistic`, `Gumbel`, `Pareto`, `Frechet`, `Cauchy`, `TriangularDist`, `Bernoulli`, and `DiscreteUniform` draws, continuations, addressed draws, and fills, plus `Categorical` labels and in-place population sampling with `randsample!` and `randsample_next!`.

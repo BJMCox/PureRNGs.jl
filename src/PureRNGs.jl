@@ -32,6 +32,14 @@ export Philox2x32,
     randn_next!,
     randexp_next,
     randexp_next!,
+    randgen!!,
+    randset!!,
+    randugen!!,
+    randuset!!,
+    randngen!!,
+    randnset!!,
+    randexpgen!!,
+    randexpset!!,
     rand_at,
     randn_at,
     randexp_at,
@@ -82,6 +90,7 @@ include("collections.jl")
 include("permutations.jl")
 include("weighted_sampling.jl")
 include("stateful.jl")
+include("unified.jl")
 include("docstrings.jl")
 include("precompile.jl")
 
