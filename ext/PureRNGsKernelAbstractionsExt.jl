@@ -297,7 +297,7 @@ KernelAbstractions.@kernel function _key_bucket_order_kernel!(ordered, permutati
     end
 end
 
-function IR._order_device_keys!(backend::KernelAbstractions.GPU, permutation, keys)
+function IR._order_device_keys!(backend::KernelAbstractions.Backend, permutation, keys)
     n = length(keys)
     (n < 2 || n > 1 << (_DEVICE_KEY_BUCKET_BITS + 3)) && return sortperm!(permutation, keys)
     bits = min(_DEVICE_KEY_BUCKET_BITS, 64 - leading_zeros(n - 1))
@@ -363,14 +363,14 @@ KernelAbstractions.@kernel function _scatter_kernel!(destination, indices, sourc
     destination[indices[slot]] = source[slot]
 end
 
-function IR._gather(backend::KernelAbstractions.GPU, source, indices)
+function IR._gather(backend::KernelAbstractions.Backend, source, indices)
     destination = similar(source, length(indices))
     isempty(indices) ||
         _gather_kernel!(backend)(destination, source, indices; ndrange = length(indices))
     return destination
 end
 
-function IR._scatter!(backend::KernelAbstractions.GPU, destination, indices, source)
+function IR._scatter!(backend::KernelAbstractions.Backend, destination, indices, source)
     isempty(indices) ||
         _scatter_kernel!(backend)(destination, indices, source; ndrange = length(indices))
     return destination

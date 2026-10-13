@@ -444,7 +444,7 @@ function _check_cooperative_kernel_code(
     outputs_per_store = CUDA_EXT._outputs_per_store(plan)
     workgroup = IR._val_count(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
-    typed = KernelAbstractions.@ka_code_typed kernel(
+    typed = CUDA.@device_code_typed kernel(
         rng,
         packed,
         Val(T),
@@ -460,6 +460,7 @@ function _check_cooperative_kernel_code(
         workgroupsize = workgroup,
     )
     typed_text = sprint(show, typed)
+    @test !isempty(typed)
     llvm = sprint() do io
         CUDA.@device_code_llvm io = io kernel(
             rng,
@@ -1137,7 +1138,7 @@ end
         packed_rng = device(F(0x785))
         destination = CUDA.CuArray{T}(undef, 1024)
         storage_type = extension_module._CUDANatural128Pack{T}
-        packed_typed = KernelAbstractions.@ka_code_typed kernel(
+        packed_typed = CUDA.@device_code_typed kernel(
             packed_rng,
             destination,
             Val(storage_type),
@@ -1145,6 +1146,7 @@ end
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
         packed_typed_text = sprint(show, packed_typed)
+        @test !isempty(packed_typed)
         packed_llvm_text = sprint() do io
             CUDA.@device_code_llvm io = io kernel(
                 packed_rng,
@@ -1181,7 +1183,7 @@ end
             extension_module._CUDA_B8X16,
             CUDA.CuArray{Bool}(undef, Int(IR._block_bits(bool_rng))),
         )
-        bool_typed = KernelAbstractions.@ka_code_typed bool_kernel(
+        bool_typed = CUDA.@device_code_typed bool_kernel(
             bool_rng,
             packed,
             packs_per_block,
@@ -1189,6 +1191,7 @@ end
             workgroupsize = 1,
         )
         bool_typed_text = sprint(show, bool_typed)
+        @test !isempty(bool_typed)
         bool_llvm_text = sprint() do io
             CUDA.@device_code_llvm io = io bool_kernel(
                 bool_rng,

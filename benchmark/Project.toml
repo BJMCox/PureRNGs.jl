@@ -16,7 +16,7 @@ PureRNGs = {path = ".."}
 BenchmarkTools = "1"
 CUDA = "5.8, 6"
 Distributions = "0.25"
-KernelAbstractions = "0.9.43"
+KernelAbstractions = "0.9.43, 0.10"
 LinearAlgebra = "1.13"
 MLDataDevices = "1.17.10"
 Printf = "1.11"
