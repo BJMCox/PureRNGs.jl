@@ -358,8 +358,8 @@ end
 
 @testset "CUDA fixed-distribution arrays and fills" begin
     extension = Base.get_extension(IR, :PureRNGsDistributionsExt)
-    # One exact distribution per primitive draw type for the other generators.
-    exact_distributions = (
+    # One distribution per primitive draw type for the other generators.
+    representative_distributions = (
         CUDA_FIXED_DISTRIBUTIONS[4],
         CUDA_FIXED_DISTRIBUTIONS[6],
         CUDA_FIXED_DISTRIBUTIONS[9],
@@ -368,7 +368,7 @@ end
         ((Philox4x32, distribution) for distribution in CUDA_FIXED_DISTRIBUTIONS)...,
         (
             (F, distribution) for F in GENERATOR_TYPES for
-            distribution in exact_distributions if F !== Philox4x32
+            distribution in representative_distributions if F !== Philox4x32
         )...,
     )
     for (F, distribution) in cases
@@ -376,7 +376,7 @@ end
         gpu_rng = device(cpu_rng)
         result_type = extension._result_type(distribution)
         fills = (_distribution_fill_functions(distribution),)
-        exact = !(distribution isa Union{Normal,Distributions.Exponential})
+        exact = !(distribution isa Union{Normal,Uniform,Distributions.Exponential})
         _check_array_draw(
             cpu_rng,
             gpu_rng,
@@ -390,7 +390,21 @@ end
         if !exact
             raw = Array(_primitive_array(gpu_rng, distribution, 19))
             expected = map(value -> _distribution_oracle(distribution, value), raw)
-            @test isequal(Array(rand(gpu_rng, distribution, 19)), expected)
+            actual = Array(rand(gpu_rng, distribution, 19))
+            if distribution isa Uniform
+                # CUDA may fuse the affine transform. Bound rounding at the interval
+                # scale, since cancellation near zero magnifies output-relative ULPs.
+                @test all(
+                    isapprox.(
+                        actual,
+                        expected;
+                        rtol = 0,
+                        atol = eps(distribution.b - distribution.a),
+                    ),
+                )
+            else
+                @test isequal(actual, expected)
+            end
         end
     end
 end

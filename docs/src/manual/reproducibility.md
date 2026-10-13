@@ -71,8 +71,11 @@ The two normal formulas read the same random bits and the same uniform value, an
 A device-placed generator keeps its device when you draw from it on the host, so `randn(cuda_rng, T)` does not equal `randn(cpu_rng, T)`.
 Within one formula, matching random bits still do not force different `log` or `sqrt` implementations to return identical values.
 
+Distribution transforms, including affine `Uniform(a, b)` draws, can also differ when a backend fuses multiply-add operations.
+This changes floating-point rounding, not the primitive bits or stream advancement.
+
 Weighted sampling and `Categorical` also depend on cumulative-sum rounding.
-CUDA uses parallel sums for large tables, so selected elements can differ across backends or backend versions.
+CUDA can use parallel sums, so selected elements can differ across backends or backend versions.
 Primitive bits and parent advancement do not change. A `WeightTable` reuses the same prepared boundaries within its backend.
 
 Reactant permits further compiler-dependent transformations.
