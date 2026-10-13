@@ -6,6 +6,10 @@ using Test
 
 include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
 
+# KA 0.10 compiles CPU kernels through PoCL and adapts their arguments.
+Adapt.adapt_structure(to, array::ZeroBasedVector) =
+    ZeroBasedVector(Adapt.adapt(to, array.data))
+
 # The KernelAbstractions CPU backend runs the same kernels a GPU backend launches,
 # so the device fill plans can be checked on any machine. A device token routes
 # the generator through the device launchers; the destination stays on the host.
@@ -115,7 +119,7 @@ end
 # backend reports no limit, so a stand-in limit reaches both branches.
 IR._column_workitems(::KernelAbstractions.CPU, rng, destination, codec) = 4
 
-@testset "device Dirichlet column fills equal the host column fill" begin
+@testset "device Dirichlet column fills agree with the host column fill" begin
     rng = Philox4x32(11, 5)
     codec = IR._DirichletCodec([0.3, 2.0, 5.0])
     for columns in (3, 4, 9), threaded in (false, true)
@@ -123,7 +127,7 @@ IR._column_workitems(::KernelAbstractions.CPU, rng, destination, codec) = 4
         IR._fill_columns!(IR._CPU_BACKEND, rng, host, false, codec)
         device = zeros(3, columns)
         IR._fill_columns!(KernelAbstractions.CPU(), rng, device, threaded, codec)
-        @test device == host
+        @test device ≈ host rtol = 4eps(Float64) atol = 0
         @test all(≈(1), sum(device; dims = 1))
     end
 end

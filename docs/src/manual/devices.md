@@ -16,6 +16,10 @@ values, rng = rand_next(rng, Float32, 1_000_000)
 KernelAbstractions is a weak dependency that carries the device kernels, and every
 GPU backend package pulls it in, so a CPU-only environment installs neither.
 
+PureRNGs supports KernelAbstractions 0.9 and 0.10. Backend packages and other
+dependencies determine which version your environment can resolve.
+Ordinary CPU draws use PureRNGs' own CPU path, not KernelAbstractions' CPU backend.
+
 Allocating draws create backend arrays. Fills require a destination on the same backend.
 No unsupported operation silently falls back to the CPU. The one exception is
 explicit: `StatefulRNG(rng)` rebinds a device generator to the CPU. See

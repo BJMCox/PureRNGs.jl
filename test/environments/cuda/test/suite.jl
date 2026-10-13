@@ -444,7 +444,7 @@ function _check_cooperative_kernel_code(
     outputs_per_store = CUDA_EXT._outputs_per_store(plan)
     workgroup = IR._val_count(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
-    typed = KernelAbstractions.@ka_code_typed kernel(
+    typed = CUDA.@device_code_typed kernel(
         rng,
         packed,
         Val(T),
@@ -460,6 +460,7 @@ function _check_cooperative_kernel_code(
         workgroupsize = workgroup,
     )
     typed_text = sprint(show, typed)
+    @test !isempty(typed)
     llvm = sprint() do io
         CUDA.@device_code_llvm io = io kernel(
             rng,
@@ -1137,7 +1138,7 @@ end
         packed_rng = device(F(0x785))
         destination = CUDA.CuArray{T}(undef, 1024)
         storage_type = extension_module._CUDANatural128Pack{T}
-        packed_typed = KernelAbstractions.@ka_code_typed kernel(
+        packed_typed = CUDA.@device_code_typed kernel(
             packed_rng,
             destination,
             Val(storage_type),
@@ -1145,6 +1146,7 @@ end
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
         packed_typed_text = sprint(show, packed_typed)
+        @test !isempty(packed_typed)
         packed_llvm_text = sprint() do io
             CUDA.@device_code_llvm io = io kernel(
                 packed_rng,
@@ -1181,7 +1183,7 @@ end
             extension_module._CUDA_B8X16,
             CUDA.CuArray{Bool}(undef, Int(IR._block_bits(bool_rng))),
         )
-        bool_typed = KernelAbstractions.@ka_code_typed bool_kernel(
+        bool_typed = CUDA.@device_code_typed bool_kernel(
             bool_rng,
             packed,
             packs_per_block,
@@ -1189,6 +1191,7 @@ end
             workgroupsize = 1,
         )
         bool_typed_text = sprint(show, bool_typed)
+        @test !isempty(bool_typed)
         bool_llvm_text = sprint() do io
             CUDA.@device_code_llvm io = io bool_kernel(
                 bool_rng,
@@ -1786,43 +1789,52 @@ end
 
     # Tree sums can round downward or assign a step to a zero weight. Neither
     # is a valid CDF, even though matching the CPU's addition order is optional.
-    scan_weights_host = Float64[mod(7i, 19) for i = 1:65_537]
-    scan_weights_host[1:7:end] .= 0.0
-    scan_weights_host[31:257:end] .= 0x1p53
-    scan_weights = CUDA.CuArray(scan_weights_host)
-    scan_population = 1:length(scan_weights_host)
-    table = WeightTable(scan_weights)
-    cumulative = Array(table.cumulative)
-    oracle = Float64.(accumulate(+, BigFloat.(scan_weights_host)))
-    @test issorted(cumulative)
-    @test all(iszero, diff(cumulative)[iszero.(scan_weights_host[2:end])])
-    @test all(isapprox.(cumulative, oracle; rtol = 32eps(Float64)))
-    draws, after = randsample_next(range_rng, scan_population, table, 17)
-    @test all(>(0), scan_weights_host[Array(draws)])
-    @test Array(draws) == Array(randsample(range_rng, scan_population, scan_weights, 17))
-    @test Array(draws) ==
-          Array(randsample(range_rng, scan_population, scan_weights .* 8, 17))
-    @test rngposition(after) - rngposition(range_rng) == 17 * 53
-    cursor = range_rng
-    for expected in Array(draws)
-        value, cursor = randsample_next(cursor, scan_population, table, 1)
-        @test only(Array(value)) == expected
-    end
-    @test cursor == after
+    # Cover both sides of the group-scan bounds and the multi-block scan.
+    for count in (255, 256, 1024, 1025, 65_537)
+        scan_weights_host = Float64[mod(7i, 19) + 0.1 for i = 1:count]
+        scan_weights_host[1:7:end] .= 0.0
+        scan_weights_host[31:257:end] .= 0x1p53
+        scan_weights_host[1:4] = [1.0, eps() / 2, eps() / 2, 0.0]
+        scan_weights = CUDA.CuArray(scan_weights_host)
+        scan_population = 1:length(scan_weights_host)
+        table = WeightTable(scan_weights)
+        cumulative = Array(table.cumulative)
+        oracle = Float64.(accumulate(+, BigFloat.(scan_weights_host)))
+        @test issorted(cumulative)
+        @test all(iszero, diff(cumulative)[iszero.(scan_weights_host[2:end])])
+        # The unchanged serial fold can accumulate more rounding error than a
+        # tree sum. Require its exact values or a tight high-precision match.
+        @test cumulative == accumulate(+, scan_weights_host) ||
+              all(isapprox.(cumulative, oracle; rtol = 32eps(Float64)))
+        draws, after = randsample_next(range_rng, scan_population, table, 17)
+        @test all(>(0), scan_weights_host[Array(draws)])
+        @test Array(draws) ==
+              Array(randsample(range_rng, scan_population, scan_weights, 17))
+        @test Array(draws) ==
+              Array(randsample(range_rng, scan_population, scan_weights .* 8, 17))
+        @test rngposition(after) - rngposition(range_rng) == 17 * 53
+        cursor = range_rng
+        for expected in Array(draws)
+            value, cursor = randsample_next(cursor, scan_population, table, 1)
+            @test only(Array(value)) == expected
+        end
+        @test cursor == after
 
-    invalid_scan_weights = copy(scan_weights_host)
-    destination = CUDA.fill(-1, 17)
-    for invalid in (-1.0, NaN, Inf)
-        invalid_scan_weights[32_769] = invalid
-        @test_throws ArgumentError randsample_next!(
-            range_rng,
-            scan_population,
-            CUDA.CuArray(invalid_scan_weights),
-            destination,
-        )
-        @test all(==(-1), Array(destination))
+        invalid_scan_weights = copy(scan_weights_host)
+        destination = CUDA.fill(-1, 17)
+        for invalid in (-1.0, NaN, Inf)
+            invalid_scan_weights[cld(count, 2)] = invalid
+            @test_throws ArgumentError randsample_next!(
+                range_rng,
+                scan_population,
+                CUDA.CuArray(invalid_scan_weights),
+                destination,
+            )
+            @test all(==(-1), Array(destination))
+        end
+        @test_throws ArgumentError WeightTable(CUDA.zeros(Float64, length(scan_weights)))
+        @test_throws ArgumentError WeightTable(CUDA.fill(floatmax(Float64), count))
     end
-    @test_throws ArgumentError WeightTable(CUDA.zeros(Float64, length(scan_weights)))
 
     wrong_weights = copy(cpu_weights)
     error = try

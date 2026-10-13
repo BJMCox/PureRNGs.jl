@@ -19,7 +19,7 @@ PureRNGs = {path = "../../.."}
 AMDGPU = "2"
 Distributions = "0.25"
 Enzyme = "0.13.203"
-KernelAbstractions = "0.9"
+KernelAbstractions = "0.9, 0.10"
 PureRNGs = "0.0.1"
 MLDataDevices = "1.17"
 Random = "1"

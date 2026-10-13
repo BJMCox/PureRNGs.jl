@@ -107,7 +107,7 @@ jobs:
             Aqua.test_all(PureRNGs)'
 
   extensions:
-    name: Extension / ${{ matrix.suite }} / CPU
+    name: Extension / ${{ matrix.suite }} / CPU${{ matrix.ka == '0.10' && ' / KA 0.10' || '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -124,7 +124,8 @@ jobs:
           - {suite: staticarrays, args: ''}
           - {suite: autodiff, args: ''}
           - {suite: turing, args: ''}
-          - {suite: kernelabstractions, args: ''}
+          - {suite: kernelabstractions, args: '', ka: '0.9'}
+          - {suite: kernelabstractions, args: '', ka: '0.10'}
     env:
       JULIA_NUM_THREADS: '4'
       PURERNGS_REACTANT_BACKEND: cpu
@@ -134,6 +135,14 @@ jobs:
         with:
           version: '1'
       - uses: julia-actions/cache@v3
+      - name: Select KernelAbstractions series
+        if: matrix.ka
+        env:
+          KA_VERSION: ${{ matrix.ka }}
+        run: |
+          julia --startup-file=no --project=test/environments/kernelabstractions -e '
+            using Pkg
+            Pkg.add(PackageSpec(name="KernelAbstractions", version=ENV["KA_VERSION"]); allow_autoprecomp=false)'
       - name: Test extension with coverage
         run: |
           julia --startup-file=no --check-bounds=yes --code-coverage=user \
@@ -145,7 +154,7 @@ jobs:
           directories: src,ext
       - uses: actions/upload-artifact@v7
         with:
-          name: coverage-${{ matrix.suite }}
+          name: coverage-${{ matrix.suite }}${{ matrix.ka == '0.10' && '-ka010' || '' }}
           path: lcov.info
           if-no-files-found: error
       - uses: codecov/codecov-action@v7

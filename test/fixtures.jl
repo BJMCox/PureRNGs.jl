@@ -62,8 +62,8 @@ Base.setindex!(array::WrongDeviceArray, value, indices...) =
     setindex!(array.data, value, indices...)
 MLD.get_device_type(::WrongDeviceArray) = MLD.UnknownDevice
 
-struct ZeroBasedVector{T} <: AbstractVector{T}
-    data::Vector{T}
+struct ZeroBasedVector{T,A<:AbstractVector{T}} <: AbstractVector{T}
+    data::A
 end
 
 Base.size(array::ZeroBasedVector) = size(array.data)

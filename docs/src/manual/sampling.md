@@ -127,8 +127,9 @@ weighted scratch space, so an in-place weighted fill does not promise zero
 allocations. CPU weighted fills follow the `threaded` keyword like the other
 fills.
 
-CUDA prepares large cumulative tables with parallel sums, then preserves
-monotonicity and zero-weight plateaus. The changed addition order can change
+CUDA uses parallel sums for large cumulative tables. With KernelAbstractions 0.10,
+it also uses them for medium tables. Each path preserves monotonicity and
+zero-weight plateaus. The changed addition order can change
 selected elements compared with the CPU or another backend version.
 The random bits, parent advancement, and within-backend batch/chained equality stay unchanged.
 

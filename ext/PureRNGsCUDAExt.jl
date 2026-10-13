@@ -7,6 +7,39 @@ using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
 
+const _HAS_WEIGHT_GROUP_SCAN = isdefined(KernelAbstractions, Symbol("@groupscan"))
+
+@static if _HAS_WEIGHT_GROUP_SCAN
+    KernelAbstractions.@kernel function _weight_group_scan_kernel!(
+        source,
+        total_result,
+        invalid_result,
+        cumulative,
+        ::Val{lanes},
+    ) where {lanes}
+        lane = @index(Local, Linear)
+        count = length(source)
+        weight = lane <= count ? Float64(IR._population_value(source, UInt64(lane))) : 0.0
+        prefix = KernelAbstractions.@groupscan(+, weight, 0.0; groupsize = lanes)
+        # Rounded tree sums can decrease or invent a step at a zero weight.
+        staged = iszero(weight) ? 0.0 : prefix
+        prefix = KernelAbstractions.@groupscan(max, staged, 0.0; groupsize = lanes)
+        invalid = KernelAbstractions.@groupreduce(
+            |,
+            !isfinite(weight) || weight < 0.0,
+            false;
+            groupsize = lanes
+        )
+        if lane <= count
+            @inbounds cumulative[lane] = prefix
+        end
+        if lane == count
+            @inbounds total_result[1] = prefix
+            @inbounds invalid_result[1] = invalid || !isfinite(prefix) || prefix <= 0.0
+        end
+    end
+end
+
 KernelAbstractions.@kernel function _weight_values_kernel!(
     cumulative,
     source,
@@ -33,30 +66,57 @@ KernelAbstractions.@kernel function _weight_total_kernel!(
 end
 
 function IR._fold_device_weights(device::IR._CUDABackend, weights, agnostic::Bool)
-    # A single workgroup avoids scan-launch overhead for short vectors.
-    length(weights) <= 8192 && return invoke(
-        IR._fold_device_weights,
-        Tuple{Any,Any,Bool},
-        device,
-        weights,
-        agnostic,
-    )
+    # A100 timings favor a collective for 256–1024 weights, not tiny inputs.
+    count = length(weights)
+    group_scan = _HAS_WEIGHT_GROUP_SCAN && 256 <= count <= 1024
+    if count <= 8192 && !group_scan
+        return invoke(
+            IR._fold_device_weights,
+            Tuple{Any,Any,Bool},
+            device,
+            weights,
+            agnostic,
+        )
+    end
     source = agnostic ? IR._transfer_array(device, IR._collect_weights(weights)) : weights
     cumulative = IR._allocate_array(device, Float64, (length(source),))
     total_result = IR._allocate_array(device, Float64, (1,))
     invalid_result = IR._allocate_array(device, Bool, (1,))
     backend = IR._fill_backend(device, cumulative)
-    _weight_values_kernel!(backend)(
-        cumulative,
-        source,
-        Val(false);
-        ndrange = length(source),
-    )
-    accumulate!(+, cumulative, cumulative)
-    _weight_values_kernel!(backend)(cumulative, source, Val(true); ndrange = length(source))
-    # Restore monotonicity and zero-weight plateaus after rounded tree sums.
-    accumulate!(max, cumulative, cumulative)
-    _weight_total_kernel!(backend)(total_result, invalid_result, cumulative; ndrange = 1)
+    if group_scan
+        lanes = nextpow(2, count)
+        _weight_group_scan_kernel!(backend)(
+            source,
+            total_result,
+            invalid_result,
+            cumulative,
+            Val(lanes);
+            ndrange = lanes,
+            workgroupsize = lanes,
+        )
+    else
+        _weight_values_kernel!(backend)(
+            cumulative,
+            source,
+            Val(false);
+            ndrange = length(source),
+        )
+        accumulate!(+, cumulative, cumulative)
+        _weight_values_kernel!(backend)(
+            cumulative,
+            source,
+            Val(true);
+            ndrange = length(source),
+        )
+        # Restore monotonicity and zero-weight plateaus after rounded tree sums.
+        accumulate!(max, cumulative, cumulative)
+        _weight_total_kernel!(backend)(
+            total_result,
+            invalid_result,
+            cumulative;
+            ndrange = 1,
+        )
+    end
     only(Array(invalid_result)) && IR._invalid_weights()
     return nothing, total_result, cumulative
 end
