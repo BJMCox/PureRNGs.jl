@@ -42,3 +42,14 @@ makedocs(
         "Acknowledgements" => "acknowledgements.md",
     ],
 )
+
+# Pages serves one unversioned site without deploydocs' version metadata.
+for (dir, _, files) in walkdir(joinpath(@__DIR__, "build")), file in files
+    endswith(file, ".html") || continue
+    path = joinpath(dir, file)
+    html = replace(
+        read(path, String),
+        r"<script src=\"(?:\.\./)*(?:siteinfo|versions)\.js\"></script>" => "",
+    )
+    write(path, html)
+end
