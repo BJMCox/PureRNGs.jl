@@ -2076,6 +2076,34 @@ end
     end
 end
 
+@testset "CUDA WeightTable storage survives cross-task reuse" begin
+    weights = [mod(7index, 11) + 0.5 for index = 1:257]
+    cpu_rng = Philox4x32(0x796)
+    gpu_rng = device(cpu_rng)
+    table = fetch(@async begin
+        CUDA.device!(primary)
+        WeightTable(CuArray(weights))
+    end)
+    GC.gc()
+    sample, next_rng = fetch(@async begin
+        CUDA.device!(primary)
+        randsample_next(gpu_rng, 1:length(weights), table, 31)
+    end)
+    expected, expected_next = randsample_next(cpu_rng, 1:length(weights), weights, 31)
+    @test Array(sample) == expected
+    @test next_rng.position == expected_next.position
+
+    for destination in (table.total, view(table.cumulative, 1:17))
+        @test_throws ArgumentError randsample_next!(
+            gpu_rng,
+            1:length(weights),
+            table,
+            destination,
+        )
+    end
+    @test Array(randsample(gpu_rng, 1:length(weights), table, 31)) == expected
+end
+
 @testset "CUDA weighted samples without replacement equal the CPU samples" begin
     for F in GENERATOR_TYPES, n in (1, 1000, 70_000)
         cpu_rng = F(0x790, 1)
