@@ -227,24 +227,6 @@ end
     return destination
 end
 
-# The device scan runs a KernelAbstractions kernel, so the extension owns every
-# method of this launcher.
-function _launch_weighted_scan! end
-
-@inline function _fill_weighted_samples!(
-    backend,
-    rng,
-    population,
-    _weights,
-    total,
-    cumulative,
-    destination,
-)
-    thresholds = _allocate_array(rng.device, Float64, (length(destination),))
-    _fill_weighted_thresholds!(backend, rng, total, thresholds)
-    return _launch_weighted_scan!(backend, population, cumulative, thresholds, destination)
-end
-
 @inline function _weighted_threshold_from_bits(raw::UInt64, total::Float64)
     uniform = _from_bits(Float64, raw)
     return min(uniform * total, prevfloat(total))
@@ -253,16 +235,6 @@ end
 @inline function _weighted_threshold(rng, position, total::Float64)
     raw = _extract_bits_unchecked(rng, _position_block(position), position.bit, Val(53))
     return _weighted_threshold_from_bits(raw, total)
-end
-
-@inline function _fill_weighted_thresholds!(::_CPUBackend, rng, total::Float64, thresholds)
-    isempty(thresholds) && return thresholds
-    cursor = _dense_cursor(rng, _position_block(rng.position), rng.position.bit)
-    for index in eachindex(thresholds)
-        raw, cursor = _take_dense_bits_unchecked(rng, cursor, Val(53))
-        thresholds[index] = _weighted_threshold_from_bits(raw, total)
-    end
-    return thresholds
 end
 
 @noinline function _weighted_unique_count_error(count, positive)

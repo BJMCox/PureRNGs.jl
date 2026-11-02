@@ -2084,9 +2084,9 @@ end
         sample, next_rng = randsample_next(gpu_rng, population, table, 5000)
         @test Array(sample) == Array(expected)
         @test next_rng.position == expected_next.position
-        @test isempty(
-            _device_events(() -> randsample(gpu_rng, population, table, 5000)).device_to_host,
-        )
+        events = _device_events(() -> randsample(gpu_rng, population, table, 5000))
+        @test isempty(events.device_to_host)
+        @test length(events.kernels) == 1
         @test_throws ArgumentError randsample(F(0x795, 1), Float32.(1:1000), table, 5)
         @test_throws ArgumentError randsample(
             gpu_rng,
@@ -2094,6 +2094,22 @@ end
             WeightTable(Array(weights)),
             5,
         )
+    end
+end
+
+@testset "CUDA weighted launch boundary preserves the stream" begin
+    _, cpu_rng = rand_next(Philox4x32(0x795), Bool)
+    gpu_rng = device(cpu_rng)
+    weights = [mod(7index, 11) * 0.25 for index = 1:257]
+    table = WeightTable(CuArray(weights))
+    for (count, kernels) in ((8192, 1), (8193, 2))
+        destination = CUDA.zeros(Int, count)
+        expected, after = randsample_next(cpu_rng, 1:257, weights, count)
+        sample, next_rng = randsample_next!(gpu_rng, 1:257, table, destination)
+        @test (Array(sample), next_rng.position) == (expected, after.position)
+        events = _device_events(() -> randsample_next!(gpu_rng, 1:257, table, destination))
+        @test length(events.kernels) == kernels
+        @test isempty(events.device_to_host)
     end
 end
 

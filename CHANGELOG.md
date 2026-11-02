@@ -58,6 +58,7 @@ Initial release.
 
 ### Changed
 
+- Small device weighted samples use one kernel without a temporary threshold array. Large calls retain the two-kernel path to avoid increased synchronized latency. Values and stream advancement are unchanged.
 - Primitive `rand`, `randn`, and `randexp` calls default to `Float64`, as in `Random`. A lone tuple is a population for both `rand` and `rand_next`. Use `rand_next(rng, Float64, dims)` instead of `rand_next(rng, dims)` when `dims` is a tuple.
 - CUDA fills with partial packed stores retain cooperative execution. CUDA Dirichlet scheduling accounts for the column kernel's register-limited occupancy.
 - Large CUDA weight tables use parallel accumulation with monotone, zero-preserving cumulative boundaries. Weighted selections can differ from the CPU through rounding. Primitive bits, parent advancement, and cached-table reuse are unchanged.
