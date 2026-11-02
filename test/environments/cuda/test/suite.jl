@@ -1785,7 +1785,22 @@ end
     d2h_sizes = _event_sizes(profile, events.device_to_host)
     @test !isempty(events.kernels)
     @test sort(h2d_sizes) == [sizeof(Float64) * length(counted_weights)]
-    @test d2h_sizes == [1]
+    @test d2h_sizes == [sizeof(Float64)]
+
+    # Serial, collective, and multi-block preparation must preserve tiny masses.
+    uniforms, after = rand_next(Philox4x32(1), Float64, 33)
+    tiny_rng = device(Philox4x32(1))
+    for count in (2, 256, 8193)
+        tiny_weights = zeros(count)
+        tiny_weights[1] = tiny_weights[end] = nextfloat(0.0)
+        weights = CUDA.CuArray(tiny_weights)
+        expected = ifelse.(uniforms .< 0.5, 1, count)
+        for prepared in (weights, WeightTable(weights))
+            values, next_rng = randsample_next(tiny_rng, 1:count, prepared, 33)
+            @test Array(values) == expected
+            @test next_rng.position == after.position
+        end
+    end
 
     # Tree sums can round downward or assign a step to a zero weight. Neither
     # is a valid CDF, even though matching the CPU's addition order is optional.
@@ -2077,31 +2092,34 @@ end
 end
 
 @testset "CUDA WeightTable storage survives cross-task reuse" begin
-    weights = [mod(7index, 11) + 0.5 for index = 1:257]
-    cpu_rng = Philox4x32(0x796)
-    gpu_rng = device(cpu_rng)
-    table = fetch(@async begin
-        CUDA.device!(primary)
-        WeightTable(CuArray(weights))
-    end)
-    GC.gc()
-    sample, next_rng = fetch(@async begin
-        CUDA.device!(primary)
-        randsample_next(gpu_rng, 1:length(weights), table, 31)
-    end)
-    expected, expected_next = randsample_next(cpu_rng, 1:length(weights), weights, 31)
-    @test Array(sample) == expected
-    @test next_rng.position == expected_next.position
+    for scale in (1.0, floatmin(Float64))
+        weights = [mod(7index, 11) + 0.5 for index = 1:257]
+        weights .*= scale
+        cpu_rng = Philox4x32(0x796)
+        gpu_rng = device(cpu_rng)
+        table = fetch(@async begin
+            CUDA.device!(primary)
+            WeightTable(CuArray(weights))
+        end)
+        GC.gc()
+        sample, next_rng = fetch(@async begin
+            CUDA.device!(primary)
+            randsample_next(gpu_rng, 1:length(weights), table, 31)
+        end)
+        expected, expected_next = randsample_next(cpu_rng, 1:length(weights), weights, 31)
+        @test Array(sample) == expected
+        @test next_rng.position == expected_next.position
 
-    for destination in (table.total, view(table.cumulative, 1:17))
-        @test_throws ArgumentError randsample_next!(
-            gpu_rng,
-            1:length(weights),
-            table,
-            destination,
-        )
+        for destination in (table.total, view(table.cumulative, 1:17))
+            @test_throws ArgumentError randsample_next!(
+                gpu_rng,
+                1:length(weights),
+                table,
+                destination,
+            )
+        end
+        @test Array(randsample(gpu_rng, 1:length(weights), table, 31)) == expected
     end
-    @test Array(randsample(gpu_rng, 1:length(weights), table, 31)) == expected
 end
 
 @testset "CUDA weighted samples without replacement equal the CPU samples" begin
