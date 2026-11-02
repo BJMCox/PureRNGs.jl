@@ -342,7 +342,9 @@ end
 function _codegen_ir(function_, signature)
     typed_ir = sprint(show, code_typed(function_, signature; optimize = true))
     llvm_ir = sprint() do io
-        code_llvm(io, function_, signature; raw = false, dump_module = false, optimize = true)
+        # Check Julia's emitted arithmetic, before host LLVM recognizes limb
+        # products as widening multiplies. Actual device IR is checked by CUDA.
+        code_llvm(io, function_, signature; raw = false, dump_module = false, optimize = false)
     end
     return typed_ir, llvm_ir
 end

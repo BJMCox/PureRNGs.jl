@@ -225,12 +225,12 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, sign
     return
 end
 
-function _k64_range_kernel!(destination, rng)
+function _range_api_kernel!(destination, rng, range)
     if CUDA.threadIdx().x == 1
-        value, next_rng = rand_next(rng, K64_RANGE)
+        value, next_rng = rand_next(rng, range)
         @inbounds begin
             destination[1] = value
-            destination[2] = rand(next_rng, K64_RANGE)
+            destination[2] = rand(next_rng, range)
         end
     end
     return
@@ -1284,6 +1284,9 @@ end
         )
     end
 
+end
+
+@testset "CUDA scalar API values and narrow arithmetic" begin
     for F in GENERATOR_TYPES
         rng = device(F(0x123456))
         signed32 = CUDA.zeros(Int32, 3)
@@ -1336,17 +1339,20 @@ end
         continued_range, next_range = rand_next(rng, range)
         @test Array(args[4]) == [continued_range, rand(next_range, range)]
 
-        k64_values = CUDA.CuArray{UInt32}(undef, 2)
-        k64_args = (k64_values, rng)
-        CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _k64_range_kernel!(k64_args...)
-        k64_signature = Tuple{map(typeof, k64_args)...}
-        k64_typed_text = sprint(show, CUDA.code_typed(_k64_range_kernel!, k64_signature))
-        k64_llvm_text = sprint(io -> CUDA.code_llvm(io, _k64_range_kernel!, k64_signature))
-        @test !occursin("UInt128", k64_typed_text)
-        @test !occursin("BigInt", k64_typed_text)
-        @test !occursin(r"\bi128\b", k64_llvm_text)
-        k64_value, k64_next = rand_next(rng, K64_RANGE)
-        @test Array(k64_values) == [k64_value, rand(k64_next, K64_RANGE)]
+        for range in (K64_RANGE, UInt64(0):typemax(UInt64))
+            range_values = CUDA.CuArray{eltype(range)}(undef, 2)
+            range_args = (range_values, rng, range)
+            CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _range_api_kernel!(range_args...)
+            range_signature = Tuple{map(typeof, range_args)...}
+            range_typed = sprint(show, CUDA.code_typed(_range_api_kernel!, range_signature))
+            range_llvm =
+                sprint(io -> CUDA.code_llvm(io, _range_api_kernel!, range_signature))
+            @test !occursin("UInt128", range_typed)
+            @test !occursin("BigInt", range_typed)
+            @test !occursin(r"\bi128\b", range_llvm)
+            value, next_rng = rand_next(rng, range)
+            @test Array(range_values) == [value, rand(next_rng, range)]
+        end
     end
 
 end
