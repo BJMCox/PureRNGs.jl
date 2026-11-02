@@ -111,6 +111,34 @@ end
     @test_throws StreamExhausted rand_at(last_rng, SVector{2,UInt32}, 1)
 end
 
+@testset "mutable static batches contain independent chained draws" begin
+    rng = Philox4x32(1)
+    SA = MVector{2,Float32}
+    for (next, next!) in
+        ((rand_next, rand_next!), (randn_next, randn_next!), (randexp_next, randexp_next!)),
+        threaded in (false, true)
+
+        chained = SA[]
+        current = rng
+        for _ = 1:5
+            value, current = next(current, SA)
+            push!(chained, value)
+        end
+        values, after = next(rng, SA, 5; threaded)
+        @test (values, after) == (chained, current)
+        destination = Vector{SA}(undef, 5)
+        @test next!(rng, destination; threaded) == (chained, current)
+        saved = copy(values[2])
+        values[1][1] += 1
+        @test values[2] == saved
+    end
+    destination = [SA(1, 2), SA(3, 4)]
+    saved = deepcopy(destination)
+    terminal = Philox4x64(1, (big(256) << 128) - 64)
+    @test_throws StreamExhausted rand_next!(terminal, destination)
+    @test destination == saved
+end
+
 @testset "a static pick is N chained picks" begin
     rng = Philox4x32(0x5a4)
     picks, after = rand_next(rng, 1:6, 4)

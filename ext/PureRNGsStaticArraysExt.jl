@@ -2,7 +2,7 @@ module PureRNGsStaticArraysExt
 
 # A static array of `N` elements of type `T` is the next `N` scalar draws of `T`
 # in linear order, so it equals a length-`N` fill, and an array of static arrays
-# is the fill of its `reinterpret` as `T`.
+# uses the scalar fill path, directly for inline bits storage.
 
 import PureRNGs
 import Random
@@ -60,6 +60,7 @@ end
     dims::Dims,
     threaded,
 ) where {SA}
+    isbitstype(SA) || rng.device isa IR._CPUBackend || IR._host_only_type(SA)
     destination = IR._allocate_array(rng.device, SA, dims)
     return destination, last(fill_next!(rng, destination; threaded))
 end
@@ -132,8 +133,20 @@ for (held, fill!, next, next!, at, width) in (
             destination::AbstractArray{SA};
             threaded::Bool = false,
         ) where {SA<:StaticArray}
-            elements = reinterpret(_element(SA), destination)
-            return destination, last(IR.$next!(rng, elements; threaded))
+            if isbitstype(SA)
+                elements = reinterpret(_element(SA), destination)
+                return destination, last(IR.$next!(rng, elements; threaded))
+            end
+            IR._check_sampling_fill_device(rng, destination)
+            rng.device isa IR._CPUBackend || IR._host_only_type(SA)
+            # Reference-valued cells cannot be reinterpreted. One scalar fill
+            # preflights the whole span and retains the threaded bulk path.
+            elements, next_rng =
+                IR.$next(rng, _element(SA), length(SA), length(destination); threaded)
+            for (index, column) in zip(eachindex(destination), eachcol(elements))
+                destination[index] = SA(column)
+            end
+            return destination, next_rng
         end
         @inline Random.$fill!(
             rng::IR._ScalarUniformGenerators,
