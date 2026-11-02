@@ -192,36 +192,15 @@ function IR._fold_device_weights(device, weights, agnostic::Bool)
     return nothing, total_result, cumulative
 end
 
-KernelAbstractions.@kernel function _weighted_threshold_kernel!(
-    rng,
-    total_result,
-    thresholds,
-)
-    index = @index(Global, Linear)
-    bits_lo, bits_hi = IR._bit_span(UInt64(index - 1), IR._WEIGHT_BITS)
-    position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
-    total = @inbounds total_result[1]
-    @inbounds thresholds[index] = IR._weighted_threshold(rng, position, total)
-end
-
-@inline function IR._fill_weighted_thresholds!(backend, rng, total_result, thresholds)
-    _weighted_threshold_kernel!(backend)(
-        rng,
-        total_result,
-        thresholds;
-        ndrange = length(thresholds),
-    )
-    return thresholds
-end
-
-KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
+@inline function _write_weighted_sample!(
     population,
     cumulative,
-    thresholds,
     destination,
+    threshold,
+    index,
 )
-    index = @index(Global, Linear)
-    threshold = @inbounds thresholds[index]
+    # Preparation supplies a nonempty CDF matching the population.
+    # The search stays within that CDF; ndrange bounds the destination ordinal.
     lower = 1
     upper = length(cumulative)
     @inbounds while lower < upper
@@ -239,20 +218,78 @@ KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
     end
 end
 
-@inline function IR._launch_weighted_scan!(
-    backend,
+# Weight preparation supplies a one-element total; ndrange bounds each ordinal.
+KernelAbstractions.@kernel function _weighted_sample_kernel!(
+    rng,
+    population,
+    total_result,
+    cumulative,
+    destination,
+)
+    index = @index(Global, Linear)
+    bits_lo, bits_hi = IR._bit_span(UInt64(index - 1), IR._WEIGHT_BITS)
+    position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
+    total = @inbounds total_result[1]
+    threshold = IR._weighted_threshold(rng, position, total)
+    _write_weighted_sample!(population, cumulative, destination, threshold, index)
+end
+
+KernelAbstractions.@kernel function _weighted_threshold_kernel!(
+    rng,
+    total_result,
+    thresholds,
+)
+    index = @index(Global, Linear)
+    bits_lo, bits_hi = IR._bit_span(UInt64(index - 1), IR._WEIGHT_BITS)
+    position = IR._advance_position_unchecked(rng, bits_lo, bits_hi)
+    total = @inbounds total_result[1]
+    @inbounds thresholds[index] = IR._weighted_threshold(rng, position, total)
+end
+
+KernelAbstractions.@kernel function _weighted_binary_search_kernel!(
     population,
     cumulative,
     thresholds,
     destination,
 )
-    _weighted_binary_search_kernel!(backend)(
-        population,
-        cumulative,
-        thresholds,
-        destination;
-        ndrange = length(destination),
-    )
+    index = @index(Global, Linear)
+    threshold = @inbounds thresholds[index]
+    _write_weighted_sample!(population, cumulative, destination, threshold, index)
+end
+
+@inline function IR._fill_weighted_samples!(
+    backend,
+    rng,
+    population,
+    _weights,
+    total,
+    cumulative,
+    destination,
+)
+    # On A100, fusion reduces elapsed time for small synchronized calls.
+    # Keep the two-kernel path above that range: its measured latency is lower
+    # with CUDA's default cooperative wait, despite the fused kernel being faster.
+    count = length(destination)
+    if count <= 8192
+        _weighted_sample_kernel!(backend)(
+            rng,
+            population,
+            total,
+            cumulative,
+            destination;
+            ndrange = count,
+        )
+    else
+        thresholds = IR._allocate_array(rng.device, Float64, (count,))
+        _weighted_threshold_kernel!(backend)(rng, total, thresholds; ndrange = count)
+        _weighted_binary_search_kernel!(backend)(
+            population,
+            cumulative,
+            thresholds,
+            destination;
+            ndrange = count,
+        )
+    end
     return destination
 end
 
