@@ -347,6 +347,14 @@ function _codegen_ir(function_, signature)
     return typed_ir, llvm_ir
 end
 
+# Host LLVM may pack UInt64 lanes through i128 casts and lane moves.
+function _wide_integer_instructions(llvm_ir)
+    return filter(split(llvm_ir, '\n')) do line
+        occursin(r"\bi128\b", line) &&
+            !occursin(r"= (?:bitcast|trunc|extractelement|insertelement)\b", line)
+    end
+end
+
 const PACKED_GOLDEN_BLOCK = UInt64(0x00123456789abcde)
 const PACKED_GOLDEN_BIT = UInt16(61)
 const PACKED_GOLDEN_GENERATORS = (
