@@ -120,6 +120,63 @@ advanced(rng, bits) = PureRNGs._rebuild(
     end
 end
 
+@testset "extreme Gamma parameters retain their derivatives" begin
+    rng = Philox4x32(2)
+    for backend in (AutoMooncake(), AutoMooncakeForward(), AutoForwardDiff())
+        # A rounded-zero scaled draw can still have a nonzero scale slope.
+        expected = rand(rng, Gamma(0.01))
+        for scale in (1e-300, nextfloat(0.0))
+            @test derivative(s -> rand(rng, Gamma(0.01, s)), backend, scale) ≈ expected rtol =
+                1e-12
+        end
+        for (d, sign) in (
+            (Gamma(0.001, 1e300), 1),
+            (InverseGamma(0.001, 1e-300), -1),
+            (InverseGamma(0.0006, nextfloat(0.0)), -1),
+        )
+            shape, scale = params(d)
+            codec = PureRNGs._GammaCodec(shape, 1.0, rng.device, 8)
+            log_g = PureRNGs._gamma_log_draw(
+                codec,
+                rng,
+                PureRNGs._gamma_cursor(rng, rng.position),
+            )
+            # At this tiny standard draw, the incomplete-gamma series differs
+            # from its leading term by less than Float64 can represent.
+            expected =
+                sign * rand(rng, d) * (Distributions.digamma(1 + shape) - log_g) / shape
+            make = d isa Gamma ? Gamma : InverseGamma
+            @test derivative(a -> rand(rng, make(a, scale)), backend, shape) ≈ expected rtol =
+                1e-11
+        end
+        for seed in (1, 3)
+            large_rng = Philox4x32(seed)
+            expected = seed == 1 ? 0.9999614806773708f0 : 1.0000311210211024f0
+            @test derivative(a -> rand(large_rng, Gamma(a)), backend, 1.0f8) ≈ expected rtol =
+                2eps(Float32)
+        end
+    end
+end
+
+@testset "large Gamma gradients match independent density integrals" begin
+    # -dF/da / density, integrated at 256-bit precision after a logarithmic
+    # change of variables. These values use neither the production recurrence
+    # nor its central expansion. Both sides of the mean are covered.
+    for (shape, value, expected) in (
+        (1.0f4, 9400.0f0, 0.9693974793670286),
+        (1.0f4, 10600.0f0, 1.0294345320481625),
+        (1.0f8, 9.9992296f7, 0.9999614806773708),
+        (1.0f8, 1.0000622f8, 1.0000311210211024),
+        (1e6, 991000.0, 0.9954866048339399),
+        (1e6, 1009000.0, 1.0044867278379013),
+        (1e16, 1e16 + 6e8, 1.0000000299999994),
+        (1e300, 1e300, 1.0),
+    )
+        T = typeof(shape)
+        @test PureRNGs._gamma_shape_derivative(shape, value) ≈ T(expected) rtol = 2eps(T)
+    end
+end
+
 # A dual Dirichlet decodes the primal draw, so its value is the float draw, and
 # its fills and addresses follow the float stream law.
 @testset "dual Dirichlet draws follow the float draws" begin

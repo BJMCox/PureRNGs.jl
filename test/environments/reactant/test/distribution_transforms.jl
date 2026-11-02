@@ -92,6 +92,26 @@ _gamma_snapshot(rng, d) = (rand(rng, d), rand_next(rng, d), rand_at(rng, d, 3))
     end
 end
 
+@testset "compiled Gamma scaling preserves representable values" begin
+    rng = Philox4x32(2)
+    carrier = Reactant.to_rarray(rng)
+    for d in (
+        Gamma(0.001, 1e300),
+        InverseGamma(0.001, 1e-300),
+        Gamma(0.006f0, 1.0f30),
+        InverseGamma(0.006f0, 1.0f-30),
+    )
+        T = partype(d)
+        compiled = Reactant.@compile sync = true rand_next(carrier, d)
+        got, after = compiled(carrier, d)
+        expected, expected_next = rand_next(rng, d)
+        @test zero(T) < T(got) < T(Inf)
+        # Division by the tiny shape amplifies backend log rounding.
+        @test T(got) ≈ expected rtol = T === Float32 ? 1.0f-4 : 1e-11
+        @test _same_value(after, expected_next)
+    end
+end
+
 # One candidate sends about 5% of shape-one draws through the traced loop on
 # the child stream, which must reach the eager fallback's value.
 _forced_gamma(rng, shape) = PureRNGs._traced_gamma(rng, shape, Val(false), 1)

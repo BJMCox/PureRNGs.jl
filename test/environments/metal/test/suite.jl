@@ -280,6 +280,25 @@ if Metal.functional()
         end
     end
 
+    @testset "Metal Gamma scaling and large-shape gradients" begin
+        cpu_rng = Philox4x32(2)
+        for d in (Gamma(0.006f0, 1.0f30), InverseGamma(0.006f0, 1.0f-30))
+            values, next_rng = rand_next(MetalDevice()(cpu_rng), d, 1)
+            value = only(Array(values))
+            expected, after = rand_next(cpu_rng, d)
+            @test 0.0f0 < value < Inf32
+            @test value ≈ expected rtol = 1.0f-4
+            @test next_rng.position == after.position
+        end
+        for seed in (1, 3)
+            rng = Philox4x32(seed)
+            d = Gamma(ForwardDiff.Dual(1.0f8, 1.0f0))
+            value = only(Array(rand(MetalDevice()(rng), d, 1)))
+            @test ForwardDiff.partials(value, 1) ≈ ForwardDiff.partials(rand(rng, d), 1) rtol =
+                2eps(Float32)
+        end
+    end
+
     # Uniform-based draws equal the CPU draws. Transforms evaluate Metal's own
     # log and erfinv, and a Gamma acceptance can flip where they round, so
     # nearly all transformed values match.
