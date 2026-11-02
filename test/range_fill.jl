@@ -109,10 +109,6 @@ end
         typed_ir, llvm_ir = _codegen_ir(rand_next, Tuple{typeof(rng),typeof(range),Int})
         @test !occursin("BigInt", typed_ir)
         @test !occursin("UInt128", typed_ir)
-        # LLVM may pack UInt64 lanes through i128 casts without wide arithmetic.
-        wide_instructions = filter(split(llvm_ir, '\n')) do line
-            occursin(r"\bi128\b", line) && !occursin(r"= (?:bitcast|trunc)\b", line)
-        end
-        @test isempty(wide_instructions)
+        @test isempty(_wide_integer_instructions(llvm_ir))
     end
 end

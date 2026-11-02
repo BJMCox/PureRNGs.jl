@@ -247,7 +247,7 @@ end
         typed_ir, llvm_ir = _codegen_ir(function_, signature)
         @test !occursin("BigInt", typed_ir)
         @test !occursin("UInt128", typed_ir)
-        @test !occursin(r"\bi128\b", llvm_ir)
+        @test isempty(_wide_integer_instructions(llvm_ir))
     end
 
     @test_throws ArgumentError randn_at(rng, Float64, 0)

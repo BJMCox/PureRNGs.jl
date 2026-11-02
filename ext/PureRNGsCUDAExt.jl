@@ -13,7 +13,6 @@ const _HAS_WEIGHT_GROUP_SCAN = isdefined(KernelAbstractions, Symbol("@groupscan"
     KernelAbstractions.@kernel function _weight_group_scan_kernel!(
         source,
         total_result,
-        invalid_result,
         cumulative,
         ::Val{lanes},
     ) where {lanes}
@@ -34,8 +33,8 @@ const _HAS_WEIGHT_GROUP_SCAN = isdefined(KernelAbstractions, Symbol("@groupscan"
             @inbounds cumulative[lane] = prefix
         end
         if lane == count
-            @inbounds total_result[1] = prefix
-            @inbounds invalid_result[1] = invalid || !isfinite(prefix) || prefix <= 0.0
+            # The total aliases the last cumulative value; only this lane writes it.
+            @inbounds total_result[1] = ifelse(invalid, NaN, prefix)
         end
     end
 end
@@ -80,43 +79,36 @@ function IR._fold_device_weights(device::IR._CUDABackend, weights, agnostic::Boo
     end
     source = agnostic ? IR._transfer_array(device, IR._collect_weights(weights)) : weights
     cumulative = IR._allocate_array(device, Float64, (length(source),))
-    total_result = IR._allocate_array(device, Float64, (1,))
-    invalid_result = IR._allocate_array(device, Bool, (1,))
     backend = IR._fill_backend(device, cumulative)
     if group_scan
+        total_result = view(cumulative, count:count)
         lanes = nextpow(2, count)
         _weight_group_scan_kernel!(backend)(
             source,
             total_result,
-            invalid_result,
             cumulative,
             Val(lanes);
             ndrange = lanes,
             workgroupsize = lanes,
         )
-    else
-        _weight_values_kernel!(backend)(
-            cumulative,
-            source,
-            Val(false);
-            ndrange = length(source),
-        )
-        accumulate!(+, cumulative, cumulative)
-        _weight_values_kernel!(backend)(
-            cumulative,
-            source,
-            Val(true);
-            ndrange = length(source),
-        )
-        # Restore monotonicity and zero-weight plateaus after rounded tree sums.
-        accumulate!(max, cumulative, cumulative)
-        _weight_total_kernel!(backend)(
-            total_result,
-            invalid_result,
-            cumulative;
-            ndrange = 1,
-        )
+        total = only(Array(total_result))
+        isfinite(total) && total > 0.0 || IR._invalid_weights()
+        return nothing, total_result, cumulative
     end
+
+    total_result = IR._allocate_array(device, Float64, (1,))
+    invalid_result = IR._allocate_array(device, Bool, (1,))
+    _weight_values_kernel!(backend)(
+        cumulative,
+        source,
+        Val(false);
+        ndrange = length(source),
+    )
+    accumulate!(+, cumulative, cumulative)
+    _weight_values_kernel!(backend)(cumulative, source, Val(true); ndrange = length(source))
+    # Restore monotonicity and zero-weight plateaus after rounded tree sums.
+    accumulate!(max, cumulative, cumulative)
+    _weight_total_kernel!(backend)(total_result, invalid_result, cumulative; ndrange = 1)
     only(Array(invalid_result)) && IR._invalid_weights()
     return nothing, total_result, cumulative
 end
