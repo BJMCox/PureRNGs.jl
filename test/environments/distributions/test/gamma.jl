@@ -43,6 +43,27 @@ function gamma_reference(
     return nothing
 end
 
+@testset "Gamma scaling preserves representable values" begin
+    rng = Philox4x32(2)
+    for (T, shape, scale, tolerance) in
+        ((Float64, 0.001, 1e300, 2e-12), (Float32, 0.006f0, 1.0f30, 2.0f-5))
+        log_g = gamma_reference(rng, shape, one(T); logarithm = true, wide_log = true)
+        for (d, expected) in (
+            (Gamma(shape, scale), T(BigFloat(scale) * exp(log_g))),
+            (InverseGamma(shape, inv(scale)), T(BigFloat(inv(scale)) * exp(-log_g))),
+        )
+            value, after = rand_next(rng, d)
+            @test zero(T) < value < T(Inf)
+            @test value ≈ expected rtol = tolerance
+            values, next_rng = rand_next(rng, d, 3)
+            @test values[1] == value
+            @test values[2] == rand(after, d)
+            @test values[3] == rand_at(rng, d, 3)
+            @test rand_next!(rng, d, similar(values)) == (values, next_rng)
+        end
+    end
+end
+
 @testset "tiny Beta and Dirichlet shapes normalize without log overflow" begin
     for T in (Float64, Float32),
         small in (nextfloat(zero(T)), T === Float64 ? T(1e-320) : T(1e-40), 32floatmin(T))

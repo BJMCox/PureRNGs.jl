@@ -67,7 +67,8 @@ Primitive integer and uniform floating-point draws agree across supported execut
 
 Normal and exponential draws can differ in their final floating-point transformation across backends.
 The generator's device selects the formula. A CPU generator evaluates AS241 for normals and a reduced-argument series for exponentials; a CUDA, AMDGPU, or Metal generator evaluates Giles' inverse error function for normals and `log` for exponentials.
-The two normal formulas read the same random bits and the same uniform value, and both stay within 5 ulp for `Float32` and 6 ulp for `Float64` of the true quantile, but they do not return the same value.
+The two normal formulas read the same random bits and the same uniform value, but they do not return the same value.
+The host accuracy checks use limits of 5 ulp for `Float32` and 6 ulp for `Float64`; these are not universal bounds for backend math libraries.
 A device-placed generator keeps its device when you draw from it on the host, so `randn(cuda_rng, T)` does not equal `randn(cpu_rng, T)`.
 Within one formula, matching random bits still do not force different `log` or `sqrt` implementations to return identical values.
 

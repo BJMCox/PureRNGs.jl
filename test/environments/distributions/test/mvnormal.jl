@@ -1,14 +1,18 @@
 using LinearAlgebra
+using Distributions.PDMats: PDSparseMat
+using Distributions.PDMats.SparseArrays: sparse, nonzeros
 
 @testset "distribution parameters cannot alias their destination" begin
     rng = Philox4x32(123)
     diagonal = MvNormal([1.0, 2.0], Diagonal([1.0, 4.0]))
     dense = MvNormal([1.0, 2.0], [1.0 0.2; 0.2 2.0])
+    sparse_diagonal = MvNormal([1.0, 2.0], PDSparseMat(sparse(Diagonal([1.0, 4.0]))))
     dirichlet = Dirichlet([0.2, 0.3])
     for (d, destination) in (
         (diagonal, diagonal.μ),
         (diagonal, diagonal.Σ.diag),
         (dense, view(cholesky(dense.Σ).factors, :, 1)),
+        (sparse_diagonal, nonzeros(sparse_diagonal.Σ.mat)),
         (dirichlet, dirichlet.alpha),
     )
         saved = copy(destination)
@@ -17,6 +21,13 @@ using LinearAlgebra
         @test destination == saved
         @test rand!(rng, d, similar(destination)) == expected
     end
+end
+
+@testset "sparse MvNormal fills match allocating draws" begin
+    rng = Philox4x32(123)
+    d = MvNormal([1.0, -2.0], PDSparseMat(sparse([2.0 0.3; 0.3 1.0])))
+    @test rand_next!(rng, d, zeros(2)) == rand_next(rng, d)
+    @test rand_next!(rng, d, zeros(2, 3)) == rand_next(rng, d, 3)
 end
 
 # A multivariate normal draw maps length(d) standard normal draws by `μ + L z`,

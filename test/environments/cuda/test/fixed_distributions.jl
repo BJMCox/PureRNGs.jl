@@ -536,6 +536,31 @@ end
     end
 end
 
+@testset "CUDA Gamma scaling and large-shape gradients" begin
+    cpu_rng = Philox4x32(2)
+    gpu_rng = device(cpu_rng)
+    for d in (
+        Gamma(0.001, 1e300),
+        InverseGamma(0.001, 1e-300),
+        Gamma(0.006f0, 1.0f30),
+        InverseGamma(0.006f0, 1.0f-30),
+    )
+        values, next_rng = rand_next(gpu_rng, d, 1)
+        value = only(Array(values))
+        expected, after = rand_next(cpu_rng, d)
+        @test zero(value) < value < oftype(value, Inf)
+        @test value ≈ expected rtol = partype(d) === Float32 ? 1.0f-4 : 2e-12
+        @test next_rng.position == after.position
+    end
+    for seed in (1, 3)
+        rng = Philox4x32(seed)
+        d = Gamma(ForwardDiff.Dual(1.0f8, 1.0f0))
+        value = only(Array(rand(device(rng), d, 1)))
+        @test ForwardDiff.partials(value, 1) ≈ ForwardDiff.partials(rand(rng, d), 1) rtol =
+            2eps(Float32)
+    end
+end
+
 # A device Gamma fill equals the device's addressed draws. Device normals differ
 # from CPU normals in the last ulp, which moves values by rounding and flips an
 # acceptance decision only at the boundary, so nearly all values match the CPU.

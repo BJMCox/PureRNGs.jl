@@ -72,14 +72,17 @@ _last_weighted_rng(F) = _terminal_rng(F, 53)
     population = Int32[10, 20, 30, 40]
     weights = Float64[Float64(0x000f5d057718d3b7), Float64(0x0010a2fa88e72c49), 1.0, 1.0]
     @test randsample(Philox4x32(0x9750), population, weights, 1) == Int32[10]
+end
 
-    weights = [0.0, nextfloat(0.0), 0.0, nextfloat(0.0)]
-    for F in GENERATOR_TYPES
-        rng = F(0x9750)
-        expected_next, expected = _weighted_reference(rng, population, weights, 33)
-        values, next_rng = randsample_next(rng, population, weights, 33)
-        @test values == expected
-        @test next_rng === expected_next
+@testset "tiny weights preserve relative mass and zero plateaus" begin
+    rng = Philox4x32(1)
+    uniforms, after = rand_next(rng, Float64, 33)
+    for ratio in (1, 3), scale in (nextfloat(0.0), floatmin(Float64), 0x1p-969)
+        weights = [0.0, scale, 0.0, ratio * scale, 0.0]
+        expected = ifelse.(uniforms .< inv(1 + ratio), 2, 4)
+        for prepared in (weights, WeightTable(weights))
+            @test randsample_next(rng, 1:5, prepared, 33) == (expected, after)
+        end
     end
 end
 

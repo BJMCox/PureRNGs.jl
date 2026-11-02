@@ -106,7 +106,6 @@ end
 KernelAbstractions.@kernel function _weighted_fold_kernel!(
     source,
     total_result,
-    invalid_result,
     cumulative,
     ::Val{lanes},
     ::Val{validate_elements},
@@ -145,12 +144,29 @@ KernelAbstractions.@kernel function _weighted_fold_kernel!(
         @synchronize
     end
     if lane == 1
-        @inbounds begin
-            total_result[1] = total[1]
-            invalid_result[1] =
-                invalid[1] | (!isfinite(total[1]) || total[1] <= zero(Float64))
-        end
+        @inbounds total_result[1] = ifelse(invalid[1], NaN, total[1])
     end
+end
+
+KernelAbstractions.@kernel function _rescale_weights_kernel!(total_result, cumulative)
+    index = @index(Global, Linear)
+    value = cumulative[index] * IR._WEIGHT_SCALE
+    cumulative[index] = value
+    # The collective CUDA scan aliases its total with this last boundary.
+    index == length(cumulative) && (total_result[1] = value)
+end
+
+function IR._finish_device_weights!(backend, total_result, cumulative)
+    total = only(Array(total_result))
+    isfinite(total) && total > 0.0 || IR._invalid_weights()
+    if total < IR._WEIGHT_SCALE_BOUND
+        _rescale_weights_kernel!(backend)(
+            total_result,
+            cumulative;
+            ndrange = length(cumulative),
+        )
+    end
+    return nothing
 end
 
 IR._prepare_weight_scan(rng, weights, agnostic::Bool) =
@@ -160,21 +176,19 @@ function IR._fold_device_weights(device, weights, agnostic::Bool)
     source = agnostic ? IR._transfer_array(device, IR._collect_weights(weights)) : weights
     cumulative = IR._allocate_array(device, Float64, (length(source),))
     total_result = IR._allocate_array(device, Float64, (1,))
-    invalid_result = IR._allocate_array(device, Bool, (1,))
     backend = IR._fill_backend(device, cumulative)
     lanes = _weight_fold_lanes(backend)
     lane_count = _weight_fold_lane_count(lanes)
     _weighted_fold_kernel!(backend)(
         source,
         total_result,
-        invalid_result,
         cumulative,
         lanes,
         Val(!agnostic);
         ndrange = lane_count,
         workgroupsize = lane_count,
     )
-    only(Array(invalid_result)) && IR._invalid_weights()
+    IR._finish_device_weights!(backend, total_result, cumulative)
     return nothing, total_result, cumulative
 end
 

@@ -185,11 +185,20 @@ end
 @inline _traced_log_gamma(rng, shape) =
     IR._traced_gamma(rng, shape, Val(true), IR._GAMMA_CANDIDATES)
 
-@inline _gamma_family_value(rng, d::Distributions.Gamma) = d.θ * _traced_gamma(rng, d.α)
-@inline _gamma_family_value(rng, d::Distributions.Chisq{T}) where {T} =
-    T(2) * _traced_gamma(rng, d.ν / 2)
-@inline _gamma_family_value(rng, d::Distributions.InverseGamma) =
-    d.θ / _traced_gamma(rng, d.invd.α)
+@inline function _gamma_family_value(rng, d::Distributions.Gamma)
+    IR._gamma_log_scaling(d.α) && return exp(log(d.θ) + _traced_log_gamma(rng, d.α))
+    return d.θ * _traced_gamma(rng, d.α)
+end
+@inline function _gamma_family_value(rng, d::Distributions.Chisq{T}) where {T}
+    shape = d.ν / 2
+    IR._gamma_log_scaling(shape) && return exp(log(T(2)) + _traced_log_gamma(rng, shape))
+    return T(2) * _traced_gamma(rng, shape)
+end
+@inline function _gamma_family_value(rng, d::Distributions.InverseGamma)
+    IR._gamma_log_scaling(d.invd.α) &&
+        return exp(log(d.θ) - _traced_log_gamma(rng, d.invd.α))
+    return d.θ / _traced_gamma(rng, d.invd.α)
+end
 @inline function _gamma_family_value(rng, d::Distributions.Beta{T}) where {T}
     width = IR._gamma_span(T, IR._GAMMA_CANDIDATES)
     second = IR._addressed_rng(rng, width, 2)

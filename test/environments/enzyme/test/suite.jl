@@ -608,6 +608,21 @@ end
     end
 end
 
+@testset "extreme Gamma derivatives stay representable" begin
+    rng = Philox4x32(2)
+    for (draw, parameter, expected) in (
+        (s -> rand(rng, Gamma(0.01, s)), 1e-300, 4.46257660155961e-38),
+        (a -> rand(rng, InverseGamma(a, nextfloat(0.0))), 0.0006, -7.96193531254146e301),
+        (a -> rand(Philox4x32(1), Gamma(a)), 1.0f8, 0.9999614806773708f0),
+    )
+        tolerance = parameter isa Float32 ? 2eps(Float32) : 1e-11
+        @test only(only(autodiff(Reverse, draw, Active, Active(parameter)))) ≈ expected rtol =
+            tolerance
+        @test only(autodiff(Forward, draw, Duplicated(parameter, one(parameter)))) ≈
+              expected rtol = tolerance
+    end
+end
+
 # A Gamma draw moves with its shape along the inverse CDF at the draw's
 # probability, so Enzyme's rule gives -dF/dshape / f instead of differentiating
 # the rejection test; Beta composes it through its two Gamma draws.

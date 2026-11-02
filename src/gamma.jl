@@ -138,6 +138,24 @@ end
 @inline _gamma_expansion_terms(shape::F) where {F} =
     200 + unsafe_trunc(Int, 12 * sqrt(min(shape, F(1e12))))
 
+@inline _large_gamma_shape(shape::Float32) = shape >= 1.0f4
+@inline _large_gamma_shape(shape::Float64) = shape >= 1e6
+@inline _large_gamma_shape(shape::AbstractFloat) = false
+@inline _gamma_central_radius(::Type{Float32}) = 0.062f0
+@inline _gamma_central_radius(::Type{Float64}) = 0.01
+
+# The density transport equation v' + ((a-1)/x-1)v = digamma(a)-log(x),
+# with delta=(x-a)/a, gives v=P0(delta)+P1(delta)/a+P2(delta)/a^2.
+# These central series avoid cancellation and increments smaller than an ulp.
+# The finite normal lattice keeps large-shape draws inside |delta| < 0.062.
+@inline function _large_gamma_derivative(a::F, delta::F) where {F}
+    p0 = evalpoly(delta, map(F, (1, 1 / 2, -1 / 6, 1 / 12, -1 / 20, 1 / 30, -1 / 42)))
+    p1 = evalpoly(delta, map(F, (1 / 6, 1 / 12, -1 / 30, 1 / 60, -1 / 105)))
+    p2 = evalpoly(delta, map(F, (1 / 60, 1 / 60, -1 / 210)))
+    r = inv(a)
+    return p0 + r * (p1 + r * p2)
+end
+
 # d log(g) / d shape of a standard Gamma(shape) draw g is -dP/dshape / (g p(g))
 # for the regularized incomplete gamma function P and the Gamma density p, by
 # the implicit function theorem (Figurnov, Mohamed, and Mnih 2018). P comes from
@@ -148,13 +166,25 @@ end
 # small shape's draw underflows. The arithmetic runs in the shape's type, so it
 # also runs in a device kernel.
 @inline function _gamma_log_shape_derivative(shape::F, log_g::F) where {F<:AbstractFloat}
+    if _large_gamma_shape(shape)
+        delta = expm1(log_g - log(shape))
+        abs(delta) <= _gamma_central_radius(F) &&
+            return _large_gamma_derivative(shape, delta) * exp(-log_g)
+    end
     g = exp(log_g)
     g <= one(F) || g < shape || return _gamma_fraction_log_derivative(shape, g, log_g)
     return _gamma_series_log_derivative(shape, g, log_g)
 end
 
-@inline _gamma_shape_derivative(shape::F, g::F) where {F<:AbstractFloat} =
-    iszero(g) ? zero(F) : g * _gamma_log_shape_derivative(shape, log(g))
+@inline function _gamma_shape_derivative(shape::F, g::F) where {F<:AbstractFloat}
+    iszero(g) && return zero(F)
+    if _large_gamma_shape(shape)
+        delta = (g - shape) / shape
+        abs(delta) <= _gamma_central_radius(F) &&
+            return _large_gamma_derivative(shape, delta)
+    end
+    return g * _gamma_log_shape_derivative(shape, log(g))
+end
 
 # P = g^a e^-g / Gamma(a + 1) S with S = sum_k g^k / prod_{j <= k} (a + j).
 @inline function _gamma_series_log_derivative(a::F, x::F, log_x::F) where {F}
@@ -265,10 +295,29 @@ end
     return count + 1, width
 end
 
-@inline _gamma_draw(codec::_GammaCodec, rng, cursor) =
-    _gamma_value(codec.shape, codec, rng, _cursor_ordinal(rng, cursor), cursor)
-@inline _gamma_log_draw(codec::_GammaCodec, rng, cursor) =
-    _gamma_log_value(codec.shape, codec, rng, _cursor_ordinal(rng, cursor), cursor)
+# Scale belongs to the family map, not the standard draw or its AD primitive.
+@inline _standard_gamma(codec::_GammaCodec) = _GammaCodec(
+    codec.shape,
+    one(codec.scale),
+    codec.d,
+    codec.c,
+    codec.device,
+    codec.candidates,
+)
+@inline _gamma_draw(codec::_GammaCodec, rng, cursor) = _gamma_value(
+    codec.shape,
+    _standard_gamma(codec),
+    rng,
+    _cursor_ordinal(rng, cursor),
+    cursor,
+)
+@inline _gamma_log_draw(codec::_GammaCodec, rng, cursor) = _gamma_log_value(
+    codec.shape,
+    _standard_gamma(codec),
+    rng,
+    _cursor_ordinal(rng, cursor),
+    cursor,
+)
 
 # Subnormal shapes can overflow both log-Gamma draws before their ratio is
 # formed. Compare the boost terms at a common scale, then add the finite base
@@ -335,10 +384,63 @@ end
     return _normal_from_bits(codec.gamma.device, F, normal_raw), cursor
 end
 
-@inline _family_value(codec::_GammaCodec, rng, cursor) =
-    codec.scale * _gamma_draw(codec, rng, cursor)
-@inline _family_value(codec::_InverseGammaCodec, rng, cursor) =
-    codec.gamma.scale / _gamma_draw(codec.gamma, rng, cursor)
+# For n normal bits, the boost log is at least -(n+1)log(2). An accepted
+# boosted base has log(g) > log(2/3)-3(n+1)log(2)/2-11/2. These cutoffs
+# conservatively bound shapes whose standard draw can become subnormal.
+@inline _gamma_log_cutoff(::Type{Float32}) = 0.3f0
+@inline _gamma_log_cutoff(::Type{Float64}) = 0.06
+@inline _gamma_log_scaling(shape) =
+    _primal_value(shape) < _gamma_log_cutoff(_primal_float(typeof(shape)))
+
+@inline function _gamma_scale_shift(scale::F) where {F}
+    limit = exponent(floatmax(F))
+    return clamp(-exponent(scale), -limit, limit)
+end
+
+# A package-owned boundary lets AD backends preserve ldexp's subnormal handling.
+@inline _gamma_ldexp(value, power::Int) = ldexp(value, power)
+
+@inline function _scaled_gamma_log(scale, log_g)
+    F = _primal_float(typeof(scale))
+    shift = _gamma_scale_shift(_primal_value(scale))
+    # A normalized scale keeps log's derivative finite at subnormal scales.
+    # This path serves only underflowed standard draws; normal draws retain
+    # their original multiplication/division and AD ordering.
+    log_scale = log(_gamma_ldexp(scale, shift)) - F(shift) * log(F(2))
+    value = exp(log_scale + log_g)
+    return iszero(_primal_value(value)) ? zero(value) : value
+end
+
+@inline function _scaled_gamma_shape_slope(scale, log_g, log_slope, value)
+    value >= floatmin(typeof(value)) && return value * log_slope
+    # A rounded-zero value can still have a representable subnormal slope.
+    isfinite(log_slope) || return zero(value)
+    return _scaled_gamma_log(scale, log_g + log(log_slope))
+end
+
+@inline function _gamma_log_family_value(codec::_GammaCodec, rng, cursor)
+    g = _gamma_draw(codec, rng, cursor)
+    if _primal_value(g) >= floatmin(_codec_float(codec)) || _primal_value(codec.scale) <= 1
+        return codec.scale * g
+    end
+    return _scaled_gamma_log(codec.scale, _gamma_log_draw(codec, rng, cursor))
+end
+@inline function _gamma_log_family_value(codec::_InverseGammaCodec, rng, cursor)
+    gamma = codec.gamma
+    g = _gamma_draw(gamma, rng, cursor)
+    _primal_value(g) >= floatmin(_codec_float(gamma)) && return gamma.scale / g
+    return _scaled_gamma_log(gamma.scale, -_gamma_log_draw(gamma, rng, cursor))
+end
+
+@inline function _family_value(codec::_GammaCodec, rng, cursor)
+    _gamma_log_scaling(codec.shape) && return _gamma_log_family_value(codec, rng, cursor)
+    return codec.scale * _gamma_draw(codec, rng, cursor)
+end
+@inline function _family_value(codec::_InverseGammaCodec, rng, cursor)
+    _gamma_log_scaling(codec.gamma.shape) &&
+        return _gamma_log_family_value(codec, rng, cursor)
+    return codec.gamma.scale / _gamma_draw(codec.gamma, rng, cursor)
+end
 @inline function _beta_value(log_x, log_y)
     delta = log_y - log_x
     isinf(delta) && return delta > zero(delta) ? zero(log_x) : one(log_x)
@@ -382,6 +484,18 @@ end
 @inline _draw_transform(codec::_BetaCodec) =
     _tiny_beta_shapes(codec) ? _tiny_beta_at : _beta_at
 
+# Select outside the device kernel so ordinary shapes do not carry log-path registers.
+@inline _draw_transform(codec::_GammaCodec) =
+    _gamma_log_scaling(codec.shape) ? _gamma_log_at : _gamma_at
+@inline _draw_transform(codec::_InverseGammaCodec) =
+    _gamma_log_scaling(codec.gamma.shape) ? _gamma_log_at : _gamma_at
+@inline _gamma_log_at(codec, rng, position, ::Type{T}) where {T} =
+    _gamma_log_family_value(codec, rng, _gamma_cursor(rng, position))
+@inline _gamma_at(codec::_GammaCodec, rng, position, ::Type{T}) where {T} =
+    codec.scale * _gamma_draw(codec, rng, _gamma_cursor(rng, position))
+@inline _gamma_at(codec::_InverseGammaCodec, rng, position, ::Type{T}) where {T} =
+    codec.gamma.scale / _gamma_draw(codec.gamma, rng, _gamma_cursor(rng, position))
+
 @inline function _beta_at(codec::_BetaCodec, rng, position, ::Type)
     log_x = _gamma_log_draw(codec.a, rng, _gamma_cursor(rng, position))
     count, width = _codec_takes(codec.a, Nothing)
@@ -402,11 +516,35 @@ end
 
 @inline function _family_tangent(codec::_GammaCodec, dcodec, rng, cursor)
     g = _gamma_draw(codec, rng, cursor)
+    if _gamma_log_scaling(codec.shape) && g < floatmin(typeof(g)) && codec.scale > 1
+        log_g = _gamma_log_draw(codec, rng, cursor)
+        value = _scaled_gamma_log(codec.scale, log_g)
+        shape_slope = _scaled_gamma_shape_slope(
+            codec.scale,
+            log_g,
+            _gamma_log_shape_derivative(codec.shape, log_g),
+            value,
+        )
+        return _scale_tangent(dcodec.scale, exp(log_g)) +
+               _scale_tangent(dcodec.shape, shape_slope)
+    end
     return dcodec.scale * g + codec.scale * _gamma_tangent(codec, dcodec, g)
 end
 @inline function _family_tangent(codec::_InverseGammaCodec, dcodec, rng, cursor)
     gamma, dgamma = codec.gamma, dcodec.gamma
     g = _gamma_draw(gamma, rng, cursor)
+    if _gamma_log_scaling(gamma.shape) && g < floatmin(typeof(g))
+        log_g = _gamma_log_draw(gamma, rng, cursor)
+        value = _scaled_gamma_log(gamma.scale, -log_g)
+        shape_slope = _scaled_gamma_shape_slope(
+            gamma.scale,
+            -log_g,
+            _gamma_log_shape_derivative(gamma.shape, log_g),
+            value,
+        )
+        return _scale_tangent(dgamma.scale, exp(-log_g)) -
+               _scale_tangent(dgamma.shape, shape_slope)
+    end
     return dgamma.scale / g - gamma.scale / (g * g) * _gamma_tangent(gamma, dgamma, g)
 end
 @inline function _family_tangent(codec::_BetaCodec, dcodec, rng, cursor)

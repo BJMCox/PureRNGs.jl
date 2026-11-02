@@ -16,6 +16,27 @@ const IR = PureRNGs
 @zero_derivative DefaultCtx Tuple{typeof(IR._normal_from_bits),Any,Type,Any}
 @zero_derivative DefaultCtx Tuple{typeof(IR._exponential_from_bits),Any,Type,Any}
 @zero_derivative DefaultCtx Tuple{typeof(IR._exponential_transform),Any,Type,Any}
+# Range reduction chooses integer exponents; only the scaled arithmetic varies.
+@zero_derivative DefaultCtx Tuple{typeof(IR._gamma_scale_shift),Any}
+
+@is_primitive DefaultCtx Tuple{typeof(IR._gamma_ldexp),F,Int} where {F<:Base.IEEEFloat}
+function frule!!(
+    ::Dual{typeof(IR._gamma_ldexp)},
+    value::Dual{F},
+    power::Dual{Int},
+) where {F<:Base.IEEEFloat}
+    n = primal(power)
+    return Dual(ldexp(primal(value), n), ldexp(tangent(value), n))
+end
+function rrule!!(
+    ::CoDual{typeof(IR._gamma_ldexp)},
+    value::CoDual{F},
+    power::CoDual{Int},
+) where {F<:Base.IEEEFloat}
+    n = primal(power)
+    adjoint(dvalue) = (NoRData(), ldexp(dvalue, n), NoRData())
+    return zero_fcodual(ldexp(primal(value), n)), adjoint
+end
 
 # The rejection test picks which candidate a Gamma draw takes, so
 # differentiating through it would bias the shape gradient. The draw's shape

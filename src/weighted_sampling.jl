@@ -1,5 +1,9 @@
 const _WEIGHT_BITS = UInt16(53)
 const _WEIGHTED_LOOKUP_LANES = 32
+# Keep the smallest nonzero 53-bit threshold normal. Power-of-two scaling
+# preserves the prepared boundaries, including subnormals and zero plateaus.
+const _WEIGHT_SCALE_BOUND = 0x1p-969
+const _WEIGHT_SCALE = 0x1p1022
 
 @noinline function _invalid_weights()
     throw(
@@ -45,6 +49,10 @@ end
     end
     invalid |= !isfinite(total) || total <= zero(Float64)
     invalid && _invalid_weights()
+    if total < _WEIGHT_SCALE_BOUND
+        cumulative .*= _WEIGHT_SCALE
+        total *= _WEIGHT_SCALE
+    end
     return total, cumulative
 end
 
@@ -101,6 +109,7 @@ function WeightTable(weights)
 end
 
 function _fold_device_weights end
+function _finish_device_weights! end
 
 @inline _check_sampling_device(rng, table::WeightTable, noun) =
     _check_sampling_device(rng, table.cumulative, noun)

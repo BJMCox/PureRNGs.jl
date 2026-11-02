@@ -225,12 +225,12 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, sign
     return
 end
 
-function _k64_range_kernel!(destination, rng)
+function _range_api_kernel!(destination, rng, range)
     if CUDA.threadIdx().x == 1
-        value, next_rng = rand_next(rng, K64_RANGE)
+        value, next_rng = rand_next(rng, range)
         @inbounds begin
             destination[1] = value
-            destination[2] = rand(next_rng, K64_RANGE)
+            destination[2] = rand(next_rng, range)
         end
     end
     return
@@ -1284,6 +1284,9 @@ end
         )
     end
 
+end
+
+@testset "CUDA scalar API values and narrow arithmetic" begin
     for F in GENERATOR_TYPES
         rng = device(F(0x123456))
         signed32 = CUDA.zeros(Int32, 3)
@@ -1336,17 +1339,20 @@ end
         continued_range, next_range = rand_next(rng, range)
         @test Array(args[4]) == [continued_range, rand(next_range, range)]
 
-        k64_values = CUDA.CuArray{UInt32}(undef, 2)
-        k64_args = (k64_values, rng)
-        CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _k64_range_kernel!(k64_args...)
-        k64_signature = Tuple{map(typeof, k64_args)...}
-        k64_typed_text = sprint(show, CUDA.code_typed(_k64_range_kernel!, k64_signature))
-        k64_llvm_text = sprint(io -> CUDA.code_llvm(io, _k64_range_kernel!, k64_signature))
-        @test !occursin("UInt128", k64_typed_text)
-        @test !occursin("BigInt", k64_typed_text)
-        @test !occursin(r"\bi128\b", k64_llvm_text)
-        k64_value, k64_next = rand_next(rng, K64_RANGE)
-        @test Array(k64_values) == [k64_value, rand(k64_next, K64_RANGE)]
+        for range in (K64_RANGE, UInt64(0):typemax(UInt64))
+            range_values = CUDA.CuArray{eltype(range)}(undef, 2)
+            range_args = (range_values, rng, range)
+            CUDA.@sync CUDA.@cuda threads = 1 blocks = 1 _range_api_kernel!(range_args...)
+            range_signature = Tuple{map(typeof, range_args)...}
+            range_typed = sprint(show, CUDA.code_typed(_range_api_kernel!, range_signature))
+            range_llvm =
+                sprint(io -> CUDA.code_llvm(io, _range_api_kernel!, range_signature))
+            @test !occursin("UInt128", range_typed)
+            @test !occursin("BigInt", range_typed)
+            @test !occursin(r"\bi128\b", range_llvm)
+            value, next_rng = rand_next(rng, range)
+            @test Array(range_values) == [value, rand(next_rng, range)]
+        end
     end
 
 end
@@ -1785,7 +1791,22 @@ end
     d2h_sizes = _event_sizes(profile, events.device_to_host)
     @test !isempty(events.kernels)
     @test sort(h2d_sizes) == [sizeof(Float64) * length(counted_weights)]
-    @test d2h_sizes == [1]
+    @test d2h_sizes == [sizeof(Float64)]
+
+    # Serial, collective, and multi-block preparation must preserve tiny masses.
+    uniforms, after = rand_next(Philox4x32(1), Float64, 33)
+    tiny_rng = device(Philox4x32(1))
+    for count in (2, 256, 8193)
+        tiny_weights = zeros(count)
+        tiny_weights[1] = tiny_weights[end] = nextfloat(0.0)
+        weights = CUDA.CuArray(tiny_weights)
+        expected = ifelse.(uniforms .< 0.5, 1, count)
+        for prepared in (weights, WeightTable(weights))
+            values, next_rng = randsample_next(tiny_rng, 1:count, prepared, 33)
+            @test Array(values) == expected
+            @test next_rng.position == after.position
+        end
+    end
 
     # Tree sums can round downward or assign a step to a zero weight. Neither
     # is a valid CDF, even though matching the CPU's addition order is optional.
@@ -2077,31 +2098,34 @@ end
 end
 
 @testset "CUDA WeightTable storage survives cross-task reuse" begin
-    weights = [mod(7index, 11) + 0.5 for index = 1:257]
-    cpu_rng = Philox4x32(0x796)
-    gpu_rng = device(cpu_rng)
-    table = fetch(@async begin
-        CUDA.device!(primary)
-        WeightTable(CuArray(weights))
-    end)
-    GC.gc()
-    sample, next_rng = fetch(@async begin
-        CUDA.device!(primary)
-        randsample_next(gpu_rng, 1:length(weights), table, 31)
-    end)
-    expected, expected_next = randsample_next(cpu_rng, 1:length(weights), weights, 31)
-    @test Array(sample) == expected
-    @test next_rng.position == expected_next.position
+    for scale in (1.0, floatmin(Float64))
+        weights = [mod(7index, 11) + 0.5 for index = 1:257]
+        weights .*= scale
+        cpu_rng = Philox4x32(0x796)
+        gpu_rng = device(cpu_rng)
+        table = fetch(@async begin
+            CUDA.device!(primary)
+            WeightTable(CuArray(weights))
+        end)
+        GC.gc()
+        sample, next_rng = fetch(@async begin
+            CUDA.device!(primary)
+            randsample_next(gpu_rng, 1:length(weights), table, 31)
+        end)
+        expected, expected_next = randsample_next(cpu_rng, 1:length(weights), weights, 31)
+        @test Array(sample) == expected
+        @test next_rng.position == expected_next.position
 
-    for destination in (table.total, view(table.cumulative, 1:17))
-        @test_throws ArgumentError randsample_next!(
-            gpu_rng,
-            1:length(weights),
-            table,
-            destination,
-        )
+        for destination in (table.total, view(table.cumulative, 1:17))
+            @test_throws ArgumentError randsample_next!(
+                gpu_rng,
+                1:length(weights),
+                table,
+                destination,
+            )
+        end
+        @test Array(randsample(gpu_rng, 1:length(weights), table, 31)) == expected
     end
-    @test Array(randsample(gpu_rng, 1:length(weights), table, 31)) == expected
 end
 
 @testset "CUDA weighted samples without replacement equal the CPU samples" begin
