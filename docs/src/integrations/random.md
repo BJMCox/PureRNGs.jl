@@ -146,7 +146,8 @@ faces = rand(rng, 1:6, SVector{4})
 ```
 
 `rand`, `randn`, `randexp`, their `_next` and `_at` forms, and the fills accept a static array type.
-The scalar forms allocate nothing, so a GPU kernel can call them, and `rand_at(rng, SA, i)` gives each thread its own array without chaining.
-An array of static arrays fills as its `reinterpret` to `T`, so it runs on the same CPU and GPU fill paths.
+Immutable bits-type scalar forms allocate nothing, so a GPU kernel can call them, and `rand_at(rng, SA, i)` gives each thread its own array without chaining.
+An array of bits-type static arrays fills as its `reinterpret` to `T`, on the same CPU and GPU fill paths.
+Mutable static-array batches run on the CPU. They use a temporary scalar fill and construct a separate mutable value for each element.
 `rand(rng, X, SA)` picks `N` times from a collection or distribution `X`.
 The element type must be part of the static array type: use `SVector{3,Float64}`, not `SVector{3}`.

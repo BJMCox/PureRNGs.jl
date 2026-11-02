@@ -70,6 +70,11 @@ Initial release.
 
 ### Fixed
 
+- Tiny positive weight totals are rescaled during preparation, preventing threshold underflow from biasing weighted samples. Cached draws keep their existing fast path.
+- Gamma and inverse Gamma scaling preserves representable values when the standard draw underflows. Raw bits and parent advancement are unchanged.
+- Large Gamma shape gradients use a central expansion instead of a recurrence that loses accuracy or stalls in floating-point arithmetic.
+- Sparse `MvNormal` in-place CPU draws support their covariance storage and reject overlapping destinations.
+- Batches of mutable static arrays use separate CPU objects instead of reinterpreting non-bits storage. Immutable bits-type batches retain their reinterpretation fast path.
 - Beta device draws explicitly specialize their result type across the tiny-shape helper, avoiding dynamic calls with GPUCompiler 1.23.
 - Dirichlet draws and fills accept resident device concentrations and views without copying them. Mismatched device storage is rejected before output writes.
 - Tiny positive Beta and Dirichlet concentrations avoid overflowing log differences without changing parent advancement. The repair shares held bits across CPU, CUDA, Metal, and supported Reactant forms. Extreme-shape AD limits are documented separately.

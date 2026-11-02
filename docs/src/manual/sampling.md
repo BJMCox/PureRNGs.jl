@@ -154,7 +154,8 @@ finalists
 ```
 
 With `replace = false`, each element gets one exponential draw `E`, and the sample is the population in increasing order of `E / w`, ties by index (Efraimidis and Spirakis, 2006).
-The first element is `i` with probability `w[i] / sum(w)`, the next one is drawn in proportion to the remaining weights, and so on.
+This targets successive sampling: each selection is proportional to the remaining weights.
+The finite exponential grid, floating-point rounding, and index-based tie breaking make the realized probabilities approximate.
 The sample consumes 52 bits per population element whatever the count, and the count may not exceed the number of positive weights.
 The keys cover the whole `Float64` weight range without overflow, and no weight total is formed, so the total need not be finite.
 Pass the weight vector: a `WeightTable` keeps only cumulative sums.

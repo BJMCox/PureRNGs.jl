@@ -63,7 +63,8 @@ gradient(x -> sum(rand(rng, Exponential(x[1]), 8)), AutoMooncake(), [2.0])
 ForwardDiff differentiates typed draws and fills without help, because their values do not depend on the input.
 Loading ForwardDiff with Distributions also accepts fixed distributions with `Dual` parameters, such as `Normal(μ, σ)` with a dual `μ`.
 A dual draw decodes the base variates of the primal distribution and maps them with the dual parameters, so its value equals the primal draw and its partials are the pathwise derivatives.
-The scalar, continuation, and addressed forms run anywhere. The allocating and in-place fills run on the CPU.
+The scalar, continuation, and addressed forms run anywhere.
+Allocating and in-place dual fills also run on supported GPU backends, subject to their element-type limits.
 Gamma, `Chisq`, `InverseGamma`, `Beta`, and `TDist` accept dual parameters too: a dual shape carries the implicit shape derivative of its Gamma draws. Nested duals, as in second derivatives, find no method.
 
 ```julia
