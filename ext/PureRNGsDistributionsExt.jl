@@ -254,6 +254,7 @@ const _PDMats = Distributions.PDMats
 const _LinearAlgebra = Distributions.LinearAlgebra
 
 _covariance_storage(Σ::_PDMats.PDMat) = _LinearAlgebra.cholesky(Σ).factors
+_covariance_storage(Σ::_PDMats.PDSparseMat) = Σ.mat
 _covariance_storage(Σ::_PDMats.PDiagMat) = Σ.diag
 _covariance_storage(Σ::_PDMats.ScalMat) = nothing
 
