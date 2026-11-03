@@ -114,6 +114,29 @@ end
     @test order == host
 end
 
+# Exercise the shortlist itself with a partial tile and tied maximum keys.
+# The public dispatch keeps full sorting for populations this small.
+@testset "race shortlist preserves stable key order" begin
+    ext = Base.get_extension(IR, :PureRNGsKernelAbstractionsExt)
+    backend = KernelAbstractions.CPU()
+    rng = _device_rng(Philox4x32(0x5a2))
+    for keys in (UInt64.(mod.(1:513, 7)), fill(typemax(UInt64), 513))
+        count = 8
+        candidate_keys = Vector{UInt64}(undef, 3 * count)
+        indices = Vector{Int}(undef, 3 * count)
+        ext._race_candidates_kernel!(backend, 256)(
+            candidate_keys,
+            indices,
+            keys,
+            count;
+            ndrange = 768,
+        )
+        KernelAbstractions.synchronize(backend)
+        selected = IR._race_order(rng, view(candidate_keys, :), count)
+        @test indices[selected] == partialsortperm(keys, 1:count)
+    end
+end
+
 # A device column fill runs one workitem per component when the columns are
 # fewer than the resident workitems, and one per column otherwise. The CPU
 # backend reports no limit, so a stand-in limit reaches both branches.

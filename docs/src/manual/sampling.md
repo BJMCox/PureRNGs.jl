@@ -163,6 +163,9 @@ The keys cover the whole `Float64` weight range without overflow, and no weight 
 Pass the weight vector: a `WeightTable` keeps only cumulative sums.
 Device exponentials can differ from CPU exponentials in the last ulp, so a device sample can differ from the CPU sample when two keys are that close.
 
+Small GPU samples from large populations shortlist candidates before sorting.
+This preserves the key order, index-based ties, and population-sized stream consumption.
+
 ## Fill an existing destination
 
 ```@example sampling

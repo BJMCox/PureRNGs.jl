@@ -113,13 +113,14 @@ _, rng = rand_next!(rng, distribution, buffer)
 label = rand_at(rng, distribution, 1)
 ```
 
-Scalar and addressed Categorical calls prepare their cumulative weights on the
-CPU and accept only CPU-backed or device-agnostic probabilities. Batch and
+Scalar and addressed Categorical calls validate their weights on the CPU and
+accept only CPU-backed or device-agnostic probabilities. Small populations use
+an allocation-free scan; larger populations build a cumulative table. Both
+observe changed probabilities on the next call. Batch and
 destination-fill calls prepare once per call: CPU accepts CPU-backed or
 device-agnostic probabilities, while a GPU requires probabilities on the
 matching device. A mismatch throws `ArgumentError` rather than copying data.
-The scalar preparation can allocate its cumulative distribution. Categorical is
-not a Reactant carrier operation and adds no AD support. Metal rejects
+Categorical is not a Reactant carrier operation and adds no AD support. Metal rejects
 device-executing allocation and fills, since the cumulative table is Float64.
 
 ## MvNormal
