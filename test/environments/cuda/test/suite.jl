@@ -2194,12 +2194,23 @@ end
     gpu_keys = CuArray(keys)
     gpu_rng = device(Philox4x32(0x791))
     reversed_ties = sortperm(collect(zip(keys, length(keys):-1:1)))
-    for count in (1, 5_000, 20_000)
+    for count in (0, 1, 5_000, 20_000)
         @test Array(IR._race_order(gpu_rng, gpu_keys, count)) == sortperm(keys)[1:count]
         order = CuArray(reversed_ties)
         backend = IR._fill_backend(gpu_rng.device, gpu_keys)
         IR._order_device_key_runs!(backend, order, gpu_keys, count, nothing)
         @test Array(order)[1:count] == sortperm(keys)[1:count]
+    end
+    # Cross both shortlist dispatch boundaries and include a partial final tile.
+    for (n, count) in ((2^20 - 1, 32), (2^20, 32), (2^20 + 1, 33), (2^20 + 1, 8))
+        cpu_rng = Philox4x32(0x792)
+        weights = Float64.(mod.(1:n, 7))
+        expected, expected_next =
+            randsample_next(cpu_rng, 1:n, weights, count; replace = false)
+        actual, next_rng =
+            randsample_next(device(cpu_rng), 1:n, CuArray(weights), count; replace = false)
+        @test Array(actual) == expected
+        @test next_rng.position == expected_next.position
     end
     population = CuArray(Float32.(1:1000))
     weights = CuArray([mod(7index, 11) * 0.25 for index = 1:1000])

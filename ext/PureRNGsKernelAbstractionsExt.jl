@@ -365,6 +365,73 @@ function IR._order_device_keys!(backend::KernelAbstractions.Backend, permutation
 end
 
 
+# Retain each tile's first `count` keys. A discarded key has at least `count`
+# earlier keys in its own tile, so it cannot belong to the global first `count`.
+# Tile-major storage also preserves original-index order among equal keys.
+KernelAbstractions.@kernel function _race_candidates_kernel!(
+    candidate_keys,
+    candidate_indices,
+    keys,
+    count,
+)
+    lane = @index(Local, Linear)
+    group = @index(Group, Linear)
+    index = (group - 1) * 256 + lane
+    # KA 0.9's CPU lowering needs private storage across barrier regions.
+    key = @private UInt64 (1,)
+    ordinal = @private Int (1,)
+    key[1] = index <= length(keys) ? keys[index] : typemax(UInt64)
+    ordinal[1] = index <= length(keys) ? index : typemax(Int)
+    staged_keys = @localmem UInt64 (256,)
+    staged_indices = @localmem Int (256,)
+    for selected = 1:count
+        staged_keys[lane] = key[1]
+        staged_indices[lane] = ordinal[1]
+        @synchronize
+        for shift = 7:-1:0
+            offset = 1 << shift
+            if lane <= offset
+                a = (staged_keys[lane], staged_indices[lane])
+                b = (staged_keys[lane+offset], staged_indices[lane+offset])
+                if isless(b, a)
+                    staged_keys[lane] = b[1]
+                    staged_indices[lane] = b[2]
+                end
+            end
+            @synchronize
+        end
+        winner = staged_indices[1]
+        if lane == 1
+            slot = (group - 1) * count + selected
+            candidate_keys[slot] = staged_keys[1]
+            candidate_indices[slot] = winner
+        end
+        if ordinal[1] == winner
+            key[1] = typemax(UInt64)
+            ordinal[1] = typemax(Int)
+        end
+        @synchronize
+    end
+end
+
+function IR._race_candidates(backend::KernelAbstractions.Backend, keys, count)
+    # A100 end-to-end timings favor the shortlist only for large populations
+    # and small samples. Keep full sorting outside that range.
+    (length(keys) < 1 << 20 || count > 32) && return keys, nothing
+    groups = cld(length(keys), 256)
+    candidate_keys = similar(keys, groups * count)
+    candidate_indices = similar(keys, Int, groups * count)
+    _race_candidates_kernel!(backend, 256)(
+        candidate_keys,
+        candidate_indices,
+        keys,
+        count;
+        ndrange = groups * 256,
+    )
+    return candidate_keys, candidate_indices
+end
+
+
 # A workitem per slot finds the runs of equal keys that open in the first
 # `limit` slots, and the workitem at a run's first slot orders the whole run.
 # Other workitems read slots of a run being reordered, but every member of a run

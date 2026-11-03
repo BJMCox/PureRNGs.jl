@@ -289,10 +289,17 @@ end
 # leading `count` by index. Zero-weight keys tie, but they sort after `count`.
 _race_order(rng, keys::Vector{UInt64}, count::Int) = partialsortperm(keys, 1:count)
 
+_race_candidates(backend, keys, count) = (keys, nothing)
+
 function _race_order(rng, keys::AbstractVector{UInt64}, count::Int)
+    iszero(count) && return similar(keys, Int, 0)
+    count == 1 && return argmin(keys; dims = 1)
+    backend = _fill_backend(rng.device, keys)
+    keys, indices = _race_candidates(backend, keys, count)
     order = sortperm!(similar(keys, Int), keys)
-    _order_device_key_runs!(_fill_backend(rng.device, keys), order, keys, count, nothing)
-    return order[1:count]
+    _order_device_key_runs!(backend, order, keys, count, nothing)
+    selected = order[1:count]
+    return indices === nothing ? selected : _gather(backend, indices, selected)
 end
 
 # A weighted sample without replacement orders the population by `E / w`, one
