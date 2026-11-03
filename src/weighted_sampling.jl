@@ -37,18 +37,23 @@ function _collect_weights(weights)
     return converted
 end
 
-@inline function _fold_weights_cpu(weights)
-    cumulative = Vector{Float64}(undef, length(weights))
+@inline function _weight_total_cpu(weights, cumulative = nothing)
     total = zero(Float64)
     invalid = false
     for ordinal = 1:length(weights)
         weight = Float64(_population_value(weights, UInt64(ordinal)))
         invalid |= !isfinite(weight) || weight < zero(Float64)
         total += weight
-        cumulative[ordinal] = total
+        cumulative === nothing || (cumulative[ordinal] = total)
     end
     invalid |= !isfinite(total) || total <= zero(Float64)
     invalid && _invalid_weights()
+    return total
+end
+
+@inline function _fold_weights_cpu(weights)
+    cumulative = Vector{Float64}(undef, length(weights))
+    total = _weight_total_cpu(weights, cumulative)
     if total < _WEIGHT_SCALE_BOUND
         cumulative .*= _WEIGHT_SCALE
         total *= _WEIGHT_SCALE

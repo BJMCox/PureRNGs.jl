@@ -21,29 +21,45 @@ end
     return false
 end
 
+# A second scan avoids allocation for small populations. Larger populations
+# measured faster with the stored CDF and binary search.
+const _CATEGORICAL_SCAN_LIMIT = 64
+
 @inline function _prepare_categorical_scalar(rng, d::Distributions.Categorical)
     probabilities = _categorical_probabilities(d)
     _check_categorical_scalar_probabilities(probabilities)
     cpu_rng = IR.MLDataDevices.CPUDevice()(rng)
+    if length(probabilities) <= _CATEGORICAL_SCAN_LIMIT
+        total = IR._weight_total_cpu(probabilities)
+        return cpu_rng, total, probabilities, false
+    end
     _, total, cumulative = IR._prepare_weight_scan(cpu_rng, probabilities, false)
-    return cpu_rng, total, cumulative
+    return cpu_rng, total, cumulative, true
 end
 
-@inline function _draw_categorical_unchecked(rng, total::Float64, cumulative)
-    threshold = IR._weighted_threshold(rng, rng.position, total)
-    return IR._weighted_cdf_index(cumulative, threshold)
+@inline function _draw_categorical_unchecked(rng, total::Float64, prepared, is_cumulative)
+    scale = total < IR._WEIGHT_SCALE_BOUND ? IR._WEIGHT_SCALE : 1.0
+    threshold = IR._weighted_threshold(rng, rng.position, total * scale)
+    is_cumulative && return IR._weighted_cdf_index(prepared, threshold)
+    cumulative = 0.0
+    # Match the prepared CDF's left fold and tiny-total scaling without storing it.
+    for ordinal = 1:length(prepared)
+        cumulative += Float64(IR._population_value(prepared, UInt64(ordinal)))
+        threshold < cumulative * scale && return ordinal
+    end
+    return length(prepared)
 end
 
 @inline function _draw_categorical(rng, d::Distributions.Categorical)
-    cpu_rng, total, cumulative = _prepare_categorical_scalar(rng, d)
+    cpu_rng, total, prepared, is_cumulative = _prepare_categorical_scalar(rng, d)
     IR._sampling_reservation(rng, 1, IR._WEIGHT_BITS)
-    return _draw_categorical_unchecked(cpu_rng, total, cumulative)
+    return _draw_categorical_unchecked(cpu_rng, total, prepared, is_cumulative)
 end
 
 @inline function _draw_categorical_next(rng, d::Distributions.Categorical)
-    cpu_rng, total, cumulative = _prepare_categorical_scalar(rng, d)
+    cpu_rng, total, prepared, is_cumulative = _prepare_categorical_scalar(rng, d)
     next_rng = IR._sampling_reservation(rng, 1, IR._WEIGHT_BITS)
-    return _draw_categorical_unchecked(cpu_rng, total, cumulative), next_rng
+    return _draw_categorical_unchecked(cpu_rng, total, prepared, is_cumulative), next_rng
 end
 
 @inline function Random.rand(rng::IR._ScalarUniformGenerators, d::Distributions.Categorical)
@@ -62,10 +78,10 @@ end
     d::Distributions.Categorical,
     index::Integer,
 )
-    cpu_rng, total, cumulative = _prepare_categorical_scalar(rng, d)
+    _, total, prepared, is_cumulative = _prepare_categorical_scalar(rng, d)
     addressed = IR._addressed_rng(rng, IR._WEIGHT_BITS, index)
     addressed_cpu_rng = IR.MLDataDevices.CPUDevice()(addressed)
-    return _draw_categorical_unchecked(addressed_cpu_rng, total, cumulative)
+    return _draw_categorical_unchecked(addressed_cpu_rng, total, prepared, is_cumulative)
 end
 
 @inline function _prepare_categorical(rng, d::Distributions.Categorical)

@@ -36,6 +36,39 @@ IR.MLDataDevices.get_device(::CategoricalDeviceProbe) = IR.MLDataDevices.CUDADev
     @test filled_next === expected_next
 end
 
+@testset "Categorical scalar scans preserve boundaries and observe changed weights" begin
+    rng = last(rand_next(Philox4x32(0x9d9), Bool))
+    for probabilities in (
+        [0.0, 1.0, 0.0, 3.0, 0.0],
+        nextfloat(0.0) .* [0, 1, 0, 3, 0],
+        0x1p-970 .* [0, 1, 0, 3, 0],
+        [1.0, 0x1p-55, 3.0, 0.0],
+        Float64.(mod.(1:64, 7)),
+        nextfloat(0.0) .* mod.(1:65, 7),
+    )
+        distribution = Categorical(probabilities; check_args = false)
+        expected, expected_next = rand_next(rng, distribution, 33)
+        scalar_rng = rng
+        actual = Int[]
+        for _ = 1:33
+            value, scalar_rng = rand_next(scalar_rng, distribution)
+            push!(actual, value)
+        end
+        @test actual == expected
+        @test scalar_rng === expected_next
+        @test rand_at(rng, distribution, 33) == expected[end]
+    end
+
+    distribution = Categorical([1.0, 0.0]; check_args = false)
+    @test rand(rng, distribution) == 1
+    probs(distribution) .= [0.0, 1.0]
+    @test rand(rng, distribution) == 2
+    for invalid in (-1.0, Inf, NaN)
+        probs(distribution) .= [1.0, invalid]
+        @test_throws ArgumentError rand_next(rng, distribution)
+    end
+end
+
 @testset "Categorical serial and threaded fills agree above the threshold" begin
     probabilities = Float64[1, 2, 0, 3, 4]
     distribution = Categorical(probabilities; check_args = false)
