@@ -415,7 +415,12 @@ KernelAbstractions.@kernel function _scatter_kernel!(destination, indices, sourc
 end
 
 function IR._gather(backend::KernelAbstractions.Backend, source, indices)
-    destination = similar(source, length(indices))
+    # A range has no device storage; otherwise preserve the source's storage kind.
+    destination = if source isa AbstractRange
+        similar(indices, eltype(source), length(indices))
+    else
+        similar(source, length(indices))
+    end
     isempty(indices) ||
         _gather_kernel!(backend)(destination, source, indices; ndrange = length(indices))
     return destination
