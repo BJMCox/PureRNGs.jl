@@ -67,6 +67,10 @@ It never changes the values: a threaded fill writes the same stream as the seria
 It affects CPU execution only. Fills too small to split stay on the calling task.
 Leave it off inside your own threaded loop, so the outer loop owns the parallelism.
 
+Each internally threaded call creates tasks and synchronization objects.
+Reusing the destination does not remove those allocations.
+Large fills can amortize this cost. Serial fills avoid the task allocation.
+
 See [Parallel jobs](@ref) for a complete outer-threaded workflow.
 
 ## Packed booleans
@@ -90,3 +94,5 @@ Warm compilation before timing. Compare allocating draws separately from buffer 
 For GPU measurements, include synchronization and distinguish device generation from host transfers.
 
 Scalar draws inside a kernel and bulk array fills are different workloads. Neither timing predicts the other.
+
+See [GPU kernels](@ref) for asynchronous fills and [Particle filter](@ref) for a complete workload.
