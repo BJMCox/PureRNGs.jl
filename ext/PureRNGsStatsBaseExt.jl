@@ -22,7 +22,7 @@ _sample(rng, a, wv, n, replace::Bool, ordered::Bool) =
     ordered ? a[sort!(_randsample(rng, LinearIndices(a), wv, n, replace))] :
     _randsample(rng, a, wv, n, replace)
 
-StatsBase.sample(rng::AbstractPureRNG, a::AbstractArray) = rand(rng, a)
+StatsBase.sample(rng::AbstractPureRNG, a::AbstractArray) = first(rand_next(rng, a))
 StatsBase.sample(rng::AbstractPureRNG, wv::AbstractWeights) =
     only(_randsample(rng, Base.OneTo(length(wv)), wv, 1, true))
 StatsBase.sample(rng::AbstractPureRNG, a::AbstractArray, wv::AbstractWeights) =
@@ -101,7 +101,7 @@ StatsBase.wsample!(
 # it equals `i`, which makes every ordered pair of distinct values equally likely.
 function StatsBase.samplepair(rng::AbstractPureRNG, n::Integer)
     i, rng = rand_next(rng, one(n):n)
-    j = rand(rng, one(n):(n-one(n)))
+    j = first(rand_next(rng, one(n):(n-one(n))))
     return i, ifelse(j == i, n, j)
 end
 function StatsBase.samplepair(rng::AbstractPureRNG, a::AbstractArray)

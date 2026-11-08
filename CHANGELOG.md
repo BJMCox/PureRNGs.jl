@@ -34,7 +34,7 @@ Initial release.
 - KernelAbstractions is a weak dependency, loaded by the GPU backend packages, so a CPU-only environment stays small.
 - Draws of every signed and unsigned integer type from 8 to 128 bits, `Float16`, and `Complex` values, with normal draws for `Float16` and complex types and exponential draws for `Float16`. Integer ranges accept 128-bit element types; a range with more than 2^64 values reduces a 192-bit candidate. The 128-bit types run on the CPU only.
 - `StatefulRNG` serves every `Random` element type, `Random.seed!(rng)` without a seed, `copy!`, `==`, and `hash`.
-- Picks from collections: `rand`, `rand_next`, `rand_at`, `rand!`, and `rand_next!` accept any array or range, a tuple, a string, a dict, or a set. A pick consumes what one `randsample_next` draw does. `StatefulRNG` picks from tuples, strings, dicts, and sets through the same law.
+- Picks from collections: `rand_next`, `rand_at`, and `rand_next!` accept any array or range, a tuple, a string, a dict, or a set. A pick consumes what one `randsample_next` draw does. `StatefulRNG` picks from tuples, strings, dicts, and sets through the same law.
 - `Char` draws, uniform over the Unicode scalar values as in `Random`.
 - Permutations: `randperm_next`, `randcycle_next`, `shuffle_next`, their in-place forms, and `Random.randperm`, `randcycle`, `shuffle` and their in-place forms for pure generators. A permutation orders one uniform `UInt64` key per element, so it is the same on the CPU and on a GPU. `StatefulRNG` uses the same law.
 - `randsample(...; replace = false)` samples without replacement: the leading elements of the shuffled population. With weights, it orders the population by `E / w` with one exponential draw `E` per element, which is successive sampling proportional to the remaining weights.
@@ -47,19 +47,19 @@ Initial release.
 - Reactant compiles scalar, continuation, and addressed `Gamma`, `Chisq`, `InverseGamma`, `Beta`, and `TDist` draws, with the rare child-stream fallback as a traced loop.
 - Metal serves every generator, integer ranges, unweighted sampling, and `Float32` distributions, including the Gamma family, `Dirichlet`, and `MvNormal`. Only `Float64`, `ComplexF64`, 128-bit integers, weighted sampling, and `Categorical` stay off it.
 - Mooncake and ForwardDiff extensions. Mooncake gives pathwise gradients through typed draws, fills, and every fixed distribution. Fixed distributions accept ForwardDiff `Dual` parameters, and a dual draw's value equals the primal draw.
-- A StaticArrays extension: `rand`, `randn`, `randexp`, their `_next` and `_at` forms, and the fills accept static array types. A static array is the next `N` scalar draws, with no allocation, so GPU kernels can draw one per thread.
+- A StaticArrays extension: uniform, normal, and exponential `_next`, `_at`, and continuation fills accept static array types. A static array is the next `N` scalar draws, with no allocation, so GPU kernels can draw one per thread.
 - A StatsBase extension: `sample`, `sample!`, `wsample`, and `wsample!` accept pure generators and draw what `randsample` does, and `samplepair` makes two range draws.
 - Sampling, permutation, and pick errors state the values that broke the rule, for example `cannot draw 5 elements without replacement from a population of 3`.
 - CUDA fills of 8- and 16-bit integers and `Float16`, and `Float16` normal and exponential fills, store 16 bytes per work item. On an A100 a 2^26 `UInt8` fill runs at 1015 GiB/s instead of 183, `UInt16` at 1176 instead of 292, and `Float16` at 715 instead of 145.
 - `Threefry2x64R13`, the thirteen-round `Threefry2x64` that Salmon, Moraes, Dror, and Shaw (2011, Table 2) report as the smallest passing BigCrush. The evidence archive includes its package-specific BigCrush and PractRand runs.
-- A DimensionalData extension: `rand(rng, dims)` with a tuple of dimensions picks one of them, as for any tuple, instead of an ambiguity error when DimensionalData is loaded.
 - An internal engine interface through which a generator package outside PureRNGs can serve the distribution, normal, and exponential draws. `docs/dev/engine-interface.md` states the contract, which may change in any 0.0.x release. An engine can serve Dirichlet columns from its own bulk stream, as whole columns or as one log-gamma draw per element with a separate normalization, and it checks every span from unwrapped factors. The Gamma fallback reads an engine's child stream through one cursor hook instead of three public methods.
 - `Dirichlet` draws, fills, and addressed draws accept ForwardDiff `Dual` shapes, with the implicit shape derivative. A dual draw's value equals the float draw.
 
 ### Changed
 
 - Small device weighted samples use one kernel without a temporary threshold array. Large calls retain the two-kernel path to avoid increased synchronized latency. Values and stream advancement are unchanged.
-- Primitive `rand`, `randn`, and `randexp` calls default to `Float64`, as in `Random`. A lone tuple is a population for both `rand` and `rand_next`. Use `rand_next(rng, Float64, dims)` instead of `rand_next(rng, dims)` when `dims` is a tuple.
+- Standard `Random.rand`, `randn`, `randexp`, and their fills require a mutable generator. Pure generators use explicit continuations, addressed draws, or the unified `!!` adapters. Batch generation and fill kernels are unchanged.
+- Primitive `rand_next`, `randn_next`, and `randexp_next` calls default to `Float64`, as in `Random`. A lone tuple is a population for `rand_next`. Use `rand_next(rng, Float64, dims)` instead of `rand_next(rng, dims)` when `dims` is a tuple.
 - CUDA fills with partial packed stores retain cooperative execution. CUDA Dirichlet scheduling accounts for the column kernel's register-limited occupancy.
 - Large CUDA weight tables use parallel accumulation with monotone, zero-preserving cumulative boundaries. Weighted selections can differ from the CPU through rounding. Primitive bits, parent advancement, and cached-table reuse are unchanged.
 - Aligned Philox4x32 CPU `BitArray` fills write four generated blocks directly to packed storage, preserving bit order, tails, and threaded chunk ownership.

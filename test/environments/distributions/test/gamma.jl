@@ -57,7 +57,7 @@ end
             @test value ≈ expected rtol = tolerance
             values, next_rng = rand_next(rng, d, 3)
             @test values[1] == value
-            @test values[2] == rand(after, d)
+            @test values[2] == first(rand_next(after, d))
             @test values[3] == rand_at(rng, d, 3)
             @test rand_next!(rng, d, similar(values)) == (values, next_rng)
         end
@@ -114,7 +114,7 @@ end
         value, next_rng = rand_next(rng, d)
         @test value === gamma_reference(rng, T(shape), T(2))
         @test rngposition(next_rng) - rngposition(rng) == 17 * IR._normal_bits(T)
-        @test rand(rng, d) === value
+        @test first(rand_next(rng, d)) === value
     end
 end
 
@@ -130,7 +130,7 @@ end
         end
         @test after == chained
         @test rand_at(rng, d, 17) == values[17]
-        @test rand!(rng, d, zeros(1000); threaded) == values
+        @test first(rand_next!(rng, d, zeros(1000); threaded)) == values
     end
 end
 
@@ -139,7 +139,7 @@ end
 @testset "Gamma draws follow the Gamma distribution" begin
     rng = Philox4x32(0x9c4)
     for T in (Float64, Float32), shape in (0.1, 0.7, 1.0, 3.0, 100.0)
-        values = Float64.(rand(rng, Gamma(T(shape), T(2)), 100_000))
+        values = Float64.(first(rand_next(rng, Gamma(T(shape), T(2)), 100_000)))
         @test gamma_ks(values, Gamma(shape, 2.0)) < 1.95
     end
 end
@@ -215,12 +215,13 @@ end
             rng.device,
         )
         span = 17n
-        @test rand(rng, Chisq(T(3))) === gamma_reference(rng, T(1.5), T(2))
-        @test rand(rng, InverseGamma(T(2.5), T(1.5))) ===
+        @test first(rand_next(rng, Chisq(T(3)))) === gamma_reference(rng, T(1.5), T(2))
+        @test first(rand_next(rng, InverseGamma(T(2.5), T(1.5)))) ===
               T(1.5) / gamma_reference(rng, T(2.5), T(1))
         log_x = gamma_reference(rng, T(0.3), T(1); logarithm = true)
         log_y = gamma_reference(after(span), T(0.4), T(1); logarithm = true)
-        @test rand(rng, Beta(T(0.3), T(0.4))) === inv(one(T) + exp(log_y - log_x))
+        @test first(rand_next(rng, Beta(T(0.3), T(0.4)))) ===
+              inv(one(T) + exp(log_y - log_x))
         z = IR._normal_from_bits(
             rng.device,
             T,
@@ -231,7 +232,7 @@ end
                 Val(n),
             ),
         )
-        @test rand(rng, TDist(T(3))) ===
+        @test first(rand_next(rng, TDist(T(3)))) ===
               z * sqrt(T(3) / (T(2) * gamma_reference(after(n), T(1.5), T(1))))
     end
 end
@@ -247,7 +248,7 @@ end
         end
         @test after == chained
         @test rand_at(rng, d, 9) === values[9]
-        @test rand(rng, d, 200; threaded = true) == values
+        @test first(rand_next(rng, d, 200; threaded = true)) == values
     end
 end
 
@@ -266,11 +267,11 @@ end
         Chisq(4.0f0),
         Beta(2.0f0, 3.0f0),
     )
-        @test gamma_ks(Float64.(rand(rng, d, 100_000)), d) < 1.95
+        @test gamma_ks(Float64.(first(rand_next(rng, d, 100_000))), d) < 1.95
     end
     extreme = Beta(0.02, 0.05)
     @test gamma_two_sample(
-        rand(rng, extreme, 100_000),
+        first(rand_next(rng, extreme, 100_000)),
         rand(Random.Xoshiro(7), extreme, 100_000),
     ) < 1.95
 end
@@ -304,13 +305,13 @@ end
     end
     @test after == chained
     @test rand_at(rng, d, 5) == values[:, 5]
-    @test rand!(rng, d, zeros(3, 20)) == values
-    draws = rand(Philox4x32(0xa06), d, 50_000)
+    @test first(rand_next!(rng, d, zeros(3, 20))) == values
+    draws = first(rand_next(Philox4x32(0xa06), d, 50_000))
     for j = 1:3
         marginal = Beta(d.alpha[j], sum(d.alpha) - d.alpha[j])
         @test gamma_ks(draws[j, :], marginal) < 1.95
     end
-    small = rand(Philox4x32(0xa07), Dirichlet([0.01, 0.02, 0.03]), 1000)
+    small = first(rand_next(Philox4x32(0xa07), Dirichlet([0.01, 0.02, 0.03]), 1000))
     @test all(isfinite, small)
     @test maximum(abs.(sum(small; dims = 1) .- 1)) < 1e-12
 end
@@ -332,7 +333,7 @@ end
     wide = Threefry4x64(0xabc, 3)
     for index in (UInt64(0x5555555555555557), big(2)^70 + 3)
         @test rand_at(wide, d, index) ==
-              rand(skipped(wide, (BigInt(index) - 1) * stride), d)
+              first(rand_next(skipped(wide, (BigInt(index) - 1) * stride), d))
     end
     reserved = IR._reserve_draws(wide, 2^61, 51, Val(52))
     @test BigInt(rngposition(reserved)) - BigInt(rngposition(wide)) == big(2)^61 * stride

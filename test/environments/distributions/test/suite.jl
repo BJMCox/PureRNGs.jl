@@ -86,12 +86,12 @@ end
 invalid_error(f) = @test_throws ArgumentError f()
 
 function distribution_allocations(rng, distribution, destination)
-    rand(rng, distribution)
+    first(rand_next(rng, distribution))
     rand_next(rng, distribution)
     rand_at(rng, distribution, 2)
     rand_next!(rng, distribution, destination; threaded = false)
     return (
-        @allocated(rand(rng, distribution)),
+        @allocated(first(rand_next(rng, distribution))),
         @allocated(rand_next(rng, distribution)),
         @allocated(rand_at(rng, distribution, 2)),
         @allocated(rand_next!(rng, distribution, destination; threaded = false)),
@@ -106,12 +106,11 @@ end
         rng = F(0x901)
         expected, expected_next = primitive_next(rng, distribution)
 
-        @test rand(rng, distribution) === expected
+        @test first(rand_next(rng, distribution)) === expected
         actual, actual_next = rand_next(rng, distribution)
         @test actual === expected
         @test actual_next === expected_next
         @test rand_at(rng, distribution, 4) === primitive_at(rng, distribution, 4)
-        @test rand(rng, distribution) === rand(rng, distribution)
     end
 end
 
@@ -121,7 +120,7 @@ end
         expected_next, expected = primitive_chain(rng, distribution, 12)
         result_type = eltype(expected)
 
-        allocated = rand(rng, distribution, 3, 4)
+        allocated = first(rand_next(rng, distribution, 3, 4))
         @test size(allocated) == (3, 4)
         @test eltype(allocated) === result_type
         @test vec(allocated) == expected
@@ -132,9 +131,9 @@ end
 
         serial = Vector{result_type}(undef, 12)
         threaded = similar(serial)
-        @test rand!(rng, distribution, serial; threaded = false) === serial
+        @test first(rand_next!(rng, distribution, serial; threaded = false)) === serial
         @test serial == expected
-        @test rand!(rng, distribution, threaded; threaded = true) === threaded
+        @test first(rand_next!(rng, distribution, threaded; threaded = true)) === threaded
         @test threaded == expected
 
         returned, filled_next = rand_next!(rng, distribution, serial; threaded = false)
@@ -183,19 +182,19 @@ end
         width = EXT._distribution_span(distribution)
         bit = IR._block_bits(rng) - width
         last = IR._rebuild(rng, IR._Position64(IR._max_block(rng), bit), rng.device)
-        destination = fill(rand(last, distribution), 2)
+        destination = fill(first(rand_next(last, distribution)), 2)
         original = copy(destination)
-        @test_throws StreamExhausted rand!(last, distribution, destination)
+        @test_throws StreamExhausted first(rand_next!(last, distribution, destination))
         @test destination == original
         @test last.position.bit == bit
 
         exhausted = IR._reserve(last, UInt64(width), UInt64(0))
         empty = similar(destination, 0)
-        @test rand!(exhausted, distribution, empty) === empty
+        @test first(rand_next!(exhausted, distribution, empty)) === empty
         returned, empty_next = rand_next!(exhausted, distribution, empty)
         @test returned === empty
         @test empty_next === exhausted
-        @test isempty(rand(exhausted, distribution, 0))
+        @test isempty(first(rand_next(exhausted, distribution, 0)))
         allocated, allocated_next = rand_next(exhausted, distribution, 0)
         @test isempty(allocated)
         @test allocated_next === exhausted
@@ -222,7 +221,7 @@ end
     )
 
     for distribution in invalid
-        invalid_error(() -> rand(exhausted, distribution))
+        invalid_error(() -> first(rand_next(exhausted, distribution)))
     end
 
     distribution = first(invalid)
@@ -230,18 +229,18 @@ end
     destination = Vector{result_type}(undef, 0)
     invalid_error(() -> rand_next(exhausted, distribution))
     invalid_error(() -> rand_at(exhausted, distribution, 0))
-    invalid_error(() -> rand(exhausted, distribution, -1))
+    invalid_error(() -> first(rand_next(exhausted, distribution, -1)))
     invalid_error(() -> rand_next(exhausted, distribution, -1))
-    invalid_error(() -> rand!(exhausted, distribution, destination))
+    invalid_error(() -> first(rand_next!(exhausted, distribution, destination)))
     invalid_error(() -> rand_next!(exhausted, distribution, destination))
 
-    @test_throws MethodError rand(rng, Normal(Float16(0), Float16(1)))
-    @test_throws MethodError rand(rng, Poisson())
-    @test_throws MethodError rand!(rng, Normal(), Float32[])
+    @test_throws MethodError first(rand_next(rng, Normal(Float16(0), Float16(1))))
+    @test_throws MethodError first(rand_next(rng, Poisson()))
+    @test_throws MethodError first(rand_next!(rng, Normal(), Float32[]))
 
     distribution = Normal()
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
-    @test_throws StreamExhausted rand(exhausted, distribution)
+    @test_throws StreamExhausted first(rand_next(exhausted, distribution))
     @test_throws StreamExhausted rand_next(exhausted, distribution)
     @test_throws ArgumentError rand_at(rng, distribution, 0)
     width = EXT._distribution_span(distribution)

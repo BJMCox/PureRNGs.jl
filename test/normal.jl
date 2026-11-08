@@ -116,7 +116,7 @@ function _reference_normal(rng, ::Type{T}) where {T}
 end
 
 normal_allocations(rng, ::Type{T}) where {T} = (
-    @allocated(randn(rng, T)),
+    @allocated(first(randn_next(rng, T))),
     @allocated(randn_next(rng, T)),
     @allocated(randn_at(rng, T, 3)),
 )
@@ -177,7 +177,7 @@ end
             expected = IR._normal_transform(backend, u)
             value, next_rng = randn_next(rng, T)
             @test value === expected
-            @test randn(rng, T) === expected
+            @test first(randn_next(rng, T)) === expected
             @test randn_at(rng, T, 1) === expected
             @test next_rng.position == _reference_position(cpu_rng, width)
             @test expected !== _reference_as241(u)
@@ -191,7 +191,7 @@ end
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
         for bit in (UInt16(0), UInt16(23), UInt16(51), UInt16(63))
             rng = _positioned(F, 0x742, UInt64(9), bit)
-            @test randn(rng, T) === _reference_normal(rng, T)
+            @test first(randn_next(rng, T)) === _reference_normal(rng, T)
         end
     end
 end
@@ -202,7 +202,7 @@ end
         rng = _positioned(F, 0x743, UInt64(4), UInt16(61))
         _, next_rng = randn_next(rng, T)
         final_rng_value, final_rng = rand_next(next_rng, UInt32)
-        @test final_rng_value === rand(next_rng, UInt32)
+        @test final_rng_value === first(rand_next(next_rng, UInt32))
         @test final_rng.position ==
               _reference_position(rng, _transformed_width(T) + _uniform_width(UInt32))
 
@@ -239,7 +239,7 @@ end
 
     rng = MLD.CUDADevice()(Philox4x64(0x745))
     for (function_, signature) in (
-        (randn, Tuple{typeof(rng),Type{Float64}}),
+        (randn_next, Tuple{typeof(rng),Type{Float64}}),
         (randn_next, Tuple{typeof(rng),Type{Float32}}),
         (randn_at, Tuple{typeof(rng),Type{Float64},Int}),
         (randn_next!, Tuple{typeof(rng),Vector{Float64}}),

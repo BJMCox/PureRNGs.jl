@@ -154,13 +154,6 @@ end
     return _draw_range_unchecked(rng, range, span), next_rng
 end
 
-@inline _rand_range(rng::_ScalarUniformGenerators, range::AbstractRange{T}) where {T} =
-    first(_rand_next_range(rng, range))
-
-@inline Random.rand(
-    rng::_ScalarUniformGenerators,
-    range::AbstractRange{T},
-) where {T<:_RangeInteger} = _rand_range(rng, range)
 @inline rand_next(
     rng::_ScalarUniformGenerators,
     range::AbstractRange{T},

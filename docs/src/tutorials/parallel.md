@@ -10,7 +10,7 @@ using Base.Threads
 function job_mean(root, job)
     rng = subrng(root, job)
     buffer = Vector{Float64}(undef, 1024)
-    randn!(rng, buffer)
+    _, rng = randn_next!(rng, buffer)
     return sum(buffer) / length(buffer)
 end
 
@@ -47,7 +47,8 @@ function repeated_jobs(rng, n)
     means = Float64[]
     for _ in 1:n
         child, _ = splitrng(rng)
-        push!(means, sum(rand(child, Float64, 16)) / 16)
+        values, child = rand_next(child, Float64, 16)
+        push!(means, sum(values) / 16)
         _, rng = rand_next(rng, Float64)
     end
     return means
@@ -60,7 +61,7 @@ The loop index is the purpose ID, so derive from it directly:
 
 ```@example parallel
 function indexed_jobs(root, n)
-    return [sum(rand(subrng(root, i), Float64, 16)) / 16 for i in 1:n]
+    return [sum(first(rand_next(subrng(root, i), Float64, 16))) / 16 for i in 1:n]
 end
 
 job_means = indexed_jobs(Threefry4x32(123456), 3)

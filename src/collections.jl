@@ -41,11 +41,6 @@ end
     return _randsample_next_unweighted!(rng, indexed, destination, true, threaded)
 end
 
-@inline Random.rand(rng::_ScalarUniformGenerators, population::_PickPopulation) =
-    first(_rand_next_pick(rng, population))
-# Resolve Random's `rand(X, dims::Dims)` intersection as a population pick.
-@inline Random.rand(rng::_ScalarUniformGenerators, population::Dims) =
-    first(_rand_next_pick(rng, population))
 @inline rand_next(rng::_ScalarUniformGenerators, population::_PickPopulation) =
     _rand_next_pick(rng, population)
 
@@ -58,22 +53,6 @@ end
     addressed = _addressed_rng(rng, _range_bits(cardinality), i)
     return _pick_unchecked(addressed, addressed.position, population, cardinality)
 end
-
-@inline function Random.rand(
-    rng::_ScalarUniformGenerators,
-    population::_PickPopulation,
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-)
-    return first(_rand_next_pick_array(rng, population, (dim1, dims...), threaded))
-end
-@inline Random.rand(
-    rng::_ScalarUniformGenerators,
-    population::_PickPopulation,
-    dims::Dims;
-    threaded::Bool = false,
-) = first(_rand_next_pick_array(rng, population, dims, threaded))
 
 @inline function rand_next(
     rng::_ScalarUniformGenerators,
@@ -90,15 +69,6 @@ end
     dims::Dims;
     threaded::Bool = false,
 ) = _rand_next_pick_array(rng, population, dims, threaded)
-
-@inline function Random.rand!(
-    rng::_ScalarUniformGenerators,
-    destination::AbstractArray,
-    population::_PickPopulation;
-    threaded::Bool = false,
-)
-    return first(_randsample_next_unweighted!(rng, population, destination, true, threaded))
-end
 
 @inline function rand_next!(
     rng::_ScalarUniformGenerators,
@@ -124,8 +94,6 @@ end
 @inline _cooperative_value(::_CharCodec, ::Type{Char}, raw) =
     _unicode_scalar(_reduce_range_candidate(raw % UInt64, _CHAR_SPAN))
 
-@inline Random.rand(rng::_ScalarUniformGenerators, ::Type{Char}) =
-    first(_draw_next(rng, _CharCodec(), Char))
 @inline rand_next(rng::_ScalarUniformGenerators, ::Type{Char}) =
     _draw_next(rng, _CharCodec(), Char)
 @inline rand_at(rng::_ScalarUniformGenerators, ::Type{Char}, i::Integer) =
@@ -136,24 +104,6 @@ end
     indices::AbstractUnitRange{<:Integer};
     threaded::Bool = false,
 ) = _addressed_array(rng, Char, indices, _range_bits(_CHAR_SPAN), rand_next, threaded)
-
-@inline function Random.rand(
-    rng::_ScalarUniformGenerators,
-    ::Type{Char},
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-)
-    return first(
-        _rand_transformed_next_array(rng, Char, (dim1, dims...), _CharCodec(), threaded),
-    )
-end
-@inline Random.rand(
-    rng::_ScalarUniformGenerators,
-    ::Type{Char},
-    dims::Dims;
-    threaded::Bool = false,
-) = first(_rand_transformed_next_array(rng, Char, dims, _CharCodec(), threaded))
 
 @inline function rand_next(
     rng::_ScalarUniformGenerators,
@@ -171,11 +121,6 @@ end
     threaded::Bool = false,
 ) = _rand_transformed_next_array(rng, Char, dims, _CharCodec(), threaded)
 
-@inline Random.rand!(
-    rng::_ScalarUniformGenerators,
-    destination::AbstractArray{Char};
-    threaded::Bool = false,
-) = first(_rand_transformed_next_fill!(rng, destination, threaded, _CharCodec()))
 @inline rand_next!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{Char};

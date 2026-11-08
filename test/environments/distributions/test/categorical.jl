@@ -15,11 +15,11 @@ IR.MLDataDevices.get_device(::CategoricalDeviceProbe) = IR.MLDataDevices.CUDADev
     expected, expected_next = randsample_next(rng, labels, probabilities, 33)
     first_expected, first_next = randsample_next(rng, labels, probabilities, 1)
 
-    @test rand(rng, distribution) == only(first_expected)
+    @test first(rand_next(rng, distribution)) == only(first_expected)
     @test rand_next(rng, distribution) == (only(first_expected), first_next)
     @test rand_at(rng, distribution, 2) == expected[2]
 
-    values = rand(rng, distribution, 3, 11)
+    values = first(rand_next(rng, distribution, 3, 11))
     @test size(values) == (3, 11)
     @test vec(values) == expected
 
@@ -28,7 +28,8 @@ IR.MLDataDevices.get_device(::CategoricalDeviceProbe) = IR.MLDataDevices.CUDADev
     @test continued_next === expected_next
 
     destination = fill(-1, 33)
-    @test rand!(rng, distribution, destination; threaded = false) === destination
+    @test first(rand_next!(rng, distribution, destination; threaded = false)) ===
+          destination
     @test destination == expected
     returned, filled_next = rand_next!(rng, distribution, destination; threaded = false)
     @test returned === destination
@@ -60,9 +61,9 @@ end
     end
 
     distribution = Categorical([1.0, 0.0]; check_args = false)
-    @test rand(rng, distribution) == 1
+    @test first(rand_next(rng, distribution)) == 1
     probs(distribution) .= [0.0, 1.0]
-    @test rand(rng, distribution) == 2
+    @test first(rand_next(rng, distribution)) == 2
     for invalid in (-1.0, Inf, NaN)
         probs(distribution) .= [1.0, invalid]
         @test_throws ArgumentError rand_next(rng, distribution)
@@ -111,11 +112,13 @@ end
         Categorical(CategoricalDeviceProbe([0.0, 1.0]); check_args = false)
     invalid = Categorical(zeros(3); check_args = false)
 
-    @test_throws ArgumentError rand(rng, device_probabilities)
+    @test_throws ArgumentError first(rand_next(rng, device_probabilities))
     @test_throws ArgumentError rand_at(rng, device_probabilities, 1)
-    @test_throws ArgumentError rand(rng, device_probabilities, 0)
-    @test_throws ArgumentError rand!(rng, device_probabilities, Int[]; threaded = false)
-    @test_throws MethodError rand!(rng, valid, Int32[]; threaded = false)
+    @test_throws ArgumentError first(rand_next(rng, device_probabilities, 0))
+    @test_throws ArgumentError first(
+        rand_next!(rng, device_probabilities, Int[]; threaded = false),
+    )
+    @test_throws MethodError first(rand_next!(rng, valid, Int32[]; threaded = false))
 
     destination = fill(-1, 2)
     original = copy(destination)
@@ -138,9 +141,9 @@ end
 
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     empty = Int[]
-    @test rand!(exhausted, valid, empty; threaded = false) === empty
+    @test first(rand_next!(exhausted, valid, empty; threaded = false)) === empty
     @test rand_next!(exhausted, valid, empty; threaded = false) == (empty, exhausted)
-    @test_throws ArgumentError rand!(rng, invalid, empty; threaded = false)
+    @test_throws ArgumentError first(rand_next!(rng, invalid, empty; threaded = false))
 
     last = IR._rebuild(
         rng,

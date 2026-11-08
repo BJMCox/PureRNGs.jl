@@ -19,9 +19,9 @@ A lone tuple is a population to pick from.
 Arrays use Julia's native column-major order.
 
 A bang modifies the destination, not the immutable generator.
-`rand!` returns the destination. `rand_next!` also returns the advanced generator.
+`rand_next!` returns the destination and the advanced generator.
 
-The same forms exist for `randn!`, `randn_next!`, `randexp!`, and `randexp_next!`.
+Use `randn_next!` and `randexp_next!` for normal and exponential fills. The ordinary `Random` fills require `StatefulRNG`.
 
 ## Destinations that take the packed CPU path
 

@@ -89,14 +89,14 @@ end
         rng = _positioned(F, 0x865, UInt64(4), UInt16(61))
         _, next_rng = randexp_next(rng, T)
         final_value, final_rng = rand_next(next_rng, UInt32)
-        @test final_value === rand(next_rng, UInt32)
+        @test final_value === first(rand_next(next_rng, UInt32))
         @test final_rng.position ==
               _reference_position(rng, _transformed_width(T) + _uniform_width(UInt32))
     end
 
     rng = _packed_golden_rng(PACKED_GOLDEN_GENERATORS[1]...)
     device_rng = MLD.CUDADevice()(rng)
-    @test rand(rng, Float32) === rand(device_rng, Float32)
+    @test first(rand_next(rng, Float32)) === first(rand_next(device_rng, Float32))
     # The token selects the normal transform, so the two generators share
     # the midpoint the transform reads, not the value it returns.
     @test _reference_normal(rng, Float32) === _reference_normal(device_rng, Float32)
@@ -122,7 +122,7 @@ end
 @testset "exponential codegen" begin
     rng = MLD.CUDADevice()(Philox4x64(0x86b))
     for (function_, signature) in (
-        (randexp, Tuple{typeof(rng),Type{Float64}}),
+        (randexp_next, Tuple{typeof(rng),Type{Float64}}),
         (randexp_next!, Tuple{typeof(rng),Vector{Float64}}),
     )
         typed_ir, llvm_ir = _codegen_ir(function_, signature)

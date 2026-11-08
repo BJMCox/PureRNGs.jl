@@ -137,16 +137,21 @@ end
         rng = MetalDevice()(cpu_rng)
         @test rng.device === IR._METAL_BACKEND
         for T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)
-            @test rand(rng, T) === rand(cpu_rng, T)
+            @test first(rand_next(rng, T)) === first(rand_next(cpu_rng, T))
             @test IR.rand_next(rng, T)[1] === IR.rand_next(cpu_rng, T)[1]
         end
         for T in (Float32, Float64)
             # The Metal token selects Giles' erfinv, so a host draw on a
             # Metal generator no longer equals the CPU normal on the same bits.
-            @test randn(rng, T) === _metal_normal(cpu_rng, T)
-            @test isapprox(randexp(rng, T), randexp(cpu_rng, T); rtol = 16eps(T))
+            @test first(randn_next(rng, T)) === _metal_normal(cpu_rng, T)
+            @test isapprox(
+                first(randexp_next(rng, T)),
+                first(randexp_next(cpu_rng, T));
+                rtol = 16eps(T),
+            )
         end
-        @test rand(rng, UInt16(1):UInt16(3)) === rand(cpu_rng, UInt16(1):UInt16(3))
+        @test first(rand_next(rng, UInt16(1):UInt16(3))) ===
+              first(rand_next(cpu_rng, UInt16(1):UInt16(3)))
     end
 end
 
@@ -156,26 +161,28 @@ end
     for F in METAL_GENERATORS
         rng = MetalDevice()(F(0x817))
         for T in (Float64, ComplexF64, UInt128, Int128), count in (0, 1)
-            _check_metal_error(() -> rand(rng, T, count))
+            _check_metal_error(() -> first(rand_next(rng, T, count)))
             _check_metal_error(() -> IR.rand_next(rng, T, count))
-            _check_metal_error(() -> rand!(rng, MetalDeviceArrayProbe(Vector{T}())))
+            _check_metal_error(
+                () -> first(rand_next!(rng, MetalDeviceArrayProbe(Vector{T}()))),
+            )
         end
         for T in (Float64, ComplexF64), count in (0, 1)
-            _check_metal_error(() -> randn(rng, T, count))
+            _check_metal_error(() -> first(randn_next(rng, T, count)))
             _check_metal_error(() -> IR.randn_next(rng, T, count))
         end
-        _check_metal_error(() -> randexp(rng, Float64, 1))
+        _check_metal_error(() -> first(randexp_next(rng, Float64, 1)))
         _check_metal_error(() -> IR.randexp_next!(rng, MetalDeviceArrayProbe(Float64[])))
         _check_metal_error(() -> IR.rand_next(rng, 0))
-        _check_metal_error(() -> rand(rng, Int128(1):Int128(3), 1))
-        _check_metal_error(() -> rand(rng, Float64, -1))
+        _check_metal_error(() -> first(rand_next(rng, Int128(1):Int128(3), 1)))
+        _check_metal_error(() -> first(rand_next(rng, Float64, -1)))
     end
 
     rng = MetalDevice()(Philox4x32(0x81a))
-    _check_metal_error(() -> rand(rng, UInt32(2):UInt32(1), 1))
-    _check_metal_error(() -> rand(rng, UInt32(1):UInt32(3), -1))
-    @test_throws ArgumentError rand!(rng, UInt32[])
-    @test_throws ArgumentError randn!(rng, Float32[])
+    _check_metal_error(() -> first(rand_next(rng, UInt32(2):UInt32(1), 1)))
+    _check_metal_error(() -> first(rand_next(rng, UInt32(1):UInt32(3), -1)))
+    @test_throws ArgumentError first(rand_next!(rng, UInt32[]))
+    @test_throws ArgumentError first(randn_next!(rng, Float32[]))
     @test_throws ArgumentError IR.randsample(rng, UInt32[1, 2, 3], -1)
 
     population = MetalDeviceArrayProbe(Int32[1, 2, 3])
@@ -195,15 +202,15 @@ end
 @testset "Metal fixed-distribution surface" begin
     for F in METAL_GENERATORS, (distribution, result_type) in METAL_FIXED_DISTRIBUTIONS
         rng = MetalDevice()(F(0x91e))
-        value = rand(rng, distribution)
+        value = first(rand_next(rng, distribution))
         next_value, next_rng = IR.rand_next(rng, distribution)
-        @test isequal(value, rand(rng, distribution))
+        @test isequal(value, first(rand_next(rng, distribution)))
         @test isequal(next_value, value)
         @test isequal(IR.rand_at(rng, distribution, 1), value)
         @test next_rng.device === IR._METAL_BACKEND
         result_type === Float64 || continue
         for count in (0, 1)
-            _check_metal_error(() -> rand(rng, distribution, count))
+            _check_metal_error(() -> first(rand_next(rng, distribution, count)))
             _check_metal_error(() -> IR.rand_next(rng, distribution, count))
         end
         destination = MetalDeviceArrayProbe(Vector{result_type}())
@@ -219,12 +226,12 @@ end
         Normal(dual, one(dual)),
         Gamma(dual, one(dual)),
     )
-        _check_metal_error(() -> rand(rng, distribution, 1))
+        _check_metal_error(() -> first(rand_next(rng, distribution, 1)))
     end
     destination = MetalDeviceArrayProbe(Vector{typeof(dual)}())
-    _check_metal_error(() -> rand!(rng, Normal(dual, one(dual)), destination))
+    _check_metal_error(() -> first(rand_next!(rng, Normal(dual, one(dual)), destination)))
     bools = MetalDeviceArrayProbe(fill(true, 4))
-    _check_metal_error(() -> rand!(rng, Bernoulli(0.25), bools))
+    _check_metal_error(() -> first(rand_next!(rng, Bernoulli(0.25), bools)))
     @test all(bools.data)
 end
 
@@ -293,9 +300,9 @@ if Metal.functional()
         for seed in (1, 3)
             rng = Philox4x32(seed)
             d = Gamma(ForwardDiff.Dual(1.0f8, 1.0f0))
-            value = only(Array(rand(MetalDevice()(rng), d, 1)))
-            @test ForwardDiff.partials(value, 1) ≈ ForwardDiff.partials(rand(rng, d), 1) rtol =
-                2eps(Float32)
+            value = only(Array(first(rand_next(MetalDevice()(rng), d, 1))))
+            @test ForwardDiff.partials(value, 1) ≈
+                  ForwardDiff.partials(first(rand_next(rng, d)), 1) rtol = 2eps(Float32)
         end
     end
 
@@ -339,8 +346,8 @@ if Metal.functional()
             end
             dual = ForwardDiff.Dual(2.5f0, 1.0f0)
             for d in (Normal(dual, 1.0f0), Gamma(dual, 1.0f0))
-                values = Array(rand(rng, d, 1000))
-                expected = rand(cpu_rng, d, 1000)
+                values = Array(first(rand_next(rng, d, 1000)))
+                expected = first(rand_next(cpu_rng, d, 1000))
                 @test count(
                     near.(ForwardDiff.value.(values), ForwardDiff.value.(expected)),
                 ) >= 998
@@ -362,7 +369,8 @@ if Metal.functional()
                 @test next_rng.position == expected_next.position
             end
             d = Dirichlet(ForwardDiff.Dual.(Float32[0.3, 2, 5], 1.0f0))
-            values, expected = Array(rand(rng, d, 100)), rand(cpu_rng, d, 100)
+            values, expected =
+                Array(first(rand_next(rng, d, 100))), first(rand_next(cpu_rng, d, 100))
             for part in (ForwardDiff.value, x -> ForwardDiff.partials(x, 1))
                 @test count(near.(part.(values), part.(expected))) >=
                       0.998 * length(expected)

@@ -9,7 +9,9 @@ end
 
 @testset "Fill device mismatch names both devices" begin
     rng = Philox4x32(0x6a4)
-    message = _thrown_message(() -> rand!(rng, WrongDeviceArray(Vector{UInt32}(undef, 1))))
+    message = _thrown_message(
+        () -> first(rand_next!(rng, WrongDeviceArray(Vector{UInt32}(undef, 1)))),
+    )
     @test occursin(string(MLD.CPUDevice), message)
     @test occursin(string(MLD.UnknownDevice), message)
 end

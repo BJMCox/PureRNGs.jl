@@ -24,12 +24,13 @@ const CUDA_EXPANDED_CONTINUOUS_DISTRIBUTIONS = (
     six_transform_distributions(Float64)...,
 )
 
-@inline _primitive(rng, ::Normal{T}) where {T} = randn(rng, T)
-@inline _primitive(rng, ::Uniform{T}) where {T} = rand(rng, T)
-@inline _primitive(rng, ::Distributions.Exponential{T}) where {T} = randexp(rng, T)
-@inline _primitive(rng, ::Bernoulli{T}) where {T} = rand(rng, T)
+@inline _primitive(rng, ::Normal{T}) where {T} = first(randn_next(rng, T))
+@inline _primitive(rng, ::Uniform{T}) where {T} = first(rand_next(rng, T))
+@inline _primitive(rng, ::Distributions.Exponential{T}) where {T} =
+    first(randexp_next(rng, T))
+@inline _primitive(rng, ::Bernoulli{T}) where {T} = first(rand_next(rng, T))
 @inline _primitive(rng, distribution::DiscreteUniform) =
-    rand(rng, distribution.a:distribution.b)
+    first(rand_next(rng, distribution.a:distribution.b))
 
 @inline _primitive_next(rng, ::Normal{T}) where {T} = randn_next(rng, T)
 @inline _primitive_next(rng, ::Uniform{T}) where {T} = rand_next(rng, T)
@@ -47,16 +48,19 @@ const CUDA_EXPANDED_CONTINUOUS_DISTRIBUTIONS = (
 @inline function _primitive_at(rng, distribution::DiscreteUniform, index)
     span = (distribution.b % UInt64 - distribution.a % UInt64) + UInt64(1)
     addressed = IR._addressed_rng(rng, IR._range_bits(span), index)
-    return rand(addressed, distribution.a:distribution.b)
+    return first(rand_next(addressed, distribution.a:distribution.b))
 end
 
-@inline _primitive_array(rng, ::Normal{T}, count) where {T} = randn(rng, T, count)
-@inline _primitive_array(rng, ::Uniform{T}, count) where {T} = rand(rng, T, count)
+@inline _primitive_array(rng, ::Normal{T}, count) where {T} =
+    first(randn_next(rng, T, count))
+@inline _primitive_array(rng, ::Uniform{T}, count) where {T} =
+    first(rand_next(rng, T, count))
 @inline _primitive_array(rng, ::Distributions.Exponential{T}, count) where {T} =
-    randexp(rng, T, count)
-@inline _primitive_array(rng, ::Bernoulli{T}, count) where {T} = rand(rng, T, count)
+    first(randexp_next(rng, T, count))
+@inline _primitive_array(rng, ::Bernoulli{T}, count) where {T} =
+    first(rand_next(rng, T, count))
 @inline _primitive_array(rng, distribution::DiscreteUniform, count) =
-    rand(rng, distribution.a:distribution.b, count)
+    first(rand_next(rng, distribution.a:distribution.b, count))
 
 @noinline _distribution_oracle(distribution::Normal, value) =
     fma(distribution.σ, value, distribution.μ)
@@ -73,10 +77,10 @@ end
 @inline function _write_distribution_probe!(destination, offset, rng, distribution)
     continued, next_rng = rand_next(rng, distribution)
     @inbounds begin
-        destination[offset+1] = rand(rng, distribution)
+        destination[offset+1] = first(rand_next(rng, distribution))
         destination[offset+2] = continued
         destination[offset+3] = rand_at(rng, distribution, 1)
-        destination[offset+4] = rand(next_rng, distribution)
+        destination[offset+4] = first(rand_next(next_rng, distribution))
         destination[offset+5] = rand_at(rng, distribution, 2)
     end
     return nothing
@@ -129,13 +133,10 @@ function _fixed_distribution_kernel!(
 end
 
 function _distribution_fill_functions(distribution)
-    pure =
-        (rng, destination; threaded = true) ->
-            rand!(rng, distribution, destination; threaded)
     continued =
         (rng, destination; threaded = true) ->
             rand_next!(rng, distribution, destination; threaded)
-    return pure, continued
+    return (continued,)
 end
 
 @inline _expanded_result_type(::LogNormal{T}) where {T} = T
@@ -193,10 +194,10 @@ function _expanded_scalar_probe_kernel!(values, expected, rng, distribution)
         first_value = _expanded_formula(distribution, first_primitive)
         second_value = _expanded_formula(distribution, second_primitive)
         @inbounds begin
-            values[1] = rand(rng, distribution)
+            values[1] = first(rand_next(rng, distribution))
             values[2] = continued
             values[3] = rand_at(rng, distribution, 1)
-            values[4] = rand(next_rng, distribution)
+            values[4] = first(rand_next(next_rng, distribution))
             values[5] = rand_at(rng, distribution, 2)
             expected[1] = first_value
             expected[2] = first_value
@@ -305,7 +306,7 @@ end
             )
             @test isequal(Array(addressed), Array(formula_values))
 
-            pure_values = rand(rng, distribution, length(formula_values))
+            pure_values = first(rand_next(rng, distribution, length(formula_values)))
             values, next_rng = rand_next(rng, distribution, length(formula_values))
             expected_next, _ = _expanded_chain(rng, distribution, length(formula_values))
             @test isequal(Array(pure_values), Array(formula_values))
@@ -314,7 +315,7 @@ end
             @test next_rng.device == expected_next.device
 
             destination = similar(formula_values)
-            @test rand!(rng, distribution, destination) === destination
+            @test first(rand_next!(rng, distribution, destination)) === destination
             @test isequal(Array(destination), Array(formula_values))
 
             returned, fill_next = rand_next!(rng, distribution, destination)
@@ -333,7 +334,7 @@ end
     expected, expected_next =
         randsample_next(rng, 1:length(probabilities), probabilities, 33)
 
-    values = rand(rng, distribution, 33)
+    values = first(rand_next(rng, distribution, 33))
     @test values isa CUDA.CuArray{Int,1}
     @test Array(values) == Array(expected)
 
@@ -343,7 +344,7 @@ end
     @test continued_next.device == expected_next.device
 
     destination = similar(values)
-    @test rand!(rng, distribution, destination) === destination
+    @test first(rand_next!(rng, distribution, destination)) === destination
     @test Array(destination) == Array(expected)
     returned, filled_next = rand_next!(rng, distribution, destination)
     @test returned === destination
@@ -352,8 +353,10 @@ end
     @test filled_next.device == expected_next.device
 
     cpu_probabilities = Categorical(Float64[0, 1]; check_args = false)
-    @test_throws ArgumentError rand(rng, cpu_probabilities, 0)
-    @test_throws ArgumentError rand!(rng, cpu_probabilities, CUDA.CuArray{Int}(undef, 0))
+    @test_throws ArgumentError first(rand_next(rng, cpu_probabilities, 0))
+    @test_throws ArgumentError first(
+        rand_next!(rng, cpu_probabilities, CUDA.CuArray{Int}(undef, 0)),
+    )
 end
 
 @testset "CUDA fixed-distribution arrays and fills" begin
@@ -375,14 +378,13 @@ end
         cpu_rng = F(0x64c1)
         gpu_rng = device(cpu_rng)
         result_type = extension._result_type(distribution)
-        fills = (_distribution_fill_functions(distribution),)
+        fills = _distribution_fill_functions(distribution)
         exact = !(distribution isa Union{Normal,Uniform,Distributions.Exponential})
         _check_array_draw(
             cpu_rng,
             gpu_rng,
             distribution,
             result_type,
-            rand,
             rand_next;
             fills,
             cpu_parity = exact,
@@ -390,7 +392,7 @@ end
         if !exact
             raw = Array(_primitive_array(gpu_rng, distribution, 19))
             expected = map(value -> _distribution_oracle(distribution, value), raw)
-            actual = Array(rand(gpu_rng, distribution, 19))
+            actual = Array(first(rand_next(gpu_rng, distribution, 19)))
             if distribution isa Uniform
                 # CUDA may fuse the affine transform. Bound rounding at the interval
                 # scale, since cancellation near zero magnifies output-relative ULPs.
@@ -447,7 +449,7 @@ end
         failed = CUDA.fill(sentinel, 2)
         @test_throws StreamExhausted rand_next!(last_rng, distribution, failed)
         @test Array(failed) == fill(sentinel, 2)
-        @test_throws StreamExhausted rand(terminal, distribution)
+        @test_throws StreamExhausted first(rand_next(terminal, distribution))
 
         empty = CUDA.CuArray{T}(undef, 0)
         profile = CUDA.@profile raw = true rand_next!(terminal, distribution, empty)
@@ -499,18 +501,18 @@ end
     @test_throws ArgumentError rand_next!(rng, distribution, destination)
     @test Array(destination) == fill(sentinel, 8)
 
-    @test_throws ArgumentError rand(rng, distribution, -1)
+    @test_throws ArgumentError first(rand_next(rng, distribution, -1))
 
     allocating_forms = (
-        () -> rand(rng, Float32, -1),
+        () -> first(rand_next(rng, Float32, -1)),
         () -> rand_next(rng, Float32, -1),
-        () -> randn(rng, Float32, -1),
+        () -> first(randn_next(rng, Float32, -1)),
         () -> randn_next(rng, Float32, -1),
-        () -> randexp(rng, Float32, -1),
+        () -> first(randexp_next(rng, Float32, -1)),
         () -> randexp_next(rng, Float32, -1),
-        () -> rand(rng, UInt32(3):UInt32(7), -1),
+        () -> first(rand_next(rng, UInt32(3):UInt32(7), -1)),
         () -> rand_next(rng, UInt32(3):UInt32(7), -1),
-        () -> rand(rng, Normal(), -1),
+        () -> first(rand_next(rng, Normal(), -1)),
         () -> rand_next(rng, Normal(), -1),
     )
     for draw in allocating_forms
@@ -521,7 +523,7 @@ end
 @testset "CUDA fixed-distribution fills do not stage through the host" begin
     rng = device(Philox4x32(0x64c3))
     for distribution in CUDA_FIXED_DISTRIBUTIONS
-        destination = rand(rng, distribution, 4096)
+        destination = first(rand_next(rng, distribution, 4096))
         rand_next!(rng, distribution, destination)
         CUDA.synchronize()
         profile = CUDA.Profile.profile_internally(; concurrent = false, trace = true) do
@@ -555,9 +557,9 @@ end
     for seed in (1, 3)
         rng = Philox4x32(seed)
         d = Gamma(ForwardDiff.Dual(1.0f8, 1.0f0))
-        value = only(Array(rand(device(rng), d, 1)))
-        @test ForwardDiff.partials(value, 1) ≈ ForwardDiff.partials(rand(rng, d), 1) rtol =
-            2eps(Float32)
+        value = only(Array(first(rand_next(device(rng), d, 1))))
+        @test ForwardDiff.partials(value, 1) ≈
+              ForwardDiff.partials(first(rand_next(rng, d)), 1) rtol = 2eps(Float32)
     end
 end
 
@@ -575,7 +577,7 @@ end
         addressed = CuArray{T}(undef, 1000)
         CUDA.@sync CUDA.@cuda threads = 1 _expanded_addressed_kernel!(addressed, gpu_rng, d)
         @test Array(values) == Array(addressed)
-        host = rand(cpu_rng, d, 1000)
+        host = first(rand_next(cpu_rng, d, 1000))
         @test count(isapprox.(Array(values), host; rtol = 100eps(T))) >= 998
         # One candidate sends about 5% of shape-one draws down the child stream.
         codec = IR._GammaCodec(T(1), T(1), gpu_rng.device, 1)
@@ -624,13 +626,14 @@ end
         T = partype(d)
         cpu_rng = F(0x793, 1)
         gpu_rng = device(cpu_rng)
-        values = rand(gpu_rng, d, 1000)
+        values = first(rand_next(gpu_rng, d, 1000))
         @test values isa CuArray{T,1}
         addressed = CuArray{T}(undef, 1000)
         CUDA.@sync CUDA.@cuda threads = 1 _expanded_addressed_kernel!(addressed, gpu_rng, d)
         @test Array(values) == Array(addressed)
-        @test count(isapprox.(Array(values), rand(cpu_rng, d, 1000); rtol = 1000eps(T))) >=
-              998
+        @test count(
+            isapprox.(Array(values), first(rand_next(cpu_rng, d, 1000)); rtol = 1000eps(T)),
+        ) >= 998
     end
 end
 
@@ -661,9 +664,11 @@ end
         ) >= 0.998 * length(expected)
         @test Array(rand_at(gpu_rng, d, 7)) ≈ rand_at(cpu_rng, d, 7)
         destination = CuArray{T}(undef, length(d), 5)
-        rand!(gpu_rng, d, destination)
-        @test Array(destination) ≈ rand(cpu_rng, d, 5)
-        @test isempty(_device_events(() -> rand(gpu_rng, d, 1000)).device_to_host)
+        first(rand_next!(gpu_rng, d, destination))
+        @test Array(destination) ≈ first(rand_next(cpu_rng, d, 5))
+        @test isempty(
+            _device_events(() -> first(rand_next(gpu_rng, d, 1000))).device_to_host,
+        )
     end
 end
 
@@ -699,7 +704,8 @@ end
     count = 1 << 17
     columns, next = rand_next(rng, distribution, count)
     @test Array(columns[:, end]) == Array(rand_at(rng, distribution, count))
-    @test Array(rand(next, distribution)) == Array(rand_at(rng, distribution, count + 1))
+    @test Array(first(rand_next(next, distribution))) ==
+          Array(rand_at(rng, distribution, count + 1))
     @test all(isfinite, Array(columns))
 
     host = fill(-1.0, 3, 5)
@@ -725,8 +731,8 @@ end
 
         cpu_rng = F(0x797, 1)
         gpu_rng = device(cpu_rng)
-        values = Array(rand(gpu_rng, d, 1000))
-        expected = rand(cpu_rng, d, 1000)
+        values = Array(first(rand_next(gpu_rng, d, 1000)))
+        expected = first(rand_next(cpu_rng, d, 1000))
         T = typeof(ForwardDiff.value(first(expected)))
         near(x, y) = isapprox(x, y; rtol = sqrt(eps(T)), atol = sqrt(eps(T)))
         @test count(near.(ForwardDiff.value.(values), ForwardDiff.value.(expected))) >= 998

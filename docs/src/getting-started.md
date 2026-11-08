@@ -36,17 +36,19 @@ The `_next` functions return `(result, next_rng)`. Assign the returned generator
 
 Without a result type, these continuation functions default to `Float64`. Thus, `rand_next(rng, 4)` draws four values.
 
-## Repeat a draw
+## Keep a snapshot
 
-Functions without `_next` return only the result. They do not advance the generator.
+An immutable generator remains a valid snapshot after a draw. Reusing it repeats the same stream:
 
 ```@example start
-a = rand(rng, 4)
-b = rand(rng, Float64, 4)
+snapshot = rng
+a, rng = rand_next(snapshot, Float64, 4)
+b, replay = rand_next(snapshot, Float64, 4)
 @assert a == b
+@assert rng == replay
 ```
 
-Primitive `rand`, `randn`, and `randexp` calls default to `Float64`, just like their `_next` forms.
+`rand`, `randn`, `randexp`, and their fills require a mutable RNG. Use `StatefulRNG` for existing Julia code, or the `!!` adapters for code that accepts either kind of generator.
 
 ## Choose a result type
 

@@ -54,7 +54,7 @@ function measure_fill(next_fill_function, rng, values, seconds, threaded)
 end
 
 rng = family(12345) |> target_device
-values = rand(rng, result_type, elements)
+values = first(rand_next(rng, result_type, elements))
 result = measure_fill(next_fill_function, rng, values, seconds, threaded)
 
 @printf(

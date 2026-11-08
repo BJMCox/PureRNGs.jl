@@ -47,7 +47,7 @@ function case_operation(case, target)
     if haskey(FILLS, kind)
         values =
             get(case, "storage", "array") == "packed" ? falses(n) :
-            rand(rng, TYPES[case["type"]], n)
+            first(rand_next(rng, TYPES[case["type"]], n))
         fill! = FILLS[kind]
         operation = let values = values
             () -> fill!(rng, values; threaded)
@@ -65,7 +65,7 @@ function case_operation(case, target)
         T = TYPES[case["type"]]
         d = case_distribution(case, T)
         dims = haskey(case, "components") ? (case["components"], n) : (n,)
-        values = rand(rng, T, dims...)
+        values = first(rand_next(rng, T, dims...))
         operation = let values = values
             () -> rand_next!(rng, d, values; threaded)
         end

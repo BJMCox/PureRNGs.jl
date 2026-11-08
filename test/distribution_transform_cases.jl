@@ -19,7 +19,7 @@ end
 # Recover the odd-numerator grid independently from the wider public uniform.
 function six_transform_midpoint(rng, ::Type{T}) where {T}
     scale = T === Float32 ? T(0x1p23) : T(0x1p52)
-    return (floor(rand(rng, T) * scale) + T(0.5)) / scale
+    return (floor(first(rand_next(rng, T)) * scale) + T(0.5)) / scale
 end
 
 function six_transform_input_next(

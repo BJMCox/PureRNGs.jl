@@ -16,10 +16,10 @@ using Distributions.PDMats.SparseArrays: sparse, nonzeros
         (dirichlet, dirichlet.alpha),
     )
         saved = copy(destination)
-        expected = rand(rng, d)
-        @test_throws ArgumentError rand!(rng, d, destination)
+        expected = first(rand_next(rng, d))
+        @test_throws ArgumentError first(rand_next!(rng, d, destination))
         @test destination == saved
-        @test rand!(rng, d, similar(destination)) == expected
+        @test first(rand_next!(rng, d, similar(destination))) == expected
     end
 end
 
@@ -45,7 +45,7 @@ end
         value, next_rng = rand_next(rng, d)
         @test value ≈ μ + factor * normals
         @test next_rng == after
-        @test rand(rng, d) == value
+        @test first(rand_next(rng, d)) == value
         columns, columns_next = randn_next(rng, Float64, 3, 50)
         values, values_next = rand_next(rng, d, 50; threaded = true)
         @test values ≈ μ .+ factor * columns
@@ -60,7 +60,7 @@ end
         end
         @test chained == values_next
         @test rand_at(rng, d, 7) ≈ values[:, 7] rtol = 4 * eps(Float64)
-        @test rand!(rng, d, zeros(3, 50)) == values
+        @test first(rand_next!(rng, d, zeros(3, 50))) == values
         @test last(rand_next!(rng, d, zeros(3))) == next_rng
     end
 end

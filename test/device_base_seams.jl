@@ -44,7 +44,7 @@ end
     @test :backend ∉ DEVICE_VALIDATION_EVENTS
 
     for destination in (UInt32[], BitArray(undef, 0), falses(3))
-        @test_throws ArgumentError rand!(cuda_rng, destination)
+        @test_throws ArgumentError first(rand_next!(cuda_rng, destination))
         @test_throws ArgumentError rand_next!(cuda_rng, destination)
     end
 

@@ -36,8 +36,8 @@ central_difference(f, x; h = 1e-6) = [
     rng = Philox4x32(0x6a1, 3)
     x = [0.5, 2.0]
     for family in FAMILIES, backend in (AutoMooncake(), AutoForwardDiff())
-        scalar = x -> rand(rng, family(x))
-        batch = x -> sum(rand(rng, family(x), 3))
+        scalar = x -> first(rand_next(rng, family(x)))
+        batch = x -> sum(first(rand_next(rng, family(x), 3)))
         @test gradient(scalar, backend, x) ≈ central_difference(scalar, x) rtol = 1e-5
         @test gradient(batch, backend, x) ≈ central_difference(batch, x) rtol = 1e-5
     end
@@ -56,15 +56,15 @@ end
         @test ForwardDiff.value(value) == expected
         @test next_rng == expected_next
         @test ForwardDiff.value(rand_at(rng, d, 4)) == rand_at(rng, primal, 4)
-        @test ForwardDiff.value.(rand(rng, d, 2, 3; threaded = true)) ==
-              rand(rng, primal, 2, 3)
+        @test ForwardDiff.value.(first(rand_next(rng, d, 2, 3; threaded = true))) ==
+              first(rand_next(rng, primal, 2, 3))
     end
 end
 
 @testset "MvNormal gradients are pathwise derivatives" begin
     rng = Philox4x32(0x6a3)
     covariance(p) = [p[4]^2 0.3 0.1; 0.3 p[5]^2 0.2; 0.1 0.2 p[6]^2]
-    draws = p -> sum(rand(rng, MvNormal(p[1:3], covariance(p)), 4))
+    draws = p -> sum(first(rand_next(rng, MvNormal(p[1:3], covariance(p)), 4)))
     p = [1.0, -2.0, 0.5, 1.5, 0.7, 2.0]
     for backend in (AutoMooncake(), AutoForwardDiff())
         @test gradient(draws, backend, p) ≈ central_difference(draws, p) rtol = 1e-5
@@ -87,17 +87,18 @@ advanced(rng, bits) = PureRNGs._rebuild(
 
 @testset "Gamma family gradients follow the implicit shape derivative" begin
     rng = Philox4x32(0xb01, 3)
-    x = rand(rng, Gamma(0.3))
-    y = rand(advanced(rng, GAMMA_SPAN), Gamma(0.4))
-    z = randn(rng, Float64)
-    g = rand(advanced(rng, 52), Gamma(1.5))
+    x = first(rand_next(rng, Gamma(0.3)))
+    y = first(rand_next(advanced(rng, GAMMA_SPAN), Gamma(0.4)))
+    z = first(randn_next(rng, Float64))
+    g = first(rand_next(advanced(rng, 52), Gamma(1.5)))
     oracles = (
-        (q -> Gamma(q, 2.0), 2.5, 2 * gamma_oracle(2.5, rand(rng, Gamma(2.5)))),
-        (q -> Chisq(q), 3.0, gamma_oracle(1.5, rand(rng, Gamma(1.5)))),
+        (q -> Gamma(q, 2.0), 2.5, 2 * gamma_oracle(2.5, first(rand_next(rng, Gamma(2.5))))),
+        (q -> Chisq(q), 3.0, gamma_oracle(1.5, first(rand_next(rng, Gamma(1.5))))),
         (
             q -> InverseGamma(q, 1.5),
             2.5,
-            -1.5 * gamma_oracle(2.5, rand(rng, Gamma(2.5))) / rand(rng, Gamma(2.5))^2,
+            -1.5 * gamma_oracle(2.5, first(rand_next(rng, Gamma(2.5)))) /
+            first(rand_next(rng, Gamma(2.5)))^2,
         ),
         (q -> Beta(q, 0.4), 0.3, gamma_oracle(0.3, x) * y / (x + y)^2),
         (
@@ -109,14 +110,20 @@ advanced(rng, bits) = PureRNGs._rebuild(
     for (family, p, expected) in oracles,
         backend in (AutoMooncake(), AutoMooncakeForward(), AutoForwardDiff())
 
-        @test derivative(q -> rand(rng, family(q)), backend, p) ≈ expected rtol = 1e-6
+        @test derivative(q -> first(rand_next(rng, family(q))), backend, p) ≈ expected rtol =
+            1e-6
     end
     shapes = [0.3, 1.0, 2.5]
-    xs = [rand(advanced(rng, (j - 1) * GAMMA_SPAN), Gamma(shapes[j])) for j = 1:3]
+    xs = [
+        first(rand_next(advanced(rng, (j - 1) * GAMMA_SPAN), Gamma(shapes[j]))) for j = 1:3
+    ]
     total = sum(xs)
     for backend in (AutoMooncake(), AutoMooncakeForward(), AutoForwardDiff())
-        @test derivative(q -> rand(rng, Dirichlet([q, 1.0, 2.5]))[1], backend, 0.3) ≈
-              gamma_oracle(0.3, xs[1]) * (total - xs[1]) / total^2 rtol = 1e-6
+        @test derivative(
+            q -> first(rand_next(rng, Dirichlet([q, 1.0, 2.5])))[1],
+            backend,
+            0.3,
+        ) ≈ gamma_oracle(0.3, xs[1]) * (total - xs[1]) / total^2 rtol = 1e-6
     end
 end
 
@@ -124,10 +131,10 @@ end
     rng = Philox4x32(2)
     for backend in (AutoMooncake(), AutoMooncakeForward(), AutoForwardDiff())
         # A rounded-zero scaled draw can still have a nonzero scale slope.
-        expected = rand(rng, Gamma(0.01))
+        expected = first(rand_next(rng, Gamma(0.01)))
         for scale in (1e-300, nextfloat(0.0))
-            @test derivative(s -> rand(rng, Gamma(0.01, s)), backend, scale) ≈ expected rtol =
-                1e-12
+            @test derivative(s -> first(rand_next(rng, Gamma(0.01, s))), backend, scale) ≈
+                  expected rtol = 1e-12
         end
         for (d, sign) in (
             (Gamma(0.001, 1e300), 1),
@@ -144,16 +151,18 @@ end
             # At this tiny standard draw, the incomplete-gamma series differs
             # from its leading term by less than Float64 can represent.
             expected =
-                sign * rand(rng, d) * (Distributions.digamma(1 + shape) - log_g) / shape
+                sign *
+                first(rand_next(rng, d)) *
+                (Distributions.digamma(1 + shape) - log_g) / shape
             make = d isa Gamma ? Gamma : InverseGamma
-            @test derivative(a -> rand(rng, make(a, scale)), backend, shape) ≈ expected rtol =
-                1e-11
+            @test derivative(a -> first(rand_next(rng, make(a, scale))), backend, shape) ≈
+                  expected rtol = 1e-11
         end
         for seed in (1, 3)
             large_rng = Philox4x32(seed)
             expected = seed == 1 ? 0.9999614806773708f0 : 1.0000311210211024f0
-            @test derivative(a -> rand(large_rng, Gamma(a)), backend, 1.0f8) ≈ expected rtol =
-                2eps(Float32)
+            @test derivative(a -> first(rand_next(large_rng, Gamma(a))), backend, 1.0f8) ≈
+                  expected rtol = 2eps(Float32)
         end
     end
 end
@@ -183,19 +192,19 @@ end
     rng = Philox4x32(0xd1c, 9)
     shapes = [0.3, 1.0, 2.5]
     dual(x) = ForwardDiff.Dual{:dirichlet}.(x, 1.0)
-    @test ForwardDiff.value.(rand(rng, Dirichlet(dual(shapes)))) ==
-          rand(rng, Dirichlet(shapes))
+    @test ForwardDiff.value.(first(rand_next(rng, Dirichlet(dual(shapes))))) ==
+          first(rand_next(rng, Dirichlet(shapes)))
     values, next_rng = rand_next(rng, Dirichlet(dual(shapes)), 9; threaded = true)
-    @test ForwardDiff.value.(values) == rand(rng, Dirichlet(shapes), 9)
+    @test ForwardDiff.value.(values) == first(rand_next(rng, Dirichlet(shapes), 9))
     @test next_rng == last(rand_next(rng, Dirichlet(shapes), 9))
     @test rand_at(rng, Dirichlet(dual(shapes)), 4) == values[:, 4]
     destination = similar(values)
-    @test rand!(rng, Dirichlet(dual(shapes)), destination) == values
+    @test first(rand_next!(rng, Dirichlet(dual(shapes)), destination)) == values
     at(x) = rand_at(rng, Dirichlet(x), 4)
     @test jacobian(at, AutoForwardDiff(), shapes) ≈ jacobian(at, AutoMooncake(), shapes) rtol =
         1e-10
     tiny_rng = Philox4x32(123)
-    tiny_draw(a) = rand(tiny_rng, Dirichlet(a))
+    tiny_draw(a) = first(rand_next(tiny_rng, Dirichlet(a)))
     @test iszero(jacobian(tiny_draw, AutoForwardDiff(), [1e-320, 2e-320, 3e-320]))
     mixed = jacobian(tiny_draw, AutoForwardDiff(), [1e-320, 1.0, 2.0])
     @test all(isfinite, mixed) && iszero(mixed[:, 1])
@@ -208,7 +217,10 @@ end
 @testset "Gamma shape gradients are unbiased" begin
     rng = Philox4x32(0xb77, 11)
     for shape in (0.02, 0.3, 2.5)
-        slopes = ForwardDiff.derivative(q -> rand(rng, Gamma(q, 1.0), 200_000), shape)
+        slopes = ForwardDiff.derivative(
+            q -> first(rand_next(rng, Gamma(q, 1.0), 200_000)),
+            shape,
+        )
         @test abs(mean(slopes) - 1) < 4 * std(slopes) / sqrt(length(slopes))
     end
 end

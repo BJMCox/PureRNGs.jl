@@ -161,7 +161,7 @@ function _exponential_components(rng::AbstractPureRNG, ::Type{T}) where {T}
     )
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     u = T(2raw + 1) * scale
-    return raw, u, one(T) - u, randexp(rng, T)
+    return raw, u, one(T) - u, first(randexp_next(rng, T))
 end
 
 function _exponential_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) where {T}
@@ -169,7 +169,7 @@ function _exponential_components(rng::REACTANT_EXT._ReactantRNG, ::Type{T}) wher
     raw = REACTANT_EXT._raw(rng, Val(width))
     scale = T === Float32 ? Float32(0x1p-24) : Float64(0x1p-53)
     u = REACTANT_EXT._convert(T, (raw * UInt64(2)) | UInt64(1)) * scale
-    return raw, u, one(T) - u, randexp(rng, T)
+    return raw, u, one(T) - u, first(randexp_next(rng, T))
 end
 
 function _exponential_at_components(rng::AbstractPureRNG, ::Type{T}, index) where {T}
@@ -195,20 +195,20 @@ function _snapshot(rng)
     wide_range = UInt64(0):(UInt64(1)<<40)
     linrange = LinRange{Int64}(Int64(1) << 53, (Int64(1) << 53) + Int64(4), 5)
     pure_values = (
-        rand(rng, Bool),
-        rand(rng, UInt32),
-        rand(rng, Int32),
-        rand(rng, UInt64),
-        rand(rng, Int64),
-        rand(rng, Float32),
-        rand(rng),
-        rand(rng, wide_range),
+        first(rand_next(rng, Bool)),
+        first(rand_next(rng, UInt32)),
+        first(rand_next(rng, Int32)),
+        first(rand_next(rng, UInt64)),
+        first(rand_next(rng, Int64)),
+        first(rand_next(rng, Float32)),
+        first(rand_next(rng)),
+        first(rand_next(rng, wide_range)),
         first(rand_next(rng, wide_range)),
     )
-    pure_exponentials = (randexp(rng, Float32), randexp(rng))
+    pure_exponentials = (first(randexp_next(rng, Float32)), first(randexp_next(rng)))
     pure_addressed = (
-        rand(rng, range),
-        rand(rng, linrange),
+        first(rand_next(rng, range)),
+        first(rand_next(rng, linrange)),
         rand_at(rng, UInt64, 3),
         rand_at(rng, Int32, 3),
         rand_at(rng, Int64, 3),
@@ -216,8 +216,8 @@ function _snapshot(rng)
     pure_addressed_exponentials = (randexp_at(rng, Float32, 3), randexp_at(rng, Float64, 3))
     pure = (pure_values, pure_exponentials, pure_addressed, pure_addressed_exponentials)
     normals = (
-        _normal_observation(rng, Float32, randn(rng, Float32)),
-        _normal_observation(rng, Float64, randn(rng)),
+        _normal_observation(rng, Float32, first(randn_next(rng, Float32))),
+        _normal_observation(rng, Float64, first(randn_next(rng))),
         _normal_at_observation(rng, Float32, 3),
         _normal_at_observation(rng, Float64, 3),
     )
@@ -331,11 +331,11 @@ function _snapshot_pure_exponential32(snapshot)
     return first(exponentials)
 end
 
-_distribution_primitive(rng, ::Uniform{T}) where {T} = rand(rng, T)
+_distribution_primitive(rng, ::Uniform{T}) where {T} = first(rand_next(rng, T))
 _distribution_primitive(rng, ::Exponential{T}) where {T} = _exponential_components(rng, T)
-_distribution_primitive(rng, ::Bernoulli{T}) where {T} = rand(rng, T)
+_distribution_primitive(rng, ::Bernoulli{T}) where {T} = first(rand_next(rng, T))
 _distribution_primitive(rng, distribution::DiscreteUniform) =
-    rand(rng, distribution.a:distribution.b)
+    first(rand_next(rng, distribution.a:distribution.b))
 
 _distribution_primitive_at(rng, ::Uniform{T}, index) where {T} = rand_at(rng, T, index)
 _distribution_primitive_at(rng, ::Exponential{T}, index) where {T} =
@@ -345,7 +345,7 @@ _distribution_primitive_at(rng, ::Bernoulli{T}, index) where {T} = rand_at(rng, 
 function _distribution_primitive_at(rng, distribution::DiscreteUniform, index)
     width = REACTANT_DISTRIBUTIONS_EXT._distribution_span(distribution)
     addressed = PureRNGs._addressed_rng(rng, width, index)
-    return rand(addressed, distribution.a:distribution.b)
+    return first(rand_next(addressed, distribution.a:distribution.b))
 end
 
 function _distribution_formula(d::Uniform{T}, primitive) where {T}
@@ -384,7 +384,7 @@ function _continuous_distribution_snapshot(rng)
         addressed_primitive, _ = _continuous_primitive_next(addressed, distribution)
         continued, actual_next = rand_next(rng, distribution)
         return (
-            rand(rng, distribution),
+            first(rand_next(rng, distribution)),
             _continuous_formula(distribution, primitive),
             continued,
             _continuous_formula(distribution, primitive),
@@ -410,7 +410,7 @@ function _distribution_pair(rng, distribution)
     primitive = _distribution_primitive(rng, distribution)
     return (
         primitive,
-        rand(rng, distribution),
+        first(rand_next(rng, distribution)),
         _distribution_formula(distribution, primitive),
     )
 end
@@ -435,8 +435,8 @@ function _distribution_chain(rng, distributions::Tuple)
 end
 
 function _normal_distribution_pair(rng, d::Normal{T}) where {T}
-    primitive = _normal_observation(rng, T, randn(rng, T))
-    return primitive, rand(rng, d), muladd(d.σ, primitive[3], d.μ)
+    primitive = _normal_observation(rng, T, first(randn_next(rng, T)))
+    return primitive, first(rand_next(rng, d)), muladd(d.σ, primitive[3], d.μ)
 end
 
 function _normal_distribution_pair_at(rng, d::Normal{T}, index) where {T}
@@ -450,7 +450,7 @@ _normal_distribution_chain(rng, ::Tuple{}) = (rng, ())
 function _normal_distribution_chain(rng, distributions::Tuple)
     distribution = first(distributions)
     T = _normal_distribution_type(distribution)
-    primitive = _normal_observation(rng, T, randn(rng, T))
+    primitive = _normal_observation(rng, T, first(randn_next(rng, T)))
     value, next_rng = rand_next(rng, distribution)
     final_rng, values = _normal_distribution_chain(next_rng, Base.tail(distributions))
     direct = muladd(distribution.σ, primitive[3], distribution.μ)
@@ -748,9 +748,9 @@ end
     for F in SELECTED_GENERATORS
         carrier = Reactant.to_rarray(_positioned_at(F(0x123456), UInt64(3), UInt16(17)))
         for draw in (
-            rng -> rand(rng, Float64, 4096),
-            rng -> randn(rng, Float32, 4096),
-            rng -> rand(rng, Int16(-31):Int16(3):Int16(41), 4096),
+            rng -> first(rand_next(rng, Float64, 4096)),
+            rng -> first(randn_next(rng, Float32, 4096)),
+            rng -> first(rand_next(rng, Int16(-31):Int16(3):Int16(41), 4096)),
         )
             hlo = String(Reactant.@code_hlo optimize = false draw(carrier))
             @test !occursin(r"dense<\[[^\]]{1024,}", hlo)
@@ -866,10 +866,8 @@ if Philox4x32 in SELECTED_GENERATORS
         carrier =
             Reactant.to_rarray(_positioned_at(Philox4x32(0x123456), UInt64(3), UInt16(17)))
         unsupported = NegativeIntegerRange(-5, -2, 4)
-        @test !applicable(rand, carrier, unsupported)
         @test !applicable(rand_next, carrier, unsupported)
         for range in (UInt16(2):UInt16(3):UInt16(74), LinRange{Int64}(-20, 20, 5))
-            @test applicable(rand, carrier, range)
             @test applicable(rand_next, carrier, range)
         end
     end
@@ -895,8 +893,8 @@ end
         value, terminal = rand_next(last, Bool)
         terminal_state = Reactant.to_rarray(terminal).state |> Array
 
-        @test value == rand(last, Bool)
-        @test_throws StreamExhausted rand(terminal, Bool)
+        @test value == first(rand_next(last, Bool))
+        @test_throws StreamExhausted first(rand_next(terminal, Bool))
         @test_throws StreamExhausted rand_next(terminal, Bool)
         @test Array(Reactant.to_rarray(terminal).state) == terminal_state
     end
@@ -904,16 +902,16 @@ end
 
 function _fill_snapshot(rng)
     uniform = (
-        rand(rng, Bool, 9),
-        rand(rng, UInt32, 5),
-        rand(rng, Int32, 5),
-        rand(rng, UInt64, 3, 2),
-        rand(rng, Int64, 4),
-        rand(rng, Float32, 70),
-        rand(rng, 33),
+        first(rand_next(rng, Bool, 9)),
+        first(rand_next(rng, UInt32, 5)),
+        first(rand_next(rng, Int32, 5)),
+        first(rand_next(rng, UInt64, 3, 2)),
+        first(rand_next(rng, Int64, 4)),
+        first(rand_next(rng, Float32, 70)),
+        first(rand_next(rng, 33)),
     )
-    normals = (randn(rng, Float32, 6), randn(rng, (2, 3)))
-    exponentials = (randexp(rng, Float32, 6), randexp(rng, (5,)))
+    normals = (first(randn_next(rng, Float32, 6)), first(randn_next(rng, (2, 3))))
+    exponentials = (first(randexp_next(rng, Float32, 6)), first(randexp_next(rng, (5,))))
     values, next_rng = rand_next(rng, 7)
     return uniform, normals, exponentials, values, next_rng
 end
@@ -948,17 +946,17 @@ end
 @testset "traced array fills" begin
     for F in SELECTED_GENERATORS
         @testset "$F" begin
-            first = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
+            initial = _positioned_at(F(0x123456), UInt64(3), UInt64(2), UInt16(17))
             second = _positioned_at(F(0x654321), UInt64(7), UInt64(5), UInt16(29))
-            first_carrier = Reactant.to_rarray(first)
+            first_carrier = Reactant.to_rarray(initial)
             compiled = Reactant.@compile sync = true _fill_snapshot(first_carrier)
-            @test _same_fill_snapshot(compiled(first_carrier), _fill_snapshot(first))
+            @test _same_fill_snapshot(compiled(first_carrier), _fill_snapshot(initial))
             @test _same_fill_snapshot(
                 compiled(Reactant.to_rarray(second)),
                 _fill_snapshot(second),
             )
-            expected = rand(first, Float32, 70)
-            @test expected == [rand_at(first, Float32, i) for i = 1:70]
+            expected = first(rand_next(initial, Float32, 70))
+            @test expected == [rand_at(initial, Float32, i) for i = 1:70]
         end
     end
 end
@@ -966,15 +964,15 @@ end
 # Range arrays, samples, and destination fills consume the stream exactly as
 # the eager fills do, including the 128-bit reduction for spans above 2^32.
 function _range_snapshot(rng)
-    narrow = rand(rng, 1:1000, 7)
+    narrow = first(rand_next(rng, 1:1000, 7))
     stepped, after_stepped = rand_next(rng, Int16(-3):Int16(2):Int16(40), 2, 3)
-    wide = rand(rng, UInt64(0):(UInt64(1)<<40), 5)
-    linear = rand(rng, LinRange{Int64}(-20, 20, 5), 4)
+    wide = first(rand_next(rng, UInt64(0):(UInt64(1)<<40), 5))
+    linear = first(rand_next(rng, LinRange{Int64}(-20, 20, 5), 4))
     values = randsample(rng, [1.5, 2.5, 3.5], 6)
     whole, after_whole = randsample_next(rng, 10:20)
     tupled = (
-        rand(rng, Float32, (2, 3)),
-        rand(rng, 1:1000, (3, 2)),
+        first(rand_next(rng, Float32, (2, 3))),
+        first(rand_next(rng, 1:1000, (3, 2))),
         rand_next(rng, Float64, (4,))...,
     )
     addressed = rand_at(rng, Float64, 3:7)

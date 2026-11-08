@@ -8,22 +8,12 @@ A sampling specification sits in the slot its upstream package uses, and the des
 
 | Fill | Signature | Follows |
 | --- | --- | --- |
-| Primitive and range | `rand!(rng, dest[, range])` | `Random.rand!` |
-| Fixed distribution | `rand!(rng, d, dest)` | `Distributions.rand!` |
+| Primitive and range | `rand_next!(rng, dest[, range])` | `Random.rand!` |
+| Fixed distribution | `rand_next!(rng, d, dest)` | `Distributions.rand!` |
 | Population | `randsample!(rng, pop[, weights], dest)` | `StatsBase.sample!` |
 
-## Pure draws
-
-These methods draw at the held position and never advance the generator.
-
-```@docs
-Random.rand(::AbstractPureRNG, ::Any...)
-Random.rand!(::AbstractPureRNG, ::AbstractArray, ::Any...)
-Random.randn(::AbstractPureRNG, ::Any...)
-Random.randn!(::AbstractPureRNG, ::AbstractArray, ::Any...)
-Random.randexp(::AbstractPureRNG, ::Any...)
-Random.randexp!(::AbstractPureRNG, ::AbstractArray, ::Any...)
-```
+Continuation fills return `(dest, next_rng)`. Standard `Random` draws and fills
+require a mutable generator, such as `StatefulRNG`.
 
 ## Generators
 

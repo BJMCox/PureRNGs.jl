@@ -38,16 +38,16 @@ end
 
 @testset "closed rule surface" begin
     extension = Base.get_extension(PureRNGs, :PureRNGsEnzymeCoreExt)
-    # rand! carries the immutable, StatefulRNG, and range fills; rand_next!
-    # carries all but the StatefulRNG one. Distribution and population fills have
+    # Random fills carry StatefulRNG rules; continuation fills carry pure rules.
+    # Distribution and population fills have
     # no rule, and the scheduler rule stops threaded fills under differentiation.
     # The two Gamma primitives carry the implicit shape derivative, with a second
     # reverse method for a constant result. The device fill launcher carries the
     # rule for codecs with parameters, which a GPU kernel cannot take as active.
     expected_counts = (
-        (Random.rand!, 3),
-        (Random.randn!, 2),
-        (Random.randexp!, 2),
+        (Random.rand!, 1),
+        (Random.randn!, 1),
+        (Random.randexp!, 1),
         (rand_next!, 2),
         (randn_next!, 1),
         (randexp_next!, 1),
@@ -109,12 +109,11 @@ end
 
 function pure_fill_cases(rng, ::Type{T}, count) where {T}
     return (
-        (Random.rand!, rand_next!, rand_next(rng, T, count)),
-        (Random.randn!, randn_next!, randn_next(rng, T, count)),
-        (Random.randexp!, randexp_next!, randexp_next(rng, T, count)),
+        (rand_next!, rand_next(rng, T, count)),
+        (randn_next!, randn_next(rng, T, count)),
+        (randexp_next!, randexp_next(rng, T, count)),
     )
 end
-
 
 @testset "omitted keyword and StatefulRNG annotations" begin
     rng = Philox4x32(0x6506)
@@ -181,44 +180,33 @@ end
     @test derivative[4] ≈ sum(expected)
 end
 
-
 @testset "immutable fill rules" begin
     for T in (Float32, Float64), case in pure_fill_cases(Philox4x32(0x6503), T, 13)
-        fill_function, next_fill_function, expected = case
+        next_fill_function, expected = case
         expected_values, expected_rng = expected
         rng = Philox4x32(0x6503)
 
-        for (function_under_test, continued) in
-            ((fill_function, false), (next_fill_function, true))
+        for threaded in (false, true)
             values = zeros(T, 13)
             shadow = fill(T(5), 13)
             shadow_result, primal_result = autodiff(
                 ForwardWithPrimal,
                 pure_fill_result!,
                 Duplicated,
-                Const(function_under_test),
+                Const(next_fill_function),
                 Const(rng),
                 Duplicated(values, shadow),
-                Const(continued),
+                Const(threaded),
             )
-            if continued
-                @test primal_result[1] === values
-                @test primal_result[2] === expected_rng
-                @test shadow_result[1] === shadow
-            else
-                @test primal_result === values
-                @test shadow_result === shadow
-            end
+            @test primal_result[1] === values
+            @test primal_result[2] === expected_rng
+            @test shadow_result[1] === shadow
             @test values == expected_values
             @test iszero(shadow)
         end
     end
 
-    for T in (Float32, Float64),
-        (fill_function, objective) in (
-            (Random.randexp!, pure_fill_objective!),
-            (randexp_next!, pure_next_fill_objective!),
-        )
+    for T in (Float32, Float64)
 
         rng = Philox4x32(0x6503)
         expected, _ = randexp_next(rng, T, 13)
@@ -227,9 +215,9 @@ end
         derivative = only(
             autodiff(
                 Reverse,
-                objective,
+                pure_next_fill_objective!,
                 Active,
-                Const(fill_function),
+                Const(randexp_next!),
                 Const(rng),
                 Duplicated(values, shadow),
                 Active(T(1.5)),
@@ -241,7 +229,6 @@ end
         @test derivative[4] ≈ sum(expected)
     end
 end
-
 
 @testset "constant and batched destinations" begin
     for T in (Float32, Float64)
@@ -283,13 +270,13 @@ end
         @test batched_derivative[1] ≈ sum(expected)
         @test batched_derivative[2] ≈ T(2) * sum(expected)
 
-        # A fill that returns its destination alone takes the same annotations.
+        # Ignoring the continuation takes the same annotations.
         direct_constant = zeros(T, 17)
         direct_constant_derivative = only(
             autodiff(
                 Forward,
                 pure_fill_objective!,
-                Const(Random.randexp!),
+                Const(randexp_next!),
                 Const(rng),
                 Const(direct_constant),
                 Duplicated(T(2), one(T)),
@@ -304,7 +291,7 @@ end
             autodiff(
                 Forward,
                 pure_fill_objective!,
-                Const(Random.randexp!),
+                Const(randexp_next!),
                 Const(rng),
                 Const(direct_constant_batched),
                 BatchDuplicated(T(2), (one(T), T(2))),
@@ -322,7 +309,7 @@ end
             autodiff(
                 Forward,
                 pure_fill_objective!,
-                Const(Random.randexp!),
+                Const(randexp_next!),
                 Const(rng),
                 BatchDuplicated(direct_batched, (direct_shadow_one, direct_shadow_two)),
                 BatchDuplicated(T(2), (one(T), T(2))),
@@ -342,7 +329,6 @@ end
     end
 end
 
-
 @testset "failed primal preserves shadows" begin
     rng = Philox4x32(0x6505)
     exhausted =
@@ -353,7 +339,7 @@ end
         Forward,
         pure_fill_result!,
         Duplicated,
-        Const(Random.randn!),
+        Const(randn_next!),
         Const(exhausted),
         Duplicated(destination, shadow),
         Const(false),
@@ -361,7 +347,6 @@ end
     @test destination == zeros(8)
     @test shadow == fill(6.0, 8)
 end
-
 
 @testset "StatefulRNG fill rules" begin
     for T in (Float32, Float64),
@@ -388,7 +373,6 @@ end
         @test forward_derivative ≈ sum(expected_values)
     end
 end
-
 
 function scalar_normal_sum(rng, mu, sigma, count)
     total = 0.0
@@ -498,14 +482,14 @@ end
 # The sum accumulates in Float32: a Float16 sum of this many draws rounds
 # differently under Enzyme's lowering than under Julia's pairwise reduction.
 threaded_half_fill(rng, scale, count) =
-    scale * sum(Float32, randn!(rng, zeros(Float16, count); threaded = true))
+    scale * sum(Float32, first(randn_next!(rng, zeros(Float16, count); threaded = true)))
 
 @testset "threaded primitive fills of every float type stay differentiable" begin
     rng = Philox4x32(0x650a)
     n =
         8 *
         PureRNGs._fill_chunk_elements(PureRNGs._NormalCodec(PureRNGs._CPU_BACKEND), Float16)
-    values = randn(rng, Float16, n)
+    values = first(randn_next(rng, Float16, n))
     derivative, primal = autodiff(
         ReverseWithPrimal,
         threaded_half_fill,
@@ -534,11 +518,9 @@ end
     )
 end
 
-
 function range_fill_result!(fill_function, rng, destination, range, threaded)
     return fill_function(rng, destination, range; threaded = threaded)
 end
-
 
 function range_fill_objective!(fill_function, rng, destination, range)
     fill_function(rng, destination, range)
@@ -554,7 +536,7 @@ end
             mode,
             range_fill_result!,
             Const,
-            Const(Random.rand!),
+            Const(rand_next!),
             Const(rng),
             Const(values),
             Const(3:9),
@@ -573,7 +555,7 @@ end
             Reverse,
             range_fill_objective!,
             Active,
-            Const(Random.rand!),
+            Const(rand_next!),
             Const(rng),
             Duplicated(float_values, float_shadow),
             Active(float_range),
@@ -585,7 +567,6 @@ end
     @test iszero(adjoints[4].step)
 end
 
-
 @testset "one primal execution" begin
     rng = Philox4x32(0x6507)
     expected, _ = randn_next(rng, Float64, 10)
@@ -596,7 +577,7 @@ end
             mode,
             pure_fill_result!,
             Const,
-            Const(Random.randn!),
+            Const(randn_next!),
             Const(rng),
             Duplicated(destination, shadow),
             Const(false),
@@ -611,9 +592,13 @@ end
 @testset "extreme Gamma derivatives stay representable" begin
     rng = Philox4x32(2)
     for (draw, parameter, expected) in (
-        (s -> rand(rng, Gamma(0.01, s)), 1e-300, 4.46257660155961e-38),
-        (a -> rand(rng, InverseGamma(a, nextfloat(0.0))), 0.0006, -7.96193531254146e301),
-        (a -> rand(Philox4x32(1), Gamma(a)), 1.0f8, 0.9999614806773708f0),
+        (s -> first(rand_next(rng, Gamma(0.01, s))), 1e-300, 4.46257660155961e-38),
+        (
+            a -> first(rand_next(rng, InverseGamma(a, nextfloat(0.0)))),
+            0.0006,
+            -7.96193531254146e301,
+        ),
+        (a -> first(rand_next(Philox4x32(1), Gamma(a))), 1.0f8, 0.9999614806773708f0),
     )
         tolerance = parameter isa Float32 ? 2eps(Float32) : 1e-11
         @test only(only(autodiff(Reverse, draw, Active, Active(parameter)))) ≈ expected rtol =
@@ -632,24 +617,24 @@ end
         u = cdf(Gamma(shape), x)
         (quantile(Gamma(shape + h), u) - quantile(Gamma(shape - h), u)) / 2h
     end
-    gamma_draw(q) = rand(rng, Gamma(q, 2.0))
-    expected = 2 * oracle(2.5, rand(rng, Gamma(2.5)))
+    gamma_draw(q) = first(rand_next(rng, Gamma(q, 2.0)))
+    expected = 2 * oracle(2.5, first(rand_next(rng, Gamma(2.5))))
     @test only(only(autodiff(Reverse, gamma_draw, Active, Active(2.5)))) ≈ expected rtol =
         1e-6
     @test only(autodiff(Forward, gamma_draw, Duplicated(2.5, 1.0))) ≈ expected rtol = 1e-6
     batched = only(autodiff(Forward, gamma_draw, BatchDuplicated(2.5, (1.0, 2.0))))
     @test collect(batched) ≈ [expected, 2expected] rtol = 1e-6
     # A constant shape gives every lane a zero tangent, so only the scale moves.
-    scale_draw(q) = rand(rng, Gamma(2.5, q))
+    scale_draw(q) = first(rand_next(rng, Gamma(2.5, q)))
     scaled = only(autodiff(Forward, scale_draw, BatchDuplicated(2.0, (1.0, 2.0))))
-    @test collect(scaled) ≈ [1, 2] .* rand(rng, Gamma(2.5))
+    @test collect(scaled) ≈ [1, 2] .* first(rand_next(rng, Gamma(2.5)))
     second = PureRNGs._rebuild(
         rng,
         PureRNGs._advance_position_unchecked(rng, UInt64(17 * 52), UInt64(0)),
         rng.device,
     )
-    x, y = rand(rng, Gamma(0.3)), rand(second, Gamma(0.4))
-    beta_draw(q) = rand(rng, Beta(q, 0.4))
+    x, y = first(rand_next(rng, Gamma(0.3))), first(rand_next(second, Gamma(0.4)))
+    beta_draw(q) = first(rand_next(rng, Beta(q, 0.4)))
     @test only(only(autodiff(Reverse, beta_draw, Active, Active(0.3)))) ≈
           oracle(0.3, x) * y / (x + y)^2 rtol = 1e-6
 end

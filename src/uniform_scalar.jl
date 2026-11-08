@@ -110,14 +110,8 @@ end
     return _draw_unchecked(rng, rng.position, T), next_rng
 end
 
-@inline _rand_scalar(rng::_ScalarUniformGenerators, ::Type{T}) where {T} =
-    first(_rand_next_scalar(rng, T))
-
-@inline Random.rand(rng::_ScalarUniformGenerators) = rand(rng, Float64)
 @inline rand_next(rng::_ScalarUniformGenerators) = rand_next(rng, Float64)
 
-@inline Random.rand(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformResult} =
-    _rand_scalar(rng, T)
 @inline rand_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_UniformResult} =
     _rand_next_scalar(rng, T)
 

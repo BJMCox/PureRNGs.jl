@@ -399,45 +399,45 @@ const DRAW_FAMILIES = (
         specs = PURE_UNIFORM_TYPES,
         element = identity,
         width = _uniform_width,
-        draw = (rng, T) -> rand(rng, T),
+        draw = (rng, T) -> first(rand_next(rng, T)),
         draw_next = (rng, T) -> rand_next(rng, T),
         draw_at = (rng, T, index) -> rand_at(rng, T, index),
         fill! = (rng, destination, T; threaded) ->
-            rand!(rng, destination; threaded = threaded),
+            first(rand_next!(rng, destination; threaded = threaded)),
         fill_next! = (rng, destination, T; threaded) ->
             rand_next!(rng, destination; threaded = threaded),
         allocate = (rng, T, dims...) -> rand_next(rng, T, dims...),
-        allocate_pure = (rng, T, dims...) -> rand(rng, T, dims...),
+        allocate_pure = (rng, T, dims...) -> first(rand_next(rng, T, dims...)),
     ),
     (
         name = "normal",
         specs = NORMAL_TYPES,
         element = identity,
         width = _transformed_width,
-        draw = (rng, T) -> randn(rng, T),
+        draw = (rng, T) -> first(randn_next(rng, T)),
         draw_next = (rng, T) -> randn_next(rng, T),
         draw_at = (rng, T, index) -> randn_at(rng, T, index),
         fill! = (rng, destination, T; threaded) ->
-            randn!(rng, destination; threaded = threaded),
+            first(randn_next!(rng, destination; threaded = threaded)),
         fill_next! = (rng, destination, T; threaded) ->
             randn_next!(rng, destination; threaded = threaded),
         allocate = (rng, T, dims...) -> randn_next(rng, T, dims...),
-        allocate_pure = (rng, T, dims...) -> randn(rng, T, dims...),
+        allocate_pure = (rng, T, dims...) -> first(randn_next(rng, T, dims...)),
     ),
     (
         name = "exponential",
         specs = EXPONENTIAL_TYPES,
         element = identity,
         width = _transformed_width,
-        draw = (rng, T) -> randexp(rng, T),
+        draw = (rng, T) -> first(randexp_next(rng, T)),
         draw_next = (rng, T) -> randexp_next(rng, T),
         draw_at = (rng, T, index) -> randexp_at(rng, T, index),
         fill! = (rng, destination, T; threaded) ->
-            randexp!(rng, destination; threaded = threaded),
+            first(randexp_next!(rng, destination; threaded = threaded)),
         fill_next! = (rng, destination, T; threaded) ->
             randexp_next!(rng, destination; threaded = threaded),
         allocate = (rng, T, dims...) -> randexp_next(rng, T, dims...),
-        allocate_pure = (rng, T, dims...) -> randexp(rng, T, dims...),
+        allocate_pure = (rng, T, dims...) -> first(randexp_next(rng, T, dims...)),
     ),
     (
         name = "range",
@@ -450,14 +450,14 @@ const DRAW_FAMILIES = (
         ),
         element = eltype,
         width = _range_width,
-        draw = (rng, range) -> rand(rng, range),
+        draw = (rng, range) -> first(rand_next(rng, range)),
         draw_next = (rng, range) -> rand_next(rng, range),
         draw_at = (rng, range, index) -> rand_at(rng, range, index),
         fill! = (rng, destination, range; threaded) ->
-            rand!(rng, destination, range; threaded = threaded),
+            first(rand_next!(rng, destination, range; threaded = threaded)),
         fill_next! = (rng, destination, range; threaded) ->
             rand_next!(rng, destination, range; threaded = threaded),
         allocate = (rng, range, dims...) -> rand_next(rng, range, dims...),
-        allocate_pure = (rng, range, dims...) -> rand(rng, range, dims...),
+        allocate_pure = (rng, range, dims...) -> first(rand_next(rng, range, dims...)),
     ),
 )

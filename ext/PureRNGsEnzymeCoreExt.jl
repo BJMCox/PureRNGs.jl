@@ -99,14 +99,7 @@ end
     return ER.AugmentedReturn(primal, shadow, nothing)
 end
 
-for fill_function in (
-    Random.rand!,
-    Random.randn!,
-    Random.randexp!,
-    IR.rand_next!,
-    IR.randn_next!,
-    IR.randexp_next!,
-)
+for fill_function in (IR.rand_next!, IR.randn_next!, IR.randexp_next!)
     @eval begin
         @inline function ER.forward(
             config::ER.FwdConfig,
@@ -158,7 +151,7 @@ for fill_function in (
 end
 
 # The range fill puts its destination second, so it needs its own rule.
-for fill_function in (Random.rand!, IR.rand_next!)
+for fill_function in (IR.rand_next!,)
     @eval begin
         @inline function ER.forward(
             config::ER.FwdConfig,
@@ -378,7 +371,6 @@ for (draw, slope) in (
         end
     end
 end
-
 
 # A device fill of a codec with parameters, such as a distribution's. The
 # KernelAbstractions rules take no active kernel argument on a GPU, so these

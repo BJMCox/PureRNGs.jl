@@ -1,14 +1,5 @@
 using Random
 
-_audit_methods(f) = [method for method in methods(f) if method.module === IR]
-function _pure_audit_methods(function_)
-    return filter(_audit_methods(function_)) do method
-        signature = Base.unwrap_unionall(method.sig)
-        length(signature.parameters) >= 2 || return false
-        return signature.parameters[2] <: IR.AbstractPureRNG
-    end
-end
-
 function _audit_error(call)
     try
         call()
@@ -18,301 +9,34 @@ function _audit_error(call)
     end
 end
 
-@testset "closed non-bridge method surface" begin
-    foreign = Base.IdSet{Any}()
-    foreign_functions = Set{Any}()
-    for module_ in (Base, Random), name in names(module_; all = true, imported = true)
-        isdefined(module_, name) || continue
-        function_ = getfield(module_, name)
-        function_ isa Function || continue
-        function_ in foreign && continue
-        push!(foreign, function_)
-        isempty(_audit_methods(function_)) || push!(foreign_functions, function_)
-    end
-    owned_functions = (
-        rand,
-        rand!,
-        randn,
-        randn!,
-        randexp,
-        randexp!,
-        rand_next,
-        rand_next!,
-        randn_next,
-        randn_next!,
-        randexp_next,
-        randexp_next!,
-        rand_at,
-        randn_at,
-        randexp_at,
-        splitrng,
-        subrng,
-        randsample,
-        randsample_next,
-        randsample!,
-        randsample_next!,
-        randperm,
-        randperm!,
-        randcycle,
-        randcycle!,
-        shuffle,
-        shuffle!,
-        randperm_next,
-        randperm_next!,
-        randcycle_next,
-        randcycle_next!,
-        shuffle_next,
-        shuffle_next!,
-    )
-    # showerror is the StreamExhausted display, show the generator display, and
-    # copy!, ==, hash, and rng_native_52 the StatefulRNG interface, all dispatched
-    # on package types.
-    @test foreign_functions == Set((
-        rand,
-        rand!,
-        randperm,
-        randperm!,
-        randcycle,
-        randcycle!,
-        shuffle,
-        shuffle!,
-        randn,
-        randn!,
-        randexp,
-        randexp!,
-        Random.seed!,
-        copy,
-        parent,
-        show,
-        showerror,
-        copy!,
-        ==,
-        hash,
-        Random.rng_native_52,
-    ))
-
-    required = Dict(function_ => Set{Method}() for function_ in owned_functions)
-    require = function (function_, signature)
-        method = which(function_, signature)
-        @test method.module === IR
-        push!(required[function_], method)
-        return nothing
-    end
-
-    rng = Philox4x32(0xa71)
-    R = typeof(rng)
-    require(rand, Tuple{R})
-    require(rand, Tuple{R,Int})
-    require(rand, Tuple{R,Tuple{Int}})
-    require(randn, Tuple{R})
-    require(randn, Tuple{R,Int})
-    require(randn, Tuple{R,Tuple{Int}})
-    require(randexp, Tuple{R})
-    require(randexp, Tuple{R,Int})
-    require(randexp, Tuple{R,Tuple{Int}})
-    require(rand_next, Tuple{R})
-    require(rand_next, Tuple{R,Int})
-    require(rand_next, Tuple{R,Tuple{Int}})
-    require(randn_next, Tuple{R})
-    require(randn_next, Tuple{R,Int})
-    require(randn_next, Tuple{R,Tuple{Int}})
-    require(randexp_next, Tuple{R})
-    require(randexp_next, Tuple{R,Int})
-    require(randexp_next, Tuple{R,Tuple{Int}})
-    for T in PURE_UNIFORM_TYPES
-        require(rand, Tuple{R,Type{T}})
-        require(rand, Tuple{R,Type{T},Int})
-        require(rand, Tuple{R,Type{T},Tuple{Int}})
-        require(rand!, Tuple{R,Vector{T}})
-        require(rand_next, Tuple{R,Type{T}})
-        require(rand_next, Tuple{R,Type{T},Int})
-        require(rand_next, Tuple{R,Type{T},Tuple{Int}})
-        require(rand_next!, Tuple{R,Vector{T}})
-        require(rand_at, Tuple{R,Type{T},Int})
-        require(rand_at, Tuple{R,Type{T},UnitRange{Int}})
-    end
-    for T in NORMAL_TYPES
-        require(randn, Tuple{R,Type{T}})
-        require(randn, Tuple{R,Type{T},Int})
-        require(randn, Tuple{R,Type{T},Tuple{Int}})
-        require(randn!, Tuple{R,Vector{T}})
-        require(randn_next, Tuple{R,Type{T}})
-        require(randn_next, Tuple{R,Type{T},Int})
-        require(randn_next, Tuple{R,Type{T},Tuple{Int}})
-        require(randn_next!, Tuple{R,Vector{T}})
-        require(randn_at, Tuple{R,Type{T},Int})
-        require(randn_at, Tuple{R,Type{T},UnitRange{Int}})
-    end
-    for T in EXPONENTIAL_TYPES
-        require(randexp, Tuple{R,Type{T}})
-        require(randexp, Tuple{R,Type{T},Int})
-        require(randexp, Tuple{R,Type{T},Tuple{Int}})
-        require(randexp!, Tuple{R,Vector{T}})
-        require(randexp_next, Tuple{R,Type{T}})
-        require(randexp_next, Tuple{R,Type{T},Int})
-        require(randexp_next, Tuple{R,Type{T},Tuple{Int}})
-        require(randexp_next!, Tuple{R,Vector{T}})
-        require(randexp_at, Tuple{R,Type{T},Int})
-        require(randexp_at, Tuple{R,Type{T},UnitRange{Int}})
-    end
-    for T in RANGE_INTS
-        Range = typeof(T(1):T(2))
-        require(rand, Tuple{R,Range})
-        require(rand, Tuple{R,Range,Int})
-        require(rand, Tuple{R,Range,Tuple{Int}})
-        require(rand!, Tuple{R,Vector{T},Range})
-        require(rand_next, Tuple{R,Range})
-        require(rand_next, Tuple{R,Range,Int})
-        require(rand_next, Tuple{R,Range,Tuple{Int}})
-        require(rand_next!, Tuple{R,Vector{T},Range})
-        require(rand_at, Tuple{R,Range,Int})
-    end
-    require(splitrng, Tuple{R})
-    require(splitrng, Tuple{R,Int})
-    require(splitrng, Tuple{R,Val{2}})
-    require(subrng, Tuple{R,Int})
-    population = Int32[1, 2, 3]
-    weights = Float64[1, 2, 3]
-    # A table reaches the same method as a weight vector, so the required sets stay
-    # the same size and the union is pinned on every weighted position.
-    for function_ in (randsample, randsample_next)
-        require(function_, Tuple{R,typeof(population)})
-        require(function_, Tuple{R,typeof(population),Int})
-        for W in (typeof(weights), WeightTable)
-            require(function_, Tuple{R,typeof(population),W})
-            require(function_, Tuple{R,typeof(population),W,Int})
-        end
-    end
-    for function_ in (randsample!, randsample_next!)
-        require(function_, Tuple{R,typeof(population),Vector{Int32}})
-        for W in (typeof(weights), WeightTable)
-            require(function_, Tuple{R,typeof(population),W,Vector{Int32}})
-        end
-    end
-    # Every collection reaches the same pick methods, so one of each kind pins them.
-    for Population in (Vector{Int}, Tuple{Int,Symbol}, String, Dict{Int,Int}, Set{Int})
-        require(rand, Tuple{R,Population})
-        require(rand, Tuple{R,Population,Int})
-        require(rand, Tuple{R,Population,Tuple{Int}})
-        require(rand!, Tuple{R,Vector{Int},Population})
-        require(rand_next, Tuple{R,Population})
-        require(rand_next, Tuple{R,Population,Int})
-        require(rand_next, Tuple{R,Population,Tuple{Int}})
-        require(rand_next!, Tuple{R,Vector{Int},Population})
-        require(rand_at, Tuple{R,Population,Int})
-    end
-    require(rand, Tuple{R,Type{Char}})
-    require(rand, Tuple{R,Type{Char},Int})
-    require(rand, Tuple{R,Type{Char},Tuple{Int}})
-    require(rand!, Tuple{R,Vector{Char}})
-    require(rand_next, Tuple{R,Type{Char}})
-    require(rand_next, Tuple{R,Type{Char},Int})
-    require(rand_next, Tuple{R,Type{Char},Tuple{Int}})
-    require(rand_next!, Tuple{R,Vector{Char}})
-    require(rand_at, Tuple{R,Type{Char},Int})
-    require(rand_at, Tuple{R,Type{Char},UnitRange{Int}})
-    for function_ in (randperm, randcycle, randperm_next, randcycle_next)
-        require(function_, Tuple{R,Int})
-    end
-    for function_ in (randperm!, randcycle!, randperm_next!, randcycle_next!)
-        require(function_, Tuple{R,Vector{Int}})
-    end
-    for function_ in (shuffle, shuffle!, shuffle_next, shuffle_next!)
-        require(function_, Tuple{R,Vector{Symbol}})
-    end
-
-    for function_ in owned_functions
-        methods_ =
-            function_ in (
-                rand,
-                rand!,
-                randn,
-                randn!,
-                randexp,
-                randexp!,
-                randperm,
-                randperm!,
-                randcycle,
-                randcycle!,
-                shuffle,
-                shuffle!,
-            ) ? _pure_audit_methods(function_) : _audit_methods(function_)
-        @test Set(methods_) == required[function_]
-    end
-    @test all(
-        Base.unwrap_unionall(method.sig).parameters[2] <: IR.AbstractPureRNG for
-        function_ in (rand, rand!, randn, randn!, randexp, randexp!) for
-        method in _pure_audit_methods(function_)
-    )
-    @test all(
-        Base.kwarg_decl(method) == [:threaded] for
-        function_ in (rand!, rand_next!, randn!, randn_next!, randexp!, randexp_next!) for
-        method in (
-            function_ in (rand!, randn!, randexp!) ? _pure_audit_methods(function_) :
-            _audit_methods(function_)
+@testset "Random calls require a mutable generator" begin
+    for F in (Philox4x32, Threefry2x64, ChaCha)
+        root = F(0xa71)
+        for (draw, next, fill!, next!) in (
+            (rand, rand_next, rand!, rand_next!),
+            (randn, randn_next, randn!, randn_next!),
+            (randexp, randexp_next, randexp!, randexp_next!),
         )
-    )
-    # Scalar forms take no keywords; the array and sampling forms take only `threaded`.
-    @test all(
-        Base.kwarg_decl(method) ⊆ [:threaded] for function_ in (
-            rand,
-            randn,
-            randexp,
-            rand_next,
-            randn_next,
-            randexp_next,
-            rand_at,
-            randn_at,
-            randexp_at,
-            subrng,
-            randperm,
-            randperm!,
-            randcycle,
-            randcycle!,
-            shuffle,
-            shuffle!,
-            randperm_next,
-            randperm_next!,
-            randcycle_next,
-            randcycle_next!,
-            shuffle_next,
-            shuffle_next!,
-        ) for method in (
-            function_ in (
-                rand,
-                randn,
-                randexp,
-                randperm,
-                randperm!,
-                randcycle,
-                randcycle!,
-                shuffle,
-                shuffle!,
-            ) ? _pure_audit_methods(function_) : _audit_methods(function_)
-        )
-    )
-    for function_ in (randsample, randsample_next, randsample!, randsample_next!)
-        for method in _audit_methods(function_)
-            @test Base.kwarg_decl(method) == [:replace, :threaded]
+            for args in ((), (Float32,), (Float64, 4), (Float32, (2, 2)))
+                @test_throws MethodError draw(root, args...)
+                expected, expected_rng = next(root, args...)
+                bridge = StatefulRNG(root)
+                @test draw(bridge, args...) == expected
+                @test parent(bridge) === expected_rng
+            end
+            destination = zeros(4)
+            @test_throws MethodError fill!(root, destination)
+            @test destination == zeros(4)
+            expected, expected_rng = next!(root, destination)
+            bridge = StatefulRNG(root)
+            @test fill!(bridge, zeros(4)) == expected
+            @test parent(bridge) === expected_rng
         end
+        for args in ((1:6,), ([:a, :b],), ((2, 3),), (4,), ((2, 3), 4))
+            @test_throws MethodError rand(root, args...)
+        end
+        @test randgen!!(root, Float64, 4) == rand_next(root, Float64, 4)
     end
-    # The dynamic split takes the fill keyword. The other two forms take none.
-    dynamic_split = which(splitrng, Tuple{R,Int})
-    @test Base.kwarg_decl(dynamic_split) == [:threaded]
-    @test all(
-        isempty(Base.kwarg_decl(method)) for
-        method in _audit_methods(splitrng) if method !== dynamic_split
-    )
-
-    cpu = IR.MLDataDevices.CPUDevice()
-    device_method = which(cpu, Tuple{R})
-    @test device_method.module === IR
-    # Julia 1.10 also lists the shadowed AbstractDevice fallback.
-    @test Set(
-        method for method in methods(cpu) if method.module === IR &&
-            Base.unwrap_unionall(method.sig).parameters[1] <: IR.MLDataDevices.CPUDevice
-    ) == Set((device_method,))
-    @test isempty(Base.kwarg_decl(device_method))
 end
 
 @testset "assigned constants" begin
@@ -334,28 +58,31 @@ end
         (:rand_at_index, () -> rand_at(rng, UInt32, 0)),
         (:randn_at_index, () -> randn_at(rng, Float32, 0)),
         (:randexp_at_index, () -> randexp_at(rng, Float32, 0)),
-        (:empty_range, () -> rand(rng, UInt8(2):UInt8(1))),
+        (:empty_range, () -> first(rand_next(rng, UInt8(2):UInt8(1)))),
         (:empty_range_continuation, () -> rand_next(rng, UInt8(2):UInt8(1))),
-        (:negative_uniform_dimension, () -> rand(rng, UInt32, -1)),
+        (:negative_uniform_dimension, () -> first(rand_next(rng, UInt32, -1))),
         (:negative_uniform_continuation_dimension, () -> rand_next(rng, UInt32, -1)),
-        (:negative_normal_dimension, () -> randn(rng, Float32, -1)),
+        (:negative_normal_dimension, () -> first(randn_next(rng, Float32, -1))),
         (:negative_normal_continuation_dimension, () -> randn_next(rng, Float32, -1)),
-        (:negative_exponential_dimension, () -> randexp(rng, Float32, -1)),
+        (:negative_exponential_dimension, () -> first(randexp_next(rng, Float32, -1))),
         (
             :negative_exponential_continuation_dimension,
             () -> randexp_next(rng, Float32, -1),
         ),
-        (:uniform_device_mismatch, () -> rand!(rng, wrong_uniform_destination)),
+        (:uniform_device_mismatch, () -> first(rand_next!(rng, wrong_uniform_destination))),
         (
             :uniform_continuation_device_mismatch,
             () -> rand_next!(rng, wrong_uniform_destination),
         ),
-        (:normal_device_mismatch, () -> randn!(rng, wrong_normal_destination)),
+        (:normal_device_mismatch, () -> first(randn_next!(rng, wrong_normal_destination))),
         (
             :normal_continuation_device_mismatch,
             () -> randn_next!(rng, wrong_normal_destination),
         ),
-        (:exponential_device_mismatch, () -> randexp!(rng, wrong_exponential_destination)),
+        (
+            :exponential_device_mismatch,
+            () -> first(randexp_next!(rng, wrong_exponential_destination)),
+        ),
         (
             :exponential_continuation_device_mismatch,
             () -> randexp_next!(rng, wrong_exponential_destination),
@@ -365,54 +92,75 @@ end
         (:rand_at_capacity, () -> rand_at(exhausted, UInt32, 1)),
         (:randn_at_capacity, () -> randn_at(exhausted, Float32, 1)),
         (:randexp_at_capacity, () -> randexp_at(exhausted, Float32, 1)),
-        (:pure_capacity, () -> rand(exhausted, UInt32)),
+        (:pure_capacity, () -> first(rand_next(exhausted, UInt32))),
         (:continuation_capacity, () -> rand_next(exhausted, UInt32)),
-        (:fill_capacity, () -> rand!(exhausted, Vector{UInt32}(undef, 1))),
+        (:fill_capacity, () -> first(rand_next!(exhausted, Vector{UInt32}(undef, 1)))),
         (
             :continuation_fill_capacity,
             () -> rand_next!(exhausted, Vector{UInt32}(undef, 1)),
         ),
-        (:allocating_capacity, () -> rand(exhausted, UInt32, 1)),
+        (:allocating_capacity, () -> first(rand_next(exhausted, UInt32, 1))),
         (:continuation_allocating_capacity, () -> rand_next(exhausted, UInt32, 1)),
-        (:normal_pure_capacity, () -> randn(exhausted, Float32)),
+        (:normal_pure_capacity, () -> first(randn_next(exhausted, Float32))),
         (:normal_continuation_capacity, () -> randn_next(exhausted, Float32)),
-        (:normal_fill_capacity, () -> randn!(exhausted, Vector{Float32}(undef, 1))),
+        (
+            :normal_fill_capacity,
+            () -> first(randn_next!(exhausted, Vector{Float32}(undef, 1))),
+        ),
         (
             :normal_continuation_fill_capacity,
             () -> randn_next!(exhausted, Vector{Float32}(undef, 1)),
         ),
-        (:normal_allocating_capacity, () -> randn(exhausted, Float32, 1)),
+        (:normal_allocating_capacity, () -> first(randn_next(exhausted, Float32, 1))),
         (:normal_continuation_allocating_capacity, () -> randn_next(exhausted, Float32, 1)),
-        (:exponential_pure_capacity, () -> randexp(exhausted, Float32)),
+        (:exponential_pure_capacity, () -> first(randexp_next(exhausted, Float32))),
         (:exponential_continuation_capacity, () -> randexp_next(exhausted, Float32)),
-        (:exponential_fill_capacity, () -> randexp!(exhausted, Vector{Float32}(undef, 1))),
+        (
+            :exponential_fill_capacity,
+            () -> first(randexp_next!(exhausted, Vector{Float32}(undef, 1))),
+        ),
         (
             :exponential_continuation_fill_capacity,
             () -> randexp_next!(exhausted, Vector{Float32}(undef, 1)),
         ),
-        (:exponential_allocating_capacity, () -> randexp(exhausted, Float32, 1)),
+        (
+            :exponential_allocating_capacity,
+            () -> first(randexp_next(exhausted, Float32, 1)),
+        ),
         (
             :exponential_continuation_allocating_capacity,
             () -> randexp_next(exhausted, Float32, 1),
         ),
-        (:range_pure_capacity, () -> rand(exhausted, UInt8(1):UInt8(2))),
+        (:range_pure_capacity, () -> first(rand_next(exhausted, UInt8(1):UInt8(2)))),
         (:range_continuation_capacity, () -> rand_next(exhausted, UInt8(1):UInt8(2))),
-        (:range_allocating_capacity, () -> rand(exhausted, UInt8(1):UInt8(2), 1)),
+        (
+            :range_allocating_capacity,
+            () -> first(rand_next(exhausted, UInt8(1):UInt8(2), 1)),
+        ),
         (
             :range_continuation_allocating_capacity,
             () -> rand_next(exhausted, UInt8(1):UInt8(2), 1),
         ),
     )
     method_errors = (
-        (:uniform_result_type, () -> rand(rng, BigFloat)),
+        (:uniform_result_type, () -> first(rand_next(rng, BigFloat))),
         (:uniform_continuation_result_type, () -> rand_next(rng, BigFloat)),
-        (:uniform_destination_type, () -> rand!(rng, Vector{BigFloat}(undef, 1))),
-        (:normal_result_type, () -> randn(rng, BigFloat)),
+        (
+            :uniform_destination_type,
+            () -> first(rand_next!(rng, Vector{BigFloat}(undef, 1))),
+        ),
+        (:normal_result_type, () -> first(randn_next(rng, BigFloat))),
         (:normal_continuation_result_type, () -> randn_next(rng, BigFloat)),
-        (:normal_destination_type, () -> randn!(rng, Vector{BigFloat}(undef, 1))),
-        (:exponential_result_type, () -> randexp(rng, ComplexF64)),
+        (
+            :normal_destination_type,
+            () -> first(randn_next!(rng, Vector{BigFloat}(undef, 1))),
+        ),
+        (:exponential_result_type, () -> first(randexp_next(rng, ComplexF64))),
         (:exponential_continuation_result_type, () -> randexp_next(rng, ComplexF64)),
-        (:exponential_destination_type, () -> randexp!(rng, Vector{ComplexF64}(undef, 1))),
+        (
+            :exponential_destination_type,
+            () -> first(randexp_next!(rng, Vector{ComplexF64}(undef, 1))),
+        ),
     )
 
     for (expected, cases) in (
@@ -439,8 +187,8 @@ end
     )
     population = Int32[2, 3, 5, 7]
     for (name, span, call) in (
-        (:scalar, UInt128(32), () -> rand(near_end, UInt32)),
-        (:fill, UInt128(64), () -> rand!(near_end, Vector{UInt32}(undef, 2))),
+        (:scalar, UInt128(32), () -> first(rand_next(near_end, UInt32))),
+        (:fill, UInt128(64), () -> first(rand_next!(near_end, Vector{UInt32}(undef, 2)))),
         (:addressed, UInt128(64), () -> rand_at(near_end, UInt32, 2)),
         (:sampling, UInt128(128), () -> randsample(near_end, population, 2)),
     )

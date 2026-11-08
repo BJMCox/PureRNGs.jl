@@ -91,7 +91,6 @@ include("permutations.jl")
 include("weighted_sampling.jl")
 include("stateful.jl")
 include("unified.jl")
-include("docstrings.jl")
 include("precompile.jl")
 
 end # module PureRNGs

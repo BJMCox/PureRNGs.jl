@@ -12,7 +12,7 @@ function _six_transform_snapshot(rng, d)
     value, next_rng = rand_next(rng, d)
     return (
         input,
-        rand(rng, d),
+        first(rand_next(rng, d)),
         value,
         six_transform_formula(d, input, muladd),
         next_rng,
@@ -66,7 +66,7 @@ end
 
 # A compiled Gamma-family draw reads the eager draw's span and advances as far.
 # XLA evaluates its own log and exp, so values agree to rounding.
-_gamma_snapshot(rng, d) = (rand(rng, d), rand_next(rng, d), rand_at(rng, d, 3))
+_gamma_snapshot(rng, d) = (first(rand_next(rng, d)), rand_next(rng, d), rand_at(rng, d, 3))
 
 @testset "compiled Gamma family draws track the eager draws" begin
     for d in (

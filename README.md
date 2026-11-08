@@ -8,6 +8,8 @@
 Counter-based random numbers for Julia, with explicit state and CPU/GPU array generation.
 Philox, Threefry, and ChaCha generators support uniform, normal, and exponential draws, integer ranges, weighted sampling, and key splitting.
 
+Use `_next` calls with pure generators. Standard `rand`, `randn`, `randexp`, and their fills require the mutable `StatefulRNG` wrapper.
+
 Install from GitHub using Julia 1.10 or later:
 
 ```julia

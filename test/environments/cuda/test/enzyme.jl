@@ -240,7 +240,7 @@ end
 # rule's own kernels. The destination's shadow seeds the adjoints, so reverse
 # gradients are weighted sums of the pathwise derivatives of the device draws.
 function _enzyme_distribution_fill!(rng, make, p, q, destination)
-    rand!(rng, make(p, q), destination)
+    first(rand_next!(rng, make(p, q), destination))
     return nothing
 end
 
@@ -269,7 +269,7 @@ end
             ),
         )
         x = Array(values)
-        @test x == Array(rand(rng, make(p, q), 257))
+        @test x == Array(first(rand_next(rng, make(p, q), 257)))
         @test gradient[3] ≈ sum(weights .* first.(slopes.(x, p, q))) rtol = 1e-10
         @test gradient[4] ≈ sum(weights .* last.(slopes.(x, p, q))) rtol = 1e-10
         @test iszero(Array(shadow))
@@ -313,7 +313,8 @@ end
             Const(q),
             Duplicated(CUDA.zeros(Float64, 257), tangent),
         )
-        expected = ForwardDiff.partials.(Array(rand(rng, make(dual(p), q), 257)), 1)
+        expected =
+            ForwardDiff.partials.(Array(first(rand_next(rng, make(dual(p), q), 257))), 1)
         @test Array(tangent) ≈ expected rtol = 1e-10
     end
 end
@@ -338,7 +339,8 @@ end
             Const(scale),
             Duplicated(CUDA.zeros(T, 1), tangent),
         )
-        expected = ForwardDiff.derivative(a -> rand(cpu_rng, make(a, scale)), shape)
+        expected =
+            ForwardDiff.derivative(a -> first(rand_next(cpu_rng, make(a, scale))), shape)
         @test only(Array(tangent)) ≈ expected rtol = T === Float32 ? 2eps(T) : 1e-10
     end
 end

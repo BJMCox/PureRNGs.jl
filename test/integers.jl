@@ -1,5 +1,5 @@
 integer_allocations(rng, range) =
-    (@allocated(rand(rng, range)), @allocated(rand_next(rng, range)))
+    (@allocated(first(rand_next(rng, range))), @allocated(rand_next(rng, range)))
 
 addressed_range_allocations(rng, range) = @allocated(rand_at(rng, range, 3))
 
@@ -27,11 +27,11 @@ addressed_range_allocations(rng, range) = @allocated(rand_at(rng, range, 3))
         for range in ranges
             rng = _positioned(F, 0x551, UInt64(9), bit)
             expected = _range_reference_draw(rng, range)
-            @test rand(rng, range) === expected
+            @test first(rand_next(rng, range)) === expected
             # The draw is pure: a second draw from the same generator matches
             # one from a pristine generator at the same position.
             pristine = _positioned(F, 0x551, UInt64(9), bit)
-            @test rand(rng, range) === rand(pristine, range)
+            @test first(rand_next(rng, range)) === first(rand_next(pristine, range))
 
             value, next_rng = rand_next(rng, range)
             width = _range_reference_width(length(range) % UInt64)
@@ -88,20 +88,20 @@ end
 
         insufficient_position = _position_from_absolute(base, capacity - width + 1)
         insufficient = IR._rebuild(base, insufficient_position, base.device)
-        @test_throws StreamExhausted rand(insufficient, range)
+        @test_throws StreamExhausted first(rand_next(insufficient, range))
         @test insufficient.position === insufficient_position
         @test_throws StreamExhausted rand_next(insufficient, range)
         @test insufficient.position === insufficient_position
 
         exhausted = IR._rebuild(base, terminal.position, base.device)
-        @test_throws StreamExhausted rand(exhausted, range)
+        @test_throws StreamExhausted first(rand_next(exhausted, range))
         @test_throws StreamExhausted rand_next(exhausted, range)
     end
 
     for F in GENERATOR_TYPES
         rng = F(0x554)
         for range in (Int8(2):Int8(1), UInt64(1):UInt64(0))
-            @test_throws ArgumentError rand(rng, range)
+            @test_throws ArgumentError first(rand_next(rng, range))
             @test_throws ArgumentError rand_next(rng, range)
         end
     end
@@ -110,9 +110,9 @@ end
 @testset "range method and mapping surface" begin
     rng = Philox4x32(0x555)
     rounded = LinRange{Int64}(Int64(1)<<53, (Int64(1)<<53)+Int64(4), 5)
-    @test rand(rng, rounded) === _range_reference_draw(rng, rounded)
+    @test first(rand_next(rng, rounded)) === _range_reference_draw(rng, rounded)
     long = LinRange{Int64}(0, 0, typemax(UInt64))
-    @test rand(rng, long) === Int64(0)
+    @test first(rand_next(rng, long)) === Int64(0)
 end
 
 @testset "addressed range draws" begin
@@ -128,7 +128,7 @@ end
     rng = Philox4x32(0x559)
     for range in (1:6, 1:(2^40))
         # An addressed draw equals the fill element at the same index.
-        @test [rand_at(rng, range, i) for i = 1:8] == rand(rng, range, 8)
+        @test [rand_at(rng, range, i) for i = 1:8] == first(rand_next(rng, range, 8))
         @inferred rand_at(rng, range, 3)
         addressed_range_allocations(rng, range)
         @test addressed_range_allocations(rng, range) == 0
@@ -153,7 +153,7 @@ end
 
     rng = MLD.CUDADevice()(Philox4x64(0x557))
     for (function_, signature) in (
-        (rand, Tuple{typeof(rng),typeof(UInt16(2):UInt16(17))}),
+        (rand_next, Tuple{typeof(rng),typeof(UInt16(2):UInt16(17))}),
         (rand_next, Tuple{typeof(rng),typeof(UInt64(0):typemax(UInt64))}),
     )
         typed_ir, llvm_ir = _codegen_ir(function_, signature)

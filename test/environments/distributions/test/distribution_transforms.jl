@@ -45,7 +45,7 @@ end
         else
             @test isapprox(cdf(d, value), one(T) - input; rtol = 16eps(T))
         end
-        @test rand(rng, d) === value
+        @test first(rand_next(rng, d)) === value
         @test next_rng === expected_next
     end
 end
@@ -56,9 +56,9 @@ end
         expected, expected_next = six_transform_chain(rng, d, 5)
         destination = similar(expected)
 
-        @test rand(rng, d, 5) == expected
+        @test first(rand_next(rng, d, 5)) == expected
         @test rand_at(rng, d, 3) === expected[3]
-        @test rand!(rng, d, destination; threaded = false) === destination
+        @test first(rand_next!(rng, d, destination; threaded = false)) === destination
         @test destination == expected
         returned, next_rng = rand_next!(rng, d, destination; threaded = false)
         @test returned === destination
@@ -71,7 +71,7 @@ end
     rng = Philox4x32(0x9d7)
     for T in (Float32, Float64)
         pareto = Pareto(T(2), T(3))
-        @test rand(rng, pareto) >= pareto.θ
+        @test first(rand_next(rng, pareto)) >= pareto.θ
 
         for d in (
             TriangularDist(T(0), T(2), T(0)),
@@ -93,9 +93,9 @@ end
 
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     for d in six_transform_distributions(Float64)
-        destination = fill(rand(rng, d), 2)
+        destination = fill(first(rand_next(rng, d)), 2)
         original = copy(destination)
-        @test_throws StreamExhausted rand!(exhausted, d, destination)
+        @test_throws StreamExhausted first(rand_next!(exhausted, d, destination))
         @test destination == original
     end
 end

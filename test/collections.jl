@@ -24,7 +24,7 @@ const PICK_POPULATIONS = Any[
         sample, sample_next = randsample_next(rng, pop, 1)
         @test value == only(sample)
         @test next_rng == sample_next
-        @test rand(rng, pop) == value
+        @test first(rand_next(rng, pop)) == value
     end
 end
 
@@ -47,9 +47,9 @@ end
         @test size(values) == (2, 3)
         @test vec(values) == sample
         @test next_rng == sample_next
-        @test rand(rng, pop, (2, 3); threaded) == values
+        @test first(rand_next(rng, pop, (2, 3); threaded)) == values
         destination = similar(sample)
-        @test rand!(rng, destination, pop; threaded) === destination
+        @test first(rand_next!(rng, destination, pop; threaded)) === destination
         @test destination == sample
         @test last(rand_next!(rng, similar(sample), pop; threaded)) == sample_next
     end
@@ -58,7 +58,6 @@ end
 @testset "a tuple of Int is a population" begin
     rng = Philox4x32(0x7d4)
     @test rand_next(rng, (2, 3)) == rand_next(rng, [2, 3])
-    @test rand(rng, (2, 3)) == first(rand_next(rng, (2, 3)))
 end
 
 @testset "an empty collection is an error" begin
@@ -76,12 +75,12 @@ end
         value, next_rng = rand_next(rng, Char)
         @test value === (offset < 0xd800 ? Char(offset) : Char(offset + 0x800))
         @test next_rng == offset_next
-        @test rand(rng, Char) === value
+        @test first(rand_next(rng, Char)) === value
     end
     @test PureRNGs._unicode_scalar(UInt64(0xd7ff)) === '퟿'
     @test PureRNGs._unicode_scalar(UInt64(0xd800)) === ''
     @test PureRNGs._unicode_scalar(UInt64(0x10f7ff)) === '\U10ffff'
-    @test all(isvalid, rand(Philox4x32(0x7d6), Char, 100_000))
+    @test all(isvalid, first(rand_next(Philox4x32(0x7d6), Char, 100_000)))
 end
 
 @testset "Char fills and addressed draws equal the chained draws" begin
@@ -96,7 +95,7 @@ end
         values, next_rng = rand_next(rng, Char, 37; threaded)
         @test values == chained
         @test next_rng == current
-        @test rand!(rng, Vector{Char}(undef, 37); threaded) == chained
+        @test first(rand_next!(rng, Vector{Char}(undef, 37); threaded)) == chained
         @test rand_at(rng, Char, 5:9) == chained[5:9]
         @test rand_at(rng, Char, 6) === chained[6]
     end
