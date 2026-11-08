@@ -62,9 +62,6 @@ end
         @test next_rng == after
     end
     rng = Philox4x32(0x5a2)
-    @test rand(rng, SVector{2,Float32}) == first(rand_next(rng, SVector{2,Float32}))
-    @test randn(rng, SVector{2,Float64}) == first(randn_next(rng, SVector{2,Float64}))
-    @test randexp(rng, SVector{2,Float64}) == first(randexp_next(rng, SVector{2,Float64}))
     static_bytes(rng) = @allocated rand_next(rng, SVector{3,Float64})
     static_bytes(rng)
     @test static_bytes(rng) == 0
@@ -73,10 +70,8 @@ end
 # Arrays of static arrays and addressed draws are the chained static draws.
 @testset "static arrays, fills, and addresses equal the chained draws" begin
     SA = SVector{3,Float64}
-    for (held, fill!, next, next!, at) in (
-            (rand, rand!, rand_next, rand_next!, rand_at),
-            (randn, randn!, randn_next, randn_next!, randn_at),
-        ),
+    for (next, next!, at) in
+        ((rand_next, rand_next!, rand_at), (randn_next, randn_next!, randn_at)),
         threaded in (false, true)
 
         rng = Philox4x32(0x5a3, 5)
@@ -90,9 +85,10 @@ end
         @test values isa Matrix{SA}
         @test vec(values) == chained
         @test next_rng == current
-        @test vec(held(rng, SA, (10, 100); threaded)) == chained
-        @test fill!(rng, Vector{SA}(undef, 1000); threaded) == chained
-        @test last(next!(rng, Vector{SA}(undef, 1000); threaded)) == current
+        @test vec(first(next(rng, SA, (10, 100); threaded))) == chained
+        filled, fill_rng = next!(rng, Vector{SA}(undef, 1000); threaded)
+        @test filled == chained
+        @test fill_rng == current
         @test at(rng, SA, 7) == chained[7]
         @test at(rng, SA, 5:900; threaded) == chained[5:900]
     end
@@ -107,7 +103,8 @@ end
     end
     capacity = big(256) << 128
     last_rng = Philox4x64(1, capacity - 32)
-    @test rand_at(last_rng, SVector{1,UInt32}, 1) == SVector(rand(last_rng, UInt32))
+    @test rand_at(last_rng, SVector{1,UInt32}, 1) ==
+          SVector(first(rand_next(last_rng, UInt32)))
     @test_throws StreamExhausted rand_at(last_rng, SVector{2,UInt32}, 1)
 end
 
@@ -145,5 +142,6 @@ end
     draw, next_rng = rand_next(rng, 1:6, SVector{4})
     @test draw === SVector{4,Int}(picks)
     @test next_rng == after
-    @test rand(rng, [:a, :b], SVector{3}) == SVector{3}(first(rand_next(rng, [:a, :b], 3)))
+    @test first(rand_next(rng, [:a, :b], SVector{3})) ==
+          SVector{3}(first(rand_next(rng, [:a, :b], 3)))
 end

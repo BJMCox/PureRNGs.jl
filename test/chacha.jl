@@ -65,11 +65,11 @@ end
     @test PureRNGs._block_bits(rng) == 512
     # Draws read the block words from the most significant bit, so the first
     # `UInt64` is the first two little-endian keystream words.
-    @test rand(rng, UInt32) == 0x6a9af49b
-    @test rand(rng, UInt64) == 0x6a9af49b53f95507
+    @test first(rand_next(rng, UInt32)) == 0x6a9af49b
+    @test first(rand_next(rng, UInt64)) == 0x6a9af49b53f95507
     @test ChaCha12(0) === rng
-    @test rand(ChaCha20(0), UInt32) == 0xade0b876
-    @test rand(ChaCha8(0), UInt32) == 0x2fef003e
+    @test first(rand_next(ChaCha20(0), UInt32)) == 0xade0b876
+    @test first(rand_next(ChaCha8(0), UInt32)) == 0x2fef003e
 end
 
 # RFC 8439 section 2.3.2, with the four counter words given as raw state words 12

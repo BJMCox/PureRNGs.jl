@@ -8,21 +8,24 @@ _u64s(rng, count) = first(rand_next(rng, UInt64, count))
     for F in (Philox2x32, Philox4x32, Threefry4x64, ChaCha), bit in (0, 3)
         rng = F(0x7c1, bit)
         word = first(rand_next(rng, UInt32))
-        @test rand(rng, UInt8) === (word >> 24) % UInt8
-        @test rand(rng, Int8) === reinterpret(Int8, (word >> 24) % UInt8)
-        @test rand(rng, UInt16) === (word >> 16) % UInt16
-        @test rand(rng, Int16) === reinterpret(Int16, (word >> 16) % UInt16)
-        @test rand(rng, Float16) === Float16((word >> 21) / 2048)
+        @test first(rand_next(rng, UInt8)) === (word >> 24) % UInt8
+        @test first(rand_next(rng, Int8)) === reinterpret(Int8, (word >> 24) % UInt8)
+        @test first(rand_next(rng, UInt16)) === (word >> 16) % UInt16
+        @test first(rand_next(rng, Int16)) === reinterpret(Int16, (word >> 16) % UInt16)
+        @test first(rand_next(rng, Float16)) === Float16((word >> 21) / 2048)
         hi, lo = _u64s(rng, 2)
-        @test rand(rng, UInt128) === (UInt128(hi) << 64) | lo
-        @test rand(rng, Int128) === reinterpret(Int128, (UInt128(hi) << 64) | lo)
+        @test first(rand_next(rng, UInt128)) === (UInt128(hi) << 64) | lo
+        @test first(rand_next(rng, Int128)) ===
+              reinterpret(Int128, (UInt128(hi) << 64) | lo)
         real, after_real = rand_next(rng, Float32)
-        @test rand(rng, ComplexF32) === ComplexF32(real, rand(after_real, Float32))
-        @test randn(rng, Float16) === Float16(randn(rng, Float32))
-        @test randexp(rng, Float16) === Float16(randexp(rng, Float32))
+        @test first(rand_next(rng, ComplexF32)) ===
+              ComplexF32(real, first(rand_next(after_real, Float32)))
+        @test first(randn_next(rng, Float16)) === Float16(first(randn_next(rng, Float32)))
+        @test first(randexp_next(rng, Float16)) ===
+              Float16(first(randexp_next(rng, Float32)))
         normal_real, after_normal = randn_next(rng, Float64)
-        @test randn(rng, ComplexF64) ===
-              sqrt(0.5) * ComplexF64(normal_real, randn(after_normal, Float64))
+        @test first(randn_next(rng, ComplexF64)) ===
+              sqrt(0.5) * ComplexF64(normal_real, first(randn_next(after_normal, Float64)))
     end
 end
 
@@ -88,7 +91,7 @@ end
     )
     for F in (Philox4x32, Threefry2x64), range in ranges, bit in (0, 11)
         rng = F(0x7c5, bit)
-        @test rand(rng, range) == _range_oracle(rng, range)
+        @test first(rand_next(rng, range)) == _range_oracle(rng, range)
         chained = Vector{eltype(range)}(undef, 200)
         state = rng
         for index = 1:200
@@ -103,8 +106,8 @@ end
     # full ranges do.
     for T in (Int128, UInt128)
         rng = Philox4x32(0x7c6)
-        raw = rand(rng, UInt128)
-        @test rand(rng, typemin(T):typemax(T)) ===
+        raw = first(rand_next(rng, UInt128))
+        @test first(rand_next(rng, typemin(T):typemax(T))) ===
               reinterpret(T, typemin(T) % UInt128 + raw)
     end
 end
@@ -115,7 +118,8 @@ end
         @test_throws ArgumentError rand_next(device_rng, spec, 4)
     end
     @test_throws ArgumentError rand_next(device_rng, Int128(1):Int128(6), 4)
-    @test rand(device_rng, UInt128) === rand(Philox4x32(0x7c7), UInt128)
+    @test first(rand_next(device_rng, UInt128)) ===
+          first(rand_next(Philox4x32(0x7c7), UInt128))
 end
 
 # Chunks hold 1024 (128-bit) to 16384 (8-bit) elements and a fill splits from

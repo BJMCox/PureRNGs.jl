@@ -62,6 +62,8 @@ mutable state advanced or a destination partly written.
 
 ## Wrap state for existing Julia code
 
+`rand`, `randn`, `randexp`, and their fills accept the mutable wrapper. Pure generators use continuation or addressed calls.
+
 ```@example bridge
 using PureRNGs, Random
 
@@ -142,12 +144,12 @@ rng = Philox4x32(7)
 velocity, rng = randn_next(rng, SVector{3,Float32})
 position = rand_at(rng, SVector{3,Float32}, 17)
 particles, rng = rand_next(rng, SVector{3,Float32}, 1000)
-faces = rand(rng, 1:6, SVector{4})
+faces, rng = rand_next(rng, 1:6, SVector{4})
 ```
 
-`rand`, `randn`, `randexp`, their `_next` and `_at` forms, and the fills accept a static array type.
+The `_next`, `_at`, and continuation-fill forms accept a static array type.
 Immutable bits-type scalar forms allocate nothing, so a GPU kernel can call them, and `rand_at(rng, SA, i)` gives each thread its own array without chaining.
 An array of bits-type static arrays fills as its `reinterpret` to `T`, on the same CPU and GPU fill paths.
 Mutable static-array batches run on the CPU. They use a temporary scalar fill and construct a separate mutable value for each element.
-`rand(rng, X, SA)` picks `N` times from a collection or distribution `X`.
+`rand_next(rng, X, SA)` picks `N` times from a collection or distribution `X` and returns the next generator.
 The element type must be part of the static array type: use `SVector{3,Float64}`, not `SVector{3}`.

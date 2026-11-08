@@ -2,7 +2,6 @@ module PureRNGsReactantDistributionsExt
 
 import Distributions
 import PureRNGs
-import Random
 import Reactant
 
 const IR = PureRNGs
@@ -20,13 +19,13 @@ struct _ReactantTransformOps end
     IR._rounded_product(a, b, b - half)
 
 @inline _primitive(rng, ::Distributions.Normal{T}) where {T<:_FloatType} =
-    Random.randn(rng, T)
+    first(PureRNGs.randn_next(rng, T))
 @inline _primitive(rng, ::Distributions.Uniform{T}) where {T<:_FloatType} =
-    Random.rand(rng, T)
+    first(PureRNGs.rand_next(rng, T))
 @inline _primitive(rng, ::Distributions.Exponential{T}) where {T<:_FloatType} =
-    Random.randexp(rng, T)
+    first(PureRNGs.randexp_next(rng, T))
 @inline _primitive(rng, ::Distributions.LogNormal{T}) where {T<:_FloatType} =
-    Random.randn(rng, T)
+    first(PureRNGs.randn_next(rng, T))
 @inline _primitive(
     rng,
     ::Union{
@@ -37,20 +36,21 @@ struct _ReactantTransformOps end
     },
 ) where {T<:_FloatType} = IR._midpoint_value(rng, T)
 @inline _primitive(rng, ::Distributions.Weibull{T}) where {T<:_FloatType} =
-    Random.randexp(rng, T)
+    first(PureRNGs.randexp_next(rng, T))
 @inline _primitive(rng, ::Distributions.Rayleigh{T}) where {T<:_FloatType} =
-    Random.randexp(rng, T)
+    first(PureRNGs.randexp_next(rng, T))
 @inline _primitive(rng, ::Distributions.Pareto{T}) where {T<:_FloatType} =
-    Random.randexp(rng, T)
+    first(PureRNGs.randexp_next(rng, T))
 @inline _primitive(rng, ::Distributions.TriangularDist{T}) where {T<:_FloatType} =
-    Random.rand(rng, T)
+    first(PureRNGs.rand_next(rng, T))
 @inline function _primitive(rng, ::Distributions.Laplace{T}) where {T<:_FloatType}
     magnitude, after_magnitude = IR.randexp_next(rng, T)
-    return magnitude, Random.rand(after_magnitude, Bool)
+    return magnitude, first(PureRNGs.rand_next(after_magnitude, Bool))
 end
 @inline _primitive(rng, ::Distributions.Bernoulli{T}) where {T<:_FloatType} =
-    Random.rand(rng, T)
-@inline _primitive(rng, d::Distributions.DiscreteUniform) = Random.rand(rng, d.a:d.b)
+    first(PureRNGs.rand_next(rng, T))
+@inline _primitive(rng, d::Distributions.DiscreteUniform) =
+    first(PureRNGs.rand_next(rng, d.a:d.b))
 
 @inline _primitive_next(rng, ::Distributions.Normal{T}) where {T<:_FloatType} =
     IR.randn_next(rng, T)
@@ -161,11 +161,6 @@ end
     _map_distribution(_ReactantTransformOps(), d, value)
 @inline _map_primitive(::Distributions.DiscreteUniform, value) = value
 
-@inline function Random.rand(rng::_ReactantRNG, d::_FixedDistribution)
-    _validate_distribution(d)
-    return _map_primitive(d, _primitive(rng, d))
-end
-
 @inline function IR.rand_next(rng::_ReactantRNG, d::_FixedDistribution)
     _validate_distribution(d)
     value, next_rng = _primitive_next(rng, d)
@@ -176,7 +171,6 @@ end
     _validate_distribution(d)
     return _map_primitive(d, _primitive_at(rng, d, index))
 end
-
 
 # The Gamma family maps traced standard Gamma draws in the spans the eager draw
 # reads, so compiled and eager draws consume the same bits.
@@ -216,14 +210,9 @@ end
     return inv(one(T) + exp(log_y - log_x))
 end
 @inline function _gamma_family_value(rng, d::Distributions.TDist{T}) where {T}
-    z = Random.randn(rng, T)
+    z = first(PureRNGs.randn_next(rng, T))
     g = _traced_gamma(IR._addressed_rng(rng, IR._normal_bits(T), 2), d.ν / 2)
     return z * sqrt(d.ν / (2 * g))
-end
-
-@inline function Random.rand(rng::_ReactantRNG, d::_GammaFamilyDistribution)
-    _validate_distribution(d)
-    return _gamma_family_value(rng, d)
 end
 
 @inline function IR.rand_next(rng::_ReactantRNG, d::_GammaFamilyDistribution)

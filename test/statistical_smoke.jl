@@ -56,13 +56,13 @@ _uniform_expected(bins, count) = fill(count / bins, bins)
 
 @testset "uniform draws match the uniform CDF" begin
     for F in GENERATOR_TYPES, seed in SMOKE_SEEDS
-        @test _ks_deviation(rand(F(seed), Float64, SMOKE_COUNT), identity) < 2.0
+        @test _ks_deviation(first(rand_next(F(seed), Float64, SMOKE_COUNT)), identity) < 2.0
     end
 end
 
 @testset "normal draws match the standard normal deciles" begin
     for seed in SMOKE_SEEDS
-        draws = randn(Philox4x32(seed), Float64, SMOKE_COUNT)
+        draws = first(randn_next(Philox4x32(seed), Float64, SMOKE_COUNT))
         counts = _bin_counts(draws, 10, z -> searchsortedfirst(NORMAL_DECILES, z))
         @test _chisquare(counts, _uniform_expected(10, SMOKE_COUNT)) < 27.9
     end
@@ -70,14 +70,15 @@ end
 
 @testset "exponential draws match the exponential CDF" begin
     for seed in SMOKE_SEEDS
-        draws = randexp(Philox4x32(seed), Float64, SMOKE_COUNT)
+        draws = first(randexp_next(Philox4x32(seed), Float64, SMOKE_COUNT))
         @test _ks_deviation(draws, x -> -expm1(-x)) < 2.0
     end
 end
 
 @testset "small range draws are uniform" begin
     for seed in SMOKE_SEEDS
-        counts = _bin_counts(rand(Philox4x32(seed), 1:6, SMOKE_COUNT), 6, identity)
+        counts =
+            _bin_counts(first(rand_next(Philox4x32(seed), 1:6, SMOKE_COUNT)), 6, identity)
         @test _chisquare(counts, _uniform_expected(6, SMOKE_COUNT)) < 20.5
     end
 end
@@ -87,7 +88,7 @@ end
     span = 1 << 40
     width = span ÷ 64
     for seed in SMOKE_SEEDS
-        draws = rand(Philox4x32(seed), 1:span, SMOKE_COUNT)
+        draws = first(rand_next(Philox4x32(seed), 1:span, SMOKE_COUNT))
         counts = _bin_counts(draws, 64, value -> (value - 1) ÷ width + 1)
         @test _chisquare(counts, _uniform_expected(64, SMOKE_COUNT)) < 103.0
     end
@@ -107,7 +108,8 @@ end
     mean = SMOKE_COUNT * probability
     deviation = sqrt(SMOKE_COUNT * probability * (1 - probability))
     for seed in SMOKE_SEEDS
-        below = count(<(probability), rand(Philox4x32(seed), Float64, SMOKE_COUNT))
+        below =
+            count(<(probability), first(rand_next(Philox4x32(seed), Float64, SMOKE_COUNT)))
         @test abs(below - mean) / deviation < 4.5
     end
 end

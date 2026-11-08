@@ -111,7 +111,7 @@ Use integer counts for ordinary splitting. `Val(N)` exposes a fixed tuple length
 ## Address a draw directly
 
 ```@example keys
-values = rand(root, Float32, 8)
+values, _ = rand_next(root, Float32, 8)
 @assert values == [rand_at(root, Float32, i) for i in 1:8]
 ```
 

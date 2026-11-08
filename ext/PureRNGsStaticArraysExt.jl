@@ -5,7 +5,6 @@ module PureRNGsStaticArraysExt
 # uses the scalar fill path, directly for inline bits storage.
 
 import PureRNGs
-import Random
 using StaticArrays: StaticArrays, StaticArray
 
 const IR = PureRNGs
@@ -65,10 +64,10 @@ end
     return destination, last(fill_next!(rng, destination; threaded))
 end
 
-for (held, fill!, next, next!, at, width) in (
-    (:rand, :rand!, :rand_next, :rand_next!, :rand_at, :_draw_bits),
-    (:randn, :randn!, :randn_next, :randn_next!, :randn_at, :_normal_bits),
-    (:randexp, :randexp!, :randexp_next, :randexp_next!, :randexp_at, :_exponential_bits),
+for (next, next!, at, width) in (
+    (:rand_next, :rand_next!, :rand_at, :_draw_bits),
+    (:randn_next, :randn_next!, :randn_at, :_normal_bits),
+    (:randexp_next, :randexp_next!, :randexp_at, :_exponential_bits),
 )
     @eval begin
         @inline IR.$next(
@@ -76,10 +75,7 @@ for (held, fill!, next, next!, at, width) in (
             ::Type{SA},
         ) where {SA<:StaticArray} =
             _static_next(current -> IR.$next(current, _element(SA)), rng, SA)
-        @inline Random.$held(
-            rng::IR._ScalarUniformGenerators,
-            ::Type{SA},
-        ) where {SA<:StaticArray} = first(IR.$next(rng, SA))
+
         @inline function IR.$at(
             rng::IR._ScalarUniformGenerators,
             ::Type{SA},
@@ -103,19 +99,7 @@ for (held, fill!, next, next!, at, width) in (
             threaded::Bool = false,
         ) where {SA<:StaticArray} =
             _static_array_next(IR.$next!, rng, SA, (dim1, dims...), threaded)
-        @inline Random.$held(
-            rng::IR._ScalarUniformGenerators,
-            ::Type{SA},
-            dims::Dims;
-            threaded::Bool = false,
-        ) where {SA<:StaticArray} = first(IR.$next(rng, SA, dims; threaded))
-        @inline Random.$held(
-            rng::IR._ScalarUniformGenerators,
-            ::Type{SA},
-            dim1::Integer,
-            dims::Integer...;
-            threaded::Bool = false,
-        ) where {SA<:StaticArray} = first(IR.$next(rng, SA, (dim1, dims...); threaded))
+
         @inline function IR.$at(
             rng::IR._ScalarUniformGenerators,
             ::Type{SA},
@@ -148,11 +132,7 @@ for (held, fill!, next, next!, at, width) in (
             end
             return destination, next_rng
         end
-        @inline Random.$fill!(
-            rng::IR._ScalarUniformGenerators,
-            destination::AbstractArray{SA};
-            threaded::Bool = false,
-        ) where {SA<:StaticArray} = first(IR.$next!(rng, destination; threaded))
+
     end
 end
 
@@ -162,10 +142,5 @@ end
     X,
     ::Type{SA},
 ) where {SA<:StaticArray} = _static_next(current -> IR.rand_next(current, X), rng, SA)
-@inline Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    X,
-    ::Type{SA},
-) where {SA<:StaticArray} = first(IR.rand_next(rng, X, SA))
 
 end

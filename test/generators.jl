@@ -127,7 +127,7 @@ end
         @test PureRNGs._rounds(typeof(reduced)) == rounds
         @test PureRNGs._rounds(typeof(full)) == PureRNGs._default_rounds(base)
         @test rngkey(reduced) == rngkey(full)
-        @test rand(reduced, UInt64) != rand(full, UInt64)
+        @test first(rand_next(reduced, UInt64)) != first(rand_next(full, UInt64))
 
         # The reference extracts from the core at the alias's round count, so
         # this pins the rounds the alias selects, not only its type parameter.
@@ -141,7 +141,7 @@ end
                 cursor.device,
             )
         end
-        @test rand(reduced, UInt32, 4) == expected
+        @test first(rand_next(reduced, UInt32, 4)) == expected
         @test reduced.block_words ==
               PureRNGs._block_words(reduced, PureRNGs._position_block(reduced.position))
         _, moved = rand_next(reduced, Float64, 5)

@@ -121,8 +121,7 @@ end
         @test isempty(Test.detect_ambiguities(extension; recursive = true))
     end
 
-    # Turing loads DimensionalData, whose `rand(x, dims)` also matches a tuple of
-    # dimensions. The pick keeps its PureRNGs meaning.
+    # Turing loads DimensionalData. Its dimensions remain valid pick populations.
     @testset "a tuple of dimensions is a pick population" begin
         dimensional = Base.root_module(
             Base.PkgId(
@@ -132,6 +131,6 @@ end
         )
         dims = (dimensional.X(1:3), dimensional.Y(1:2))
         rng = Philox4x32(0xd1a)
-        @test rand(rng, dims) === rand(rng, collect(dims))
+        @test first(rand_next(rng, dims)) === first(rand_next(rng, collect(dims)))
     end
 end

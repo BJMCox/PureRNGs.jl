@@ -7,7 +7,6 @@ module PureRNGsDistributionsForwardDiffExt
 import Distributions
 import ForwardDiff
 import PureRNGs
-import Random
 
 const IR = PureRNGs
 include("distributions_common.jl")
@@ -122,8 +121,7 @@ IR._engine_rand_next(
 
 IR.rand_next(rng::IR._ScalarUniformGenerators, d::_DualDistribution) =
     IR._engine_rand_next(rng, d)
-Random.rand(rng::IR._ScalarUniformGenerators, d::_DualDistribution) =
-    first(IR._engine_rand_next(rng, d))
+
 IR.rand_at(rng::IR._ScalarUniformGenerators, d::_DualDistribution, index::Integer) =
     IR._engine_rand_at(rng, d, index)
 IR.rand_next!(
@@ -132,12 +130,7 @@ IR.rand_next!(
     destination::AbstractArray{<:ForwardDiff.Dual};
     threaded::Bool = false,
 ) = IR._engine_rand_next!(rng, d, destination; threaded)
-Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::_DualDistribution,
-    destination::AbstractArray{<:ForwardDiff.Dual};
-    threaded::Bool = false,
-) = first(IR._engine_rand_next!(rng, d, destination; threaded))
+
 IR.rand_next(
     rng::IR._ScalarUniformGenerators,
     d::_DualDistribution,
@@ -151,19 +144,6 @@ IR.rand_next(
     dims::Integer...;
     threaded::Bool = false,
 ) = IR._engine_rand_next(rng, d, dim1, dims...; threaded)
-Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::_DualDistribution,
-    dims::Dims;
-    threaded::Bool = false,
-) = first(IR._engine_rand_next(rng, d, dims; threaded))
-Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::_DualDistribution,
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-) = first(IR._engine_rand_next(rng, d, dim1, dims...; threaded))
 
 # A dual Dirichlet runs the Dirichlet bodies: each dual shape reaches the
 # log-gamma rule above, and the normalization differentiates as plain arithmetic.
@@ -171,20 +151,14 @@ const _DualDirichlet = Distributions.Dirichlet{<:ForwardDiff.Dual}
 
 IR.rand_next(rng::IR._ScalarUniformGenerators, d::_DualDirichlet) =
     IR._engine_rand_next(rng, d)
-Random.rand(rng::IR._ScalarUniformGenerators, d::_DualDirichlet) =
-    first(IR._engine_rand_next(rng, d))
+
 IR.rand_next(
     rng::IR._ScalarUniformGenerators,
     d::_DualDirichlet,
     n::Integer;
     threaded::Bool = false,
 ) = IR._engine_rand_next(rng, d, n; threaded)
-Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::_DualDirichlet,
-    n::Integer;
-    threaded::Bool = false,
-) = first(IR._engine_rand_next(rng, d, n; threaded))
+
 IR.rand_at(rng::IR._ScalarUniformGenerators, d::_DualDirichlet, index::Integer) =
     IR._engine_rand_at(rng, d, index)
 IR.rand_next!(
@@ -193,12 +167,6 @@ IR.rand_next!(
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,
 ) where {T<:ForwardDiff.Dual} = IR._engine_rand_next!(rng, d, destination; threaded)
-Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::Distributions.Dirichlet{T},
-    destination::AbstractVecOrMat{T};
-    threaded::Bool = false,
-) where {T<:ForwardDiff.Dual} = first(IR._engine_rand_next!(rng, d, destination; threaded))
 
 # A dual MvNormal whitens standard normal draws of the primal element type. Its
 # factor comes from a generic Cholesky of dual numbers, so its values match the
@@ -236,19 +204,12 @@ end
 
 IR.rand_next(rng::IR._ScalarUniformGenerators, d::_DualMvNormal) =
     IR._engine_rand_next(rng, d)
-Random.rand(rng::IR._ScalarUniformGenerators, d::_DualMvNormal) =
-    first(IR._engine_rand_next(rng, d))
+
 IR.rand_next(
     rng::IR._ScalarUniformGenerators,
     d::_DualMvNormal,
     n::Integer;
     threaded::Bool = false,
 ) = IR._engine_rand_next(rng, d, n; threaded)
-Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::_DualMvNormal,
-    n::Integer;
-    threaded::Bool = false,
-) = first(IR._engine_rand_next(rng, d, n; threaded))
 
 end

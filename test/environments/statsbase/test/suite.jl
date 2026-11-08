@@ -20,7 +20,7 @@ using Test
         @test wsample!(rng, population, raw, zeros(3); replace) == weighted
     end
     rng = Philox4x32(0x5b2)
-    @test sample(rng, population) == rand(rng, population)
+    @test sample(rng, population) == first(rand_next(rng, population))
     @test sample(rng, population, wv) == only(randsample(rng, population, raw, 1))
     @test population[sample(rng, wv)] == sample(rng, population, wv)
     @test wsample(rng, raw) == sample(rng, wv)
@@ -34,7 +34,7 @@ end
         for position = 0:20
             rng = Philox4x32(0x5b4, position)
             i, next_rng = rand_next(rng, 1:n)
-            j = rand(next_rng, 1:(n-1))
+            j = first(rand_next(next_rng, 1:(n-1)))
             @test samplepair(rng, n) == (i, j == i ? n : j)
         end
     end

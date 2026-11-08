@@ -311,11 +311,8 @@ end
     )
 end
 
-@inline Random.randn(rng::_ScalarUniformGenerators) = randn(rng, Float64)
 @inline randn_next(rng::_ScalarUniformGenerators) = randn_next(rng, Float64)
 
-@inline Random.randn(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_NormalResult} =
-    first(_engine_randn_next(rng, T))
 @inline randn_next(rng::_ScalarUniformGenerators, ::Type{T}) where {T<:_NormalResult} =
     _engine_randn_next(rng, T)
 @inline randn_at(
@@ -379,15 +376,6 @@ positive or the addressed draw exceeds the generator's counter capacity.
     return value, cursor
 end
 
-@inline function Random.randn!(
-    rng::_ScalarUniformGenerators,
-    destination::AbstractArray{T};
-    threaded::Bool = false,
-) where {T<:_NormalResult}
-    result, _ = _engine_randn_next!(rng, destination; threaded)
-    return result
-end
-
 @inline function randn_next!(
     rng::_ScalarUniformGenerators,
     destination::AbstractArray{T};
@@ -419,31 +407,6 @@ end
 @inline randn_next(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
     _engine_randn_next(rng, Float64, dims; threaded)
 
-@inline Random.randn(
-    rng::_ScalarUniformGenerators,
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-) = randn(rng, Float64, dim1, dims...; threaded)
-@inline Random.randn(rng::_ScalarUniformGenerators, dims::Dims; threaded::Bool = false) =
-    randn(rng, Float64, dims; threaded)
-
-@inline function Random.randn(
-    rng::_ScalarUniformGenerators,
-    ::Type{T},
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-) where {T<:_NormalResult}
-    destination, _ = _engine_randn_next(rng, T, dim1, dims...; threaded)
-    return destination
-end
-@inline Random.randn(
-    rng::_ScalarUniformGenerators,
-    ::Type{T},
-    dims::Dims;
-    threaded::Bool = false,
-) where {T<:_NormalResult} = first(_engine_randn_next(rng, T, dims; threaded))
 @inline randn_next(
     rng::_ScalarUniformGenerators,
     ::Type{T},
@@ -461,7 +424,7 @@ end
     return _engine_randn_next(rng, T, dim1, dims...; threaded)
 end
 
-# The bodies of the randn entries, for any engine. The methods above serve the
+# The bodies of the normal entries, for any engine. The methods above serve the
 # built-in generators, and an external engine's own methods forward here.
 @inline _randn_codec(rng) = _NormalCodec(_engine_backend(rng))
 

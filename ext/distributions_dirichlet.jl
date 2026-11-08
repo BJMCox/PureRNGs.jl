@@ -77,27 +77,16 @@ IR.rand_next!(
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,
 ) where {T<:_FloatType} = IR._engine_rand_next!(rng, d, destination; threaded)
-Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::Distributions.Dirichlet{T},
-    destination::AbstractVecOrMat{T};
-    threaded::Bool = false,
-) where {T<:_FloatType} = first(IR._engine_rand_next!(rng, d, destination; threaded))
+
 IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FloatDirichlet) =
     IR._engine_rand_next(rng, d)
-Random.rand(rng::IR._ScalarUniformGenerators, d::_FloatDirichlet) =
-    first(IR._engine_rand_next(rng, d))
+
 IR.rand_next(
     rng::IR._ScalarUniformGenerators,
     d::_FloatDirichlet,
     n::Integer;
     threaded::Bool = false,
 ) = IR._engine_rand_next(rng, d, n; threaded)
-Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::_FloatDirichlet,
-    n::Integer;
-    threaded::Bool = false,
-) = first(IR._engine_rand_next(rng, d, n; threaded))
+
 IR.rand_at(rng::IR._ScalarUniformGenerators, d::_FloatDirichlet, index::Integer) =
     IR._engine_rand_at(rng, d, index)

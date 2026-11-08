@@ -27,7 +27,7 @@ julia> rand(bridge, UInt32)
 julia> rand(bridge, UInt32)
 0x467098dd
 
-julia> rand(parent(bridge), UInt32)
+julia> first(rand_next(parent(bridge), UInt32))
 0xc25ecc0b
 ```
 """

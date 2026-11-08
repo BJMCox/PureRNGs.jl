@@ -80,33 +80,31 @@ function _check_array_draw(
     gpu_rng,
     argument,
     ::Type{T},
-    draw,
     next_draw;
     fills = (),
     cpu_parity::Bool = true,
 ) where {T}
-    values = draw(gpu_rng, argument, 19)
+    values, next_gpu = next_draw(gpu_rng, argument, 19)
     @test values isa CUDA.CuArray{T,1}
     @test _device_id(values) == CUDA.deviceid(primary)
-    cpu_parity && @test(isequal(Array(values), draw(cpu_rng, argument, 19)))
-    @test isequal(Array(draw(gpu_rng, argument, 7)), Array(values)[1:7])
-    @test isequal(vec(Array(draw(gpu_rng, argument, 3, 5))), Array(values)[1:15])
+    cpu_parity && @test(isequal(Array(values), first(next_draw(cpu_rng, argument, 19))))
+    @test isequal(Array(first(next_draw(gpu_rng, argument, 7))), Array(values)[1:7])
+    @test isequal(
+        vec(Array(first(next_draw(gpu_rng, argument, 3, 5)))),
+        Array(values)[1:15],
+    )
 
-    continued, next_gpu = next_draw(gpu_rng, argument, 19)
     next_scalar, scalar_values = _chain(gpu_rng, rng -> next_draw(rng, argument), 19, T)
-    @test continued isa CUDA.CuArray{T,1}
-    @test _device_id(continued) == CUDA.deviceid(primary)
     expected = cpu_parity ? scalar_values : Array(values)
-    @test isequal(Array(continued), expected)
+    @test isequal(Array(values), expected)
     @test next_gpu.position == next_scalar.position
     @test next_gpu.device == next_scalar.device == gpu_rng.device
 
-    for (fill, next_fill) in fills
+    for next_fill in fills
         destination = similar(values)
-        @test fill(gpu_rng, destination) === destination
-        @test isequal(Array(destination), Array(values))
         returned, fill_next = next_fill(gpu_rng, destination)
         @test returned === destination
+        @test isequal(Array(destination), Array(values))
         @test fill_next.position == next_gpu.position
         @test fill_next.device == gpu_rng.device
         serial = similar(values)
@@ -171,10 +169,10 @@ function _exponential_api_kernel!(values, raw, lattice, rng)
         k = _exponential_raw(rng, T)
         u, v = IR._exponential_lattice(T, k)
         @inbounds begin
-            values[1] = randexp(rng, T)
+            values[1] = first(randexp_next(rng, T))
             values[2] = continued
             values[3] = randexp_at(rng, T, 1)
-            values[4] = randexp(next_rng, T)
+            values[4] = first(randexp_next(next_rng, T))
             values[5] = randexp_at(rng, T, 2)
             raw[1] = k
             lattice[1] = u
@@ -196,30 +194,30 @@ function _device_api_kernel!(uniform, normal32, normal64, ranges, signed32, sign
         child = subrng(rng, UInt64(0x71))
         children = splitrng(rng, Val(2))
         @inbounds begin
-            uniform[1] = rand(rng, UInt32)
+            uniform[1] = first(rand_next(rng, UInt32))
             uniform[2] = rand_at(rng, UInt32, 1)
             uniform[3] = continued_uniform
-            uniform[4] = rand(next_uniform, UInt32)
-            uniform[5] = rand(child, UInt32)
-            uniform[6] = rand(children[2], UInt32)
-            signed32[1] = rand(rng, Int32)
+            uniform[4] = first(rand_next(next_uniform, UInt32))
+            uniform[5] = first(rand_next(child, UInt32))
+            uniform[6] = first(rand_next(children[2], UInt32))
+            signed32[1] = first(rand_next(rng, Int32))
             signed32[2] = continued_signed32
-            signed32[3] = rand(next_signed32, Int32)
-            signed64[1] = rand(rng, Int64)
+            signed32[3] = first(rand_next(next_signed32, Int32))
+            signed64[1] = first(rand_next(rng, Int64))
             signed64[2] = continued_signed64
-            signed64[3] = rand(next_signed64, Int64)
-            normal32[1] = randn(rng, Float32)
+            signed64[3] = first(rand_next(next_signed64, Int64))
+            normal32[1] = first(randn_next(rng, Float32))
             normal32[2] = randn_at(rng, Float32, 1)
             normal32[3] = continued_normal32
-            normal32[4] = randn(next_normal32, Float32)
+            normal32[4] = first(randn_next(next_normal32, Float32))
             normal32[5] = randn_at(rng, Float32, 2)
-            normal64[1] = randn(rng, Float64)
+            normal64[1] = first(randn_next(rng, Float64))
             normal64[2] = randn_at(rng, Float64, 1)
             normal64[3] = continued_normal64
-            normal64[4] = randn(next_normal64, Float64)
+            normal64[4] = first(randn_next(next_normal64, Float64))
             normal64[5] = randn_at(rng, Float64, 2)
             ranges[1] = continued_range
-            ranges[2] = rand(next_range, range)
+            ranges[2] = first(rand_next(next_range, range))
         end
     end
     return
@@ -230,7 +228,7 @@ function _range_api_kernel!(destination, rng, range)
         value, next_rng = rand_next(rng, range)
         @inbounds begin
             destination[1] = value
-            destination[2] = rand(next_rng, range)
+            destination[2] = first(rand_next(next_rng, range))
         end
     end
     return
@@ -775,12 +773,12 @@ end
 
 @testset "public fill plan classes launch CUDA kernels" begin
     cases = (
-        () -> rand(device(Threefry2x32(0x771)), Bool, 64),
-        () -> randn(device(Philox4x32(0x772)), Float64, 9),
-        () -> rand(device(Threefry2x32(0x773)), UInt32, 9),
-        () -> randn(device(Threefry2x32(0x774)), Float32, 9),
-        () -> rand(device(Philox4x32(0x775)), K64_RANGE, 9),
-        () -> rand(device(Philox4x32(0x776)), K128_RANGE, 9),
+        () -> first(rand_next(device(Threefry2x32(0x771)), Bool, 64)),
+        () -> first(randn_next(device(Philox4x32(0x772)), Float64, 9)),
+        () -> first(rand_next(device(Threefry2x32(0x773)), UInt32, 9)),
+        () -> first(randn_next(device(Threefry2x32(0x774)), Float32, 9)),
+        () -> first(rand_next(device(Philox4x32(0x775)), K64_RANGE, 9)),
+        () -> first(rand_next(device(Philox4x32(0x776)), K128_RANGE, 9)),
     )
     for call in cases
         @test _device_kernel_events(call) > 0
@@ -981,15 +979,7 @@ end
     for (F, T) in uniform_cases
         cpu_rng = F(0x123456)
         gpu_rng = device(cpu_rng)
-        values = _check_array_draw(
-            cpu_rng,
-            gpu_rng,
-            T,
-            T,
-            rand,
-            rand_next;
-            fills = ((rand!, rand_next!),),
-        )
+        values = _check_array_draw(cpu_rng, gpu_rng, T, T, rand_next; fills = (rand_next!,))
         @test gpu_rng.position == cpu_rng.position
         if F === Philox4x32 && T === UInt64
             serial, parallel = similar(values), similar(values)
@@ -1019,9 +1009,8 @@ end
             gpu_rng,
             T,
             T,
-            randn,
             randn_next;
-            fills = ((randn!, randn_next!),),
+            fills = (randn_next!,),
             cpu_parity = false,
         )
         if F === Philox4x32 && T === Float64
@@ -1045,7 +1034,7 @@ end
     )
     for (F, T) in range_cases
         cpu_rng = F(0x123456)
-        _check_array_draw(cpu_rng, device(cpu_rng), _range(T), T, rand, rand_next)
+        _check_array_draw(cpu_rng, device(cpu_rng), _range(T), T, rand_next)
     end
 
     # The matrix above covers every type on Philox4x32 and one type on the
@@ -1061,7 +1050,8 @@ end
     wide = UInt64(0):UInt64(1):(UInt64(1)<<40)
     for F in GENERATOR_TYPES
         cpu_rng = F(0x123456)
-        @test Array(rand(device(cpu_rng), wide, 17)) == rand(cpu_rng, wide, 17)
+        @test Array(first(rand_next(device(cpu_rng), wide, 17))) ==
+              first(rand_next(cpu_rng, wide, 17))
     end
 end
 
@@ -1310,12 +1300,12 @@ end
 
         continued_uniform, next_uniform = rand_next(rng, UInt32)
         @test Array(args[1]) == UInt32[
-            rand(rng, UInt32),
+            first(rand_next(rng, UInt32)),
             rand_at(rng, UInt32, 1),
             continued_uniform,
-            rand(next_uniform, UInt32),
-            rand(subrng(rng, UInt64(0x71)), UInt32),
-            rand(splitrng(rng, Val(2))[2], UInt32),
+            first(rand_next(next_uniform, UInt32)),
+            first(rand_next(subrng(rng, UInt64(0x71)), UInt32)),
+            first(rand_next(splitrng(rng, Val(2))[2], UInt32)),
         ]
         normal32 = Array(args[2])
         normal64 = Array(args[3])
@@ -1325,19 +1315,19 @@ end
         @test normal64[4] === normal64[5]
         continued_unsigned32, next_unsigned32 = rand_next(rng, UInt32)
         @test Array(signed32) == Int32[
-            reinterpret(Int32, rand(rng, UInt32)),
+            reinterpret(Int32, first(rand_next(rng, UInt32))),
             reinterpret(Int32, continued_unsigned32),
-            reinterpret(Int32, rand(next_unsigned32, UInt32)),
+            reinterpret(Int32, first(rand_next(next_unsigned32, UInt32))),
         ]
         continued_unsigned64, next_unsigned64 = rand_next(rng, UInt64)
         @test Array(signed64) == Int64[
-            reinterpret(Int64, rand(rng, UInt64)),
+            reinterpret(Int64, first(rand_next(rng, UInt64))),
             reinterpret(Int64, continued_unsigned64),
-            reinterpret(Int64, rand(next_unsigned64, UInt64)),
+            reinterpret(Int64, first(rand_next(next_unsigned64, UInt64))),
         ]
         range = UInt64(0):UInt64(1):(UInt64(1)<<40)
         continued_range, next_range = rand_next(rng, range)
-        @test Array(args[4]) == [continued_range, rand(next_range, range)]
+        @test Array(args[4]) == [continued_range, first(rand_next(next_range, range))]
 
         for range in (K64_RANGE, UInt64(0):typemax(UInt64))
             range_values = CUDA.CuArray{eltype(range)}(undef, 2)
@@ -1351,7 +1341,7 @@ end
             @test !occursin("BigInt", range_typed)
             @test !occursin(r"\bi128\b", range_llvm)
             value, next_rng = rand_next(rng, range)
-            @test Array(range_values) == [value, rand(next_rng, range)]
+            @test Array(range_values) == [value, first(rand_next(next_rng, range))]
         end
     end
 
@@ -1385,9 +1375,8 @@ end
             rng,
             T,
             T,
-            randexp,
             randexp_next,
-            fills = ((randexp!, randexp_next!),),
+            fills = (randexp_next!,),
             cpu_parity = false,
         )
         host_allocated = Array(allocated)
@@ -1412,9 +1401,9 @@ end
         _, terminal_fill_next = randexp_next!(last_rng, terminal_destination)
         @test terminal_fill_next.position == terminal.position
         @test Array(terminal_destination) == Array(terminal_array)
-        @test_throws StreamExhausted randexp(terminal, T)
+        @test_throws StreamExhausted first(randexp_next(terminal, T))
 
-        for operation in (randexp!, randexp_next!), source in (last_rng, terminal)
+        for operation in (randexp_next!,), source in (last_rng, terminal)
             failed = CUDA.fill(T(-1), 2)
             before = Array(failed)
             @test_throws StreamExhausted operation(source, failed)
@@ -1422,7 +1411,7 @@ end
         end
 
         empty = CUDA.CuArray{T}(undef, 0)
-        for operation in (randexp!, randexp_next!)
+        for operation in (randexp_next!,)
             empty_profile = CUDA.@profile raw = true operation(terminal, empty)
             @test count(value -> !ismissing(value), empty_profile.device.grid) == 0
         end
@@ -1519,7 +1508,7 @@ end
             last_range = _last_draw_rng(gpu_rng, width)
             range_value, terminal = rand_next(last_range, capacity_range, 1)
             cpu_last = MLD.CPUDevice()(last_range)
-            @test Array(range_value) == rand(cpu_last, capacity_range, 1)
+            @test Array(range_value) == first(rand_next(cpu_last, capacity_range, 1))
             @test terminal.position == _terminal(gpu_rng)
             @test_throws StreamExhausted rand_next(terminal, capacity_range, 1)
             insufficient_position =
@@ -1535,7 +1524,7 @@ end
     before = CUDA.device()
     rng = device(Philox4x32(0x123456))
     @test CUDA.device() == before
-    rand(rng, UInt32, 4)
+    first(rand_next(rng, UInt32, 4))
     @test CUDA.device() == before
 
     empty = CUDA.CuArray{UInt32}(undef, 0)
@@ -1546,7 +1535,7 @@ end
     @test count(value -> !ismissing(value), empty_profile.device.grid) == 0
 
     empty_normal = CUDA.CuArray{Float32}(undef, 0)
-    @test randn!(rng, empty_normal) === empty_normal
+    @test first(randn_next!(rng, empty_normal)) === empty_normal
     returned_normal, empty_normal_next = randn_next!(rng, empty_normal)
     @test returned_normal === empty_normal
     @test empty_normal_next.position == rng.position
@@ -1597,13 +1586,13 @@ end
         try
             CUDA.device!(first)
             second_bound = MLD.CUDADevice(second)(Philox4x32(0x123456))
-            first_values = rand(second_bound, UInt32, 4)
+            first_values = first(rand_next(second_bound, UInt32, 4))
             @test _device_id(first_values) == CUDA.deviceid(first)
             @test CUDA.device() == first
 
             CUDA.device!(second)
             first_bound = MLD.CUDADevice(first)(Philox4x32(0x123456))
-            second_values = rand(first_bound, UInt32, 4)
+            second_values = first(rand_next(first_bound, UInt32, 4))
             @test _device_id(second_values) == CUDA.deviceid(second)
             @test CUDA.device() == second
         finally
@@ -2229,7 +2218,7 @@ end
         gpu_rng = device(cpu_rng)
         values, next_rng = rand_next(gpu_rng, SA, 1000)
         @test values isa CuArray{SA,1}
-        @test Array(values) == rand(cpu_rng, SA, 1000)
+        @test Array(values) == first(rand_next(cpu_rng, SA, 1000))
         @test next_rng.position == last(rand_next(cpu_rng, Float32, 3000)).position
         # Each thread addresses its own static array inside the kernel.
         addressed = CuArray{SA}(undef, 1000)
@@ -2239,9 +2228,9 @@ end
             0,
         )
         @test Array(addressed) == Array(values)
-        normals = randn(gpu_rng, SA, 1000)
+        normals = first(randn_next(gpu_rng, SA, 1000))
         @test vec(reinterpret(Float32, Array(normals))) ==
-              Array(randn(gpu_rng, Float32, 3000))
+              Array(first(randn_next(gpu_rng, Float32, 3000)))
     end
 end
 

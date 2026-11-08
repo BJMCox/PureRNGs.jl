@@ -37,8 +37,6 @@ end
     return IR._engine_draw_at(rng, codec, _result_type(d), index)
 end
 
-@inline Random.rand(rng::IR._ScalarUniformGenerators, d::_NativeDistribution) =
-    first(IR._engine_rand_next(rng, d))
 @inline IR.rand_next(rng::IR._ScalarUniformGenerators, d::_NativeDistribution) =
     IR._engine_rand_next(rng, d)
 @inline IR.rand_at(
@@ -188,13 +186,6 @@ end
     threaded::Bool = false,
 ) = _rand_distribution_next_fill!(rng, d, destination, threaded)
 
-@inline Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::_NativeDistribution,
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-) = first(IR._engine_rand_next(rng, d, dim1, dims...; threaded))
 @inline IR.rand_next(
     rng::IR._ScalarUniformGenerators,
     d::_NativeDistribution,
@@ -202,25 +193,6 @@ end
     dims::Integer...;
     threaded::Bool = false,
 ) = IR._engine_rand_next(rng, d, dim1, dims...; threaded)
-
-@inline Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::Union{_FloatMapped{T},_GammaFamily{T}},
-    destination::AbstractArray{T};
-    threaded::Bool = false,
-) where {T<:_FloatType} = first(IR._engine_rand_next!(rng, d, destination; threaded))
-@inline Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::Distributions.Bernoulli{<:_FloatType},
-    destination::AbstractArray{Bool};
-    threaded::Bool = false,
-) = first(IR._engine_rand_next!(rng, d, destination; threaded))
-@inline Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::Distributions.DiscreteUniform,
-    destination::AbstractArray{Int};
-    threaded::Bool = false,
-) = first(IR._engine_rand_next!(rng, d, destination; threaded))
 
 @inline IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
@@ -320,8 +292,7 @@ end
 
 IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal) =
     IR._engine_rand_next(rng, d)
-Random.rand(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal) =
-    first(IR._engine_rand_next(rng, d))
+
 IR.rand_at(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal, index::Integer) =
     IR._engine_rand_at(rng, d, index)
 IR.rand_next(
@@ -330,24 +301,13 @@ IR.rand_next(
     n::Integer;
     threaded::Bool = false,
 ) = IR._engine_rand_next(rng, d, n; threaded)
-Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::_FloatMvNormal,
-    n::Integer;
-    threaded::Bool = false,
-) = first(IR._engine_rand_next(rng, d, n; threaded))
+
 IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
     d::Distributions.MvNormal{T},
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,
 ) where {T<:_FloatType} = IR._engine_rand_next!(rng, d, destination; threaded)
-Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::Distributions.MvNormal{T},
-    destination::AbstractVecOrMat{T};
-    threaded::Bool = false,
-) where {T<:_FloatType} = first(IR._engine_rand_next!(rng, d, destination; threaded))
 
 @setup_workload begin
     draws = 128
@@ -373,12 +333,9 @@ Random.rand!(
     @compile_workload begin
         rng = IR.Philox4x32(20250918)
         for d in distributions
-            Random.rand(rng, d)
             value, _ = IR.rand_next(rng, d)
-            Random.rand(rng, d, draws)
             values, _ = IR.rand_next(rng, d, draws)
             destination = Vector{_result_type(d)}(undef, draws)
-            Random.rand!(rng, d, destination)
             IR.rand_next!(rng, d, destination)
         end
     end

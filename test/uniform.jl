@@ -2,7 +2,7 @@ _uniform_chain(rng, ::Type{T}, count::Integer) where {T} =
     _reference_chain(rng, cursor -> _reference_uniform(cursor, T), _uniform_width(T), count)
 
 uniform_allocations(rng, ::Type{T}) where {T} = (
-    @allocated(rand(rng, T)),
+    @allocated(first(rand_next(rng, T))),
     @allocated(rand_next(rng, T)),
     @allocated(rand_at(rng, T, 3))
 )
@@ -35,13 +35,13 @@ const PACKED_GOLDEN_UNIFORM = (
     for ((F, key), (bit, word32, word64, float32_bits, float64_bits)) in
         zip(PACKED_GOLDEN_GENERATORS, PACKED_GOLDEN_UNIFORM)
         rng = _packed_golden_rng(F, key)
-        @test rand(rng, Bool) === bit
-        @test rand(rng, UInt32) === word32
-        @test rand(rng, Int32) === reinterpret(Int32, word32)
-        @test rand(rng, UInt64) === word64
-        @test rand(rng, Int64) === reinterpret(Int64, word64)
-        @test reinterpret(UInt32, rand(rng, Float32)) === float32_bits
-        @test reinterpret(UInt64, rand(rng, Float64)) === float64_bits
+        @test first(rand_next(rng, Bool)) === bit
+        @test first(rand_next(rng, UInt32)) === word32
+        @test first(rand_next(rng, Int32)) === reinterpret(Int32, word32)
+        @test first(rand_next(rng, UInt64)) === word64
+        @test first(rand_next(rng, Int64)) === reinterpret(Int64, word64)
+        @test reinterpret(UInt32, first(rand_next(rng, Float32))) === float32_bits
+        @test reinterpret(UInt64, first(rand_next(rng, Float64))) === float64_bits
     end
 end
 
@@ -64,8 +64,9 @@ end
 
         for (T, raw) in ((Float32, raw32), (Float64, raw64))
             _, value = _reference_exponential_lattice(T, raw)
-            @test randexp(rng, T) === IR._exponential_transform(IR._CPU_BACKEND, T, value)
-            @test randexp(MLD.CUDADevice()(rng), T) === -Base.log(value)
+            @test first(randexp_next(rng, T)) ===
+                  IR._exponential_transform(IR._CPU_BACKEND, T, value)
+            @test first(randexp_next(MLD.CUDADevice()(rng), T)) === -Base.log(value)
         end
     end
 end
@@ -77,14 +78,14 @@ end
 
     for F in GENERATOR_TYPES, T in PURE_UNIFORM_TYPES
         rng = _positioned(F, 0x521, UInt64(9), UInt16(61))
-        @test rand(rng, T) === _reference_uniform(rng, T)
+        @test first(rand_next(rng, T)) === _reference_uniform(rng, T)
     end
 end
 
 @testset "signed primitive bitcasts" begin
     for F in GENERATOR_TYPES, (S, U) in ((Int32, UInt32), (Int64, UInt64))
         rng = _positioned(F, 0x5211, UInt64(9), UInt16(61))
-        @test reinterpret(U, rand(rng, S)) === rand(rng, U)
+        @test reinterpret(U, first(rand_next(rng, S))) === first(rand_next(rng, U))
 
         signed_value, signed_next = rand_next(rng, S)
         unsigned_value, unsigned_next = rand_next(rng, U)
@@ -126,7 +127,7 @@ end
             IR._Position64(typemax(UInt64), IR._block_bits(rng) - UInt16(64)),
             rng.device,
         )
-        @test rand_at(rng, UInt64, final_index) === rand(last, UInt64)
+        @test rand_at(rng, UInt64, final_index) === first(rand_next(last, UInt64))
         @test_throws StreamExhausted rand_at(rng, UInt64, final_index + 1)
     end
 
@@ -142,7 +143,7 @@ end
             ),
             rng.device,
         )
-        @test rand_at(rng, UInt64, final_index) === rand(last, UInt64)
+        @test rand_at(rng, UInt64, final_index) === first(rand_next(last, UInt64))
         @test_throws StreamExhausted rand_at(rng, UInt64, final_index + 1)
 
         near_end = IR._rebuild(
@@ -150,13 +151,15 @@ end
             IR._Position128(typemax(UInt64), typemax(UInt64), UInt16(0)),
             rng.device,
         )
-        @test rand_at(near_end, UInt64, UInt64(4)) === rand(
-            IR._rebuild(
-                near_end,
-                IR._Position128(typemax(UInt64), typemax(UInt64), UInt16(192)),
-                rng.device,
+        @test rand_at(near_end, UInt64, UInt64(4)) === first(
+            rand_next(
+                IR._rebuild(
+                    near_end,
+                    IR._Position128(typemax(UInt64), typemax(UInt64), UInt16(192)),
+                    rng.device,
+                ),
+                UInt64,
             ),
-            UInt64,
         )
         @test_throws StreamExhausted rand_at(near_end, UInt64, UInt64(5))
     end
@@ -169,7 +172,7 @@ end
         IR._Position64(IR._max_block(base), IR._block_bits(base) - UInt16(32)),
         base.device,
     )
-    @test rand_at(last, UInt32, UInt64(1)) === rand(last, UInt32)
+    @test rand_at(last, UInt32, UInt64(1)) === first(rand_next(last, UInt32))
     @test_throws StreamExhausted rand_at(last, UInt32, UInt64(2))
 end
 
@@ -308,9 +311,9 @@ end
     # The codegen check targets the kernel-facing generator. CPU-bound 64-bit
     # Philox uses the host widening multiply, which is 128-bit by design.
     rng = MLD.CUDADevice()(Philox4x64(0x52a))
-    @test rand(rng) === rand(rng, Float64)
+    @test first(rand_next(rng)) === first(rand_next(rng, Float64))
     for (function_, signature) in (
-        (rand, Tuple{typeof(rng),Type{UInt64}}),
+        (rand_next, Tuple{typeof(rng),Type{UInt64}}),
         (rand_next, Tuple{typeof(rng),Type{Float64}}),
         (rand_at, Tuple{typeof(rng),Type{UInt32},Int}),
     )

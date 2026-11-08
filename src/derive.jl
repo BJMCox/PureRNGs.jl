@@ -183,12 +183,12 @@ julia> rng = Philox4x32(20250918);
 
 julia> left, right = splitrng(rng);
 
-julia> rand(left, UInt32), rand(right, UInt32)
+julia> first(rand_next(left, UInt32)), first(rand_next(right, UInt32))
 (0xea1624f3, 0x34564a30)
 
 julia> advanced = last(rand_next(rng, UInt32));
 
-julia> rand(first(splitrng(advanced)), UInt32)
+julia> first(rand_next(first(splitrng(advanced)), UInt32))
 0xea1624f3
 ```
 """
@@ -336,13 +336,13 @@ key bits for per-particle or per-proposal derivation at scale.
 ```jldoctest
 julia> rng = Philox4x32(20250918);
 
-julia> rand(subrng(rng, 1), UInt32)
+julia> first(rand_next(subrng(rng, 1), UInt32))
 0x04970499
 
-julia> rand(subrng(rng, 2), UInt32)
+julia> first(rand_next(subrng(rng, 2), UInt32))
 0x65feaf98
 
-julia> rand(subrng(rng, -1), UInt32) == rand(subrng(rng, big(2)^64 - 1), UInt32)
+julia> rand_next(subrng(rng, -1), UInt32) == rand_next(subrng(rng, big(2)^64 - 1), UInt32)
 true
 ```
 """

@@ -1,13 +1,5 @@
 # Uniform draws run the transformed scaffold under `Val(:uniform)`, whose
 # `_fill_width` and `_cooperative_value` methods live in `fill_hooks.jl`.
-@inline function Random.rand!(
-    rng::_ScalarUniformGenerators,
-    destination::AbstractArray{T};
-    threaded::Bool = false,
-) where {T<:_UniformResult}
-    result, _ = _rand_transformed_next_fill!(rng, destination, threaded, Val(:uniform))
-    return result
-end
 
 @inline function rand_next!(
     rng::_ScalarUniformGenerators,
@@ -45,31 +37,6 @@ never changes.
         threaded,
     )
 end
-@inline Random.rand(
-    rng::_ScalarUniformGenerators,
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-) = rand(rng, Float64, dim1, dims...; threaded)
-
-@inline function Random.rand(
-    rng::_ScalarUniformGenerators,
-    ::Type{T},
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-) where {T<:_UniformResult}
-    destination, _ =
-        _rand_transformed_next_array(rng, T, (dim1, dims...), Val(:uniform), threaded)
-    return destination
-end
-@inline Random.rand(
-    rng::_ScalarUniformGenerators,
-    ::Type{T},
-    dims::Dims;
-    threaded::Bool = false,
-) where {T<:_UniformResult} =
-    first(_rand_transformed_next_array(rng, T, dims, Val(:uniform), threaded))
 
 @inline function rand_next(
     rng::_ScalarUniformGenerators,

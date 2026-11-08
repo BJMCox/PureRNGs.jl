@@ -63,23 +63,23 @@ function _signed_exponential_kernel!(signed32, signed64, exp32, exp64, raw, stat
         continued_exp32, next_exp32 = randexp_next(rng, Float32)
         continued_exp64, next_exp64 = randexp_next(rng, Float64)
         @inbounds begin
-            signed32[1] = rand(rng, Int32)
+            signed32[1] = first(rand_next(rng, Int32))
             signed32[2] = continued_signed32
-            signed32[3] = rand(next_signed32, Int32)
+            signed32[3] = first(rand_next(next_signed32, Int32))
             signed32[4] = rand_at(rng, Int32, 1)
-            signed64[1] = rand(rng, Int64)
+            signed64[1] = first(rand_next(rng, Int64))
             signed64[2] = continued_signed64
-            signed64[3] = rand(next_signed64, Int64)
+            signed64[3] = first(rand_next(next_signed64, Int64))
             signed64[4] = rand_at(rng, Int64, 1)
-            exp32[1] = randexp(rng, Float32)
+            exp32[1] = first(randexp_next(rng, Float32))
             exp32[2] = continued_exp32
             exp32[3] = randexp_at(rng, Float32, 1)
-            exp32[4] = randexp(next_exp32, Float32)
+            exp32[4] = first(randexp_next(next_exp32, Float32))
             exp32[5] = randexp_at(rng, Float32, 2)
-            exp64[1] = randexp(rng, Float64)
+            exp64[1] = first(randexp_next(rng, Float64))
             exp64[2] = continued_exp64
             exp64[3] = randexp_at(rng, Float64, 1)
-            exp64[4] = randexp(next_exp64, Float64)
+            exp64[4] = first(randexp_next(next_exp64, Float64))
             exp64[5] = randexp_at(rng, Float64, 2)
             raw[1] = _exponential_raw(rng, Float32)
             raw[2] = _exponential_raw(rng, Float64)
@@ -96,10 +96,10 @@ function _distribution_kernel!(values, state, rng, distribution)
     if AMDGPU.workitemIdx().x == 1
         continued, next_rng = rand_next(rng, distribution)
         @inbounds begin
-            values[1] = rand(rng, distribution)
+            values[1] = first(rand_next(rng, distribution))
             values[2] = continued
             values[3] = rand_at(rng, distribution, 1)
-            values[4] = rand(next_rng, distribution)
+            values[4] = first(rand_next(next_rng, distribution))
             values[5] = rand_at(rng, distribution, 2)
         end
         _store_position!(state, 0, next_rng.position)
@@ -113,7 +113,7 @@ end
 
 function _pure_fill_objective!(fill_function, rng, destination, scale)
     result = fill_function(rng, destination; threaded = true)
-    values = result isa Tuple ? result[2] : result
+    values = first(result)
     return scale * sum(values)
 end
 
@@ -152,9 +152,9 @@ end
 
 function _enzyme_cases()
     return (
-        (Random.rand!, rand_next!, rand_next),
-        (Random.randn!, randn_next!, randn_next),
-        (Random.randexp!, randexp_next!, randexp_next),
+        (rand_next!, rand_next),
+        (randn_next!, randn_next),
+        (randexp_next!, randexp_next),
     )
 end
 
@@ -171,7 +171,7 @@ function _check_distribution_preview(F, distribution, active_device)
         distribution,
     )
 
-    values = rand(rng, distribution, 5)
+    values = first(rand_next(rng, distribution, 5))
     continued, next_rng = rand_next(rng, distribution, 5)
     destination = similar(continued)
     returned, fill_next = rand_next!(rng, distribution, destination)
@@ -201,10 +201,15 @@ end
         cpu_rng = F(0x814)
         rng = AMDGPUDevice(:discarded)(cpu_rng)
         @test rng.device === IR._AMDGPU_BACKEND
-        @test rand(rng, UInt64) === rand(cpu_rng, UInt64)
-        @test randn(rng, Float64) === randn(cpu_rng, Float64)
-        @test isapprox(randexp(rng, Float64), randexp(cpu_rng, Float64); rtol = 16eps())
-        @test rand(rng, UInt16(1):UInt16(3)) === rand(cpu_rng, UInt16(1):UInt16(3))
+        @test first(rand_next(rng, UInt64)) === first(rand_next(cpu_rng, UInt64))
+        @test first(randn_next(rng, Float64)) === first(randn_next(cpu_rng, Float64))
+        @test isapprox(
+            first(randexp_next(rng, Float64)),
+            first(randexp_next(cpu_rng, Float64));
+            rtol = 16eps(),
+        )
+        @test first(rand_next(rng, UInt16(1):UInt16(3))) ===
+              first(rand_next(cpu_rng, UInt16(1):UInt16(3)))
     end
     rng = AMDGPUDevice()(Philox4x32(0x814))
     @test applicable(IR.randsample, rng, UInt32(1):UInt32(3), 2)
@@ -279,9 +284,9 @@ if AMDGPU.functional()
                 U = unsigned(T)
                 continued_unsigned, next_unsigned = rand_next(cpu_rng, U)
                 expected = T[
-                    reinterpret(T, rand(cpu_rng, U)),
+                    reinterpret(T, first(rand_next(cpu_rng, U))),
                     reinterpret(T, continued_unsigned),
-                    reinterpret(T, rand(next_unsigned, U)),
+                    reinterpret(T, first(rand_next(next_unsigned, U))),
                     reinterpret(T, rand_at(cpu_rng, U, 1)),
                 ]
                 @test Array(values) == expected
@@ -310,7 +315,7 @@ if AMDGPU.functional()
                 _exponential_raw(cpu_rng, Float64),
             ]
             for (T, kernel_values) in ((Float32, exp32), (Float64, exp64))
-                values = randexp(rng, T, 2)
+                values = first(randexp_next(rng, T, 2))
                 continued, next_rng = randexp_next(rng, T, 17)
                 repeated, repeated_next = randexp_next(rng, T, 17)
                 _, expected_next = randexp_next(cpu_rng, T, 17)
@@ -343,14 +348,13 @@ if AMDGPU.functional()
     end
 
     @testset "AMDGPU immutable Enzyme preview" begin
-        for T in (Float32, Float64),
-            (fill_function, next_fill_function, next_draw) in _enzyme_cases()
+        for T in (Float32, Float64), (next_fill_function, next_draw) in _enzyme_cases()
 
             rng = AMDGPUDevice()(Philox4x32(0x818))
             expected_values, expected_rng = next_draw(rng, T, 17)
             expected_host = Array(expected_values)
 
-            for function_under_test in (fill_function, next_fill_function)
+            for function_under_test in (next_fill_function,)
                 destination = AMDGPU.zeros(T, 17)
                 shadow = AMDGPU.fill(T(4), 17)
                 shadow_result, primal_result = autodiff(
@@ -361,18 +365,14 @@ if AMDGPU.functional()
                     Const(rng),
                     Duplicated(destination, shadow),
                 )
-                primal_destination =
-                    primal_result isa Tuple ? primal_result[2] : primal_result
-                shadow_destination =
-                    shadow_result isa Tuple ? shadow_result[2] : shadow_result
+                primal_destination = first(primal_result)
+                shadow_destination = first(shadow_result)
                 @test primal_destination === destination
                 @test shadow_destination === shadow
                 @test Array(destination) == expected_host
                 @test iszero(Array(shadow))
                 @test _device_id(destination) == _device_id(shadow) == active_device
-                if primal_result isa Tuple
-                    @test primal_result[1] === expected_rng
-                end
+                @test last(primal_result) === expected_rng
             end
 
             reverse_values = AMDGPU.zeros(T, 17)

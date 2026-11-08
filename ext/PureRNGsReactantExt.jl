@@ -1,7 +1,6 @@
 module PureRNGsReactantExt
 
 import PureRNGs
-import Random
 import Reactant
 
 const IR = PureRNGs
@@ -444,7 +443,7 @@ for T in (
     Float64,
 )
     @eval begin
-        @inline Random.rand(rng::_ReactantRNG, ::Type{$T}) = _draw(rng, $T)
+
         @inline function IR.rand_next(rng::_ReactantRNG, ::Type{$T})
             return _draw(rng, $T), _advance(rng, UInt64(IR._draw_bits($T)))
         end
@@ -549,14 +548,14 @@ end
 
 for T in (Float16, Float32, Float64)
     @eval begin
-        @inline Random.randn(rng::_ReactantRNG, ::Type{$T}) = _normal_value(rng, $T)
+
         @inline function IR.randn_next(rng::_ReactantRNG, ::Type{$T})
             return _normal_value(rng, $T), _advance(rng, UInt64(IR._normal_bits($T)))
         end
         @inline function IR.randn_at(rng::_ReactantRNG, ::Type{$T}, index::Integer)
             return _normal_value(IR._addressed_rng(rng, IR._normal_bits($T), index), $T)
         end
-        @inline Random.randexp(rng::_ReactantRNG, ::Type{$T}) = _exponential_value(rng, $T)
+
         @inline function IR.randexp_next(rng::_ReactantRNG, ::Type{$T})
             return _exponential_value(rng, $T),
             _advance(rng, UInt64(IR._exponential_bits($T)))
@@ -684,9 +683,8 @@ function _fill_next(rng::_ReactantRNG, ::Val{W}, dims::Dims, finish) where {W}
     return array, _advance(rng, _address_offset(n + 1, UInt64(W))...)
 end
 
-for (draw, draw_next, bits, finish, types) in (
+for (draw_next, bits, finish, types) in (
     (
-        :(Random.rand),
         :(IR.rand_next),
         :(IR._draw_bits),
         T -> :(raw -> _convert_result($T, raw)),
@@ -706,14 +704,12 @@ for (draw, draw_next, bits, finish, types) in (
         ),
     ),
     (
-        :(Random.randn),
         :(IR.randn_next),
         :(IR._normal_bits),
         T -> :(raw -> _normal_from_raw(raw, $T)),
         (Float16, Float32, Float64),
     ),
     (
-        :(Random.randexp),
         :(IR.randexp_next),
         :(IR._exponential_bits),
         T -> :(raw -> _exponential_from_raw(raw, $T)),
@@ -735,30 +731,20 @@ for (draw, draw_next, bits, finish, types) in (
             )
                 return $draw_next(rng, $T, Int.((dim1, dims...)))
             end
-            @inline $draw(rng::_ReactantRNG, ::Type{$T}, dims::Dims) =
-                first($draw_next(rng, $T, dims))
-            @inline function $draw(
-                rng::_ReactantRNG,
-                ::Type{$T},
-                dim1::Integer,
-                dims::Integer...,
-            )
-                return first($draw_next(rng, $T, Int.((dim1, dims...))))
-            end
+
         end
     end
     @eval begin
-        @inline $draw(rng::_ReactantRNG) = $draw(rng, Float64)
+
         @inline $draw_next(rng::_ReactantRNG) = $draw_next(rng, Float64)
-        @inline $draw(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
-            $draw(rng, Float64, dim1, dims...)
+
         @inline $draw_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
             $draw_next(rng, Float64, Int.((dim1, dims...)))
     end
     # Uniform tuple arguments name a population, not dimensions.
-    if draw != :(Random.rand)
+    if draw_next != :(IR.rand_next)
         @eval begin
-            @inline $draw(rng::_ReactantRNG, dims::Dims) = $draw(rng, Float64, dims)
+
             @inline $draw_next(rng::_ReactantRNG, dims::Dims) =
                 $draw_next(rng, Float64, dims)
         end
@@ -810,14 +796,6 @@ end
     return _range_element(range, _range_offset(rng, span))
 end
 
-@inline function Random.rand(
-    rng::_ReactantRNG,
-    range::Union{OrdinalRange{T},LinRange{T}},
-) where {T<:IR._RangeInteger64}
-    isempty(range) && throw(ArgumentError("range must be non-empty"))
-    return IR._range_value(rng, range)
-end
-
 @inline function IR.rand_next(
     rng::_ReactantRNG,
     range::Union{OrdinalRange{T},LinRange{T}},
@@ -862,14 +840,7 @@ end
 
 for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
     @eval begin
-        @inline function Random.rand(
-            rng::_ReactantRNG,
-            range::Union{OrdinalRange{$T},LinRange{$T}},
-            dim1::Integer,
-            dims::Integer...,
-        )
-            return first(IR.rand_next(rng, range, dim1, dims...))
-        end
+
         @inline function IR.rand_next(
             rng::_ReactantRNG,
             range::Union{OrdinalRange{$T},LinRange{$T}},
@@ -878,11 +849,7 @@ for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
         )
             return _fill_range_next(rng, range, Int.((dim1, dims...)))
         end
-        @inline Random.rand(
-            rng::_ReactantRNG,
-            range::Union{OrdinalRange{$T},LinRange{$T}},
-            dims::Dims,
-        ) = first(_fill_range_next(rng, range, dims))
+
         @inline IR.rand_next(
             rng::_ReactantRNG,
             range::Union{OrdinalRange{$T},LinRange{$T}},
@@ -950,9 +917,8 @@ end
     return destination
 end
 
-for (fill, fill_next, draw_next, T) in (
+for (fill_next, draw_next, T) in (
     (
-        :(Random.rand!),
         :(IR.rand_next!),
         :(IR.rand_next),
         :(Union{
@@ -970,18 +936,8 @@ for (fill, fill_next, draw_next, T) in (
             Float64,
         }),
     ),
-    (
-        :(Random.randn!),
-        :(IR.randn_next!),
-        :(IR.randn_next),
-        :(Union{Float16,Float32,Float64}),
-    ),
-    (
-        :(Random.randexp!),
-        :(IR.randexp_next!),
-        :(IR.randexp_next),
-        :(Union{Float16,Float32,Float64}),
-    ),
+    (:(IR.randn_next!), :(IR.randn_next), :(Union{Float16,Float32,Float64})),
+    (:(IR.randexp_next!), :(IR.randexp_next), :(Union{Float16,Float32,Float64})),
 )
     @eval begin
         @inline function $fill_next(
@@ -992,13 +948,7 @@ for (fill, fill_next, draw_next, T) in (
             values, next_rng = $draw_next(rng, T, size(destination)...)
             return _store!(destination, values), next_rng
         end
-        @inline function $fill(
-            rng::_ReactantRNG,
-            destination::_TracedArray{T};
-            threaded::Bool = false,
-        ) where {T<:$T}
-            return first($fill_next(rng, destination; threaded))
-        end
+
     end
 end
 

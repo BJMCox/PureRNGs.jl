@@ -11,13 +11,13 @@ _chained_range(rng, range, count) =
         original_position = rng.position
         expected_next, expected = _chained_range(rng, range, 12)
 
-        pure = rand(rng, range, 12)
+        pure = first(rand_next(rng, range, 12))
         continued, next_rng = rand_next(rng, range, 12)
         @test pure == continued == expected
         @test rng.position === original_position
         @test next_rng === expected_next
 
-        matrix = rand(rng, range, 3, 4)
+        matrix = first(rand_next(rng, range, 3, 4))
         continued_matrix, matrix_next = rand_next(rng, range, 3, 4)
         @test size(matrix) == (3, 4)
         @test vec(matrix) == expected
@@ -39,7 +39,7 @@ end
         values, next_rng = rand_next(rng, range, 3, 3)
         @test vec(values) == expected
         @test next_rng === expected_next
-        @test rand(rng, range, 3, 3) == values
+        @test first(rand_next(rng, range, 3, 3)) == values
     end
 end
 
@@ -55,7 +55,6 @@ end
         @test values == expected
         @test next_rng === expected_next
     end
-
 
     base = Philox4x64(0x65b2)
     position = IR._Position128(typemax(UInt64), UInt64(7), UInt16(61))
@@ -80,7 +79,7 @@ end
             IR._terminal128()
         terminal = IR._rebuild(base, terminal_position, base.device)
 
-        empty = rand(terminal, nonempty, 0, 2)
+        empty = first(rand_next(terminal, nonempty, 0, 2))
         continued_empty, empty_next = rand_next(terminal, nonempty, 0, 2)
         @test empty isa Matrix{UInt16}
         @test size(empty) == (0, 2)
@@ -88,12 +87,12 @@ end
         @test empty_next === terminal
 
         for empty_range in (UInt16(2):UInt16(1), UInt64(1):UInt64(0))
-            @test_throws ArgumentError rand(terminal, empty_range, 0)
+            @test_throws ArgumentError first(rand_next(terminal, empty_range, 0))
             @test_throws ArgumentError rand_next(terminal, empty_range, 0)
         end
 
-        @test_throws ArgumentError rand(base, nonempty, -1)
-        @test_throws ArgumentError rand(base, nonempty, 2, -1)
+        @test_throws ArgumentError first(rand_next(base, nonempty, -1))
+        @test_throws ArgumentError first(rand_next(base, nonempty, 2, -1))
         @test_throws ArgumentError rand_next(base, nonempty, -1)
         @test_throws ArgumentError rand_next(base, nonempty, 2, -1)
     end

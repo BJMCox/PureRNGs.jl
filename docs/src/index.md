@@ -7,7 +7,7 @@ using PureRNGs, Random
 
 rng = Philox4x32(123456)
 values, next_rng = rand_next(rng, Float32, 4)
-@assert values == rand(rng, Float32, 4)
+@assert values == rand_at(rng, Float32, 1:4)
 values
 ```
 

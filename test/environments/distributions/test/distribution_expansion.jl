@@ -45,14 +45,14 @@ end
         expected_scalar, expected_scalar_next = expanded_primitive_next(rng, distribution)
         expected_next, expected = expanded_primitive_chain(rng, distribution, 33)
 
-        @test rand(rng, distribution) === expected_scalar
+        @test first(rand_next(rng, distribution)) === expected_scalar
         actual, actual_next = rand_next(rng, distribution)
         @test actual === expected_scalar
         @test actual_next === expected_scalar_next
 
         @test [rand_at(rng, distribution, index) for index in eachindex(expected)] == expected
 
-        allocated = rand(rng, distribution, length(expected))
+        allocated = first(rand_next(rng, distribution, length(expected)))
         @test allocated == expected
 
         continued, allocated_next = rand_next(rng, distribution, length(expected))
@@ -60,7 +60,8 @@ end
         @test allocated_next === expected_next
 
         destination = Vector{T}(undef, length(expected))
-        @test rand!(rng, distribution, destination; threaded = false) === destination
+        @test first(rand_next!(rng, distribution, destination; threaded = false)) ===
+              destination
         @test destination == expected
 
         returned, filled_next = rand_next!(rng, distribution, destination; threaded = false)
@@ -89,11 +90,11 @@ end
     exhausted = IR._rebuild(rng, IR._terminal64(IR._max_block(rng)), rng.device)
     empty = Vector{Float64}(undef, 0)
 
-    @test rand!(exhausted, distribution, empty) === empty
+    @test first(rand_next!(exhausted, distribution, empty)) === empty
     returned, empty_next = rand_next!(exhausted, distribution, empty)
     @test returned === empty
     @test empty_next === exhausted
-    @test isempty(rand(exhausted, distribution, 0))
+    @test isempty(first(rand_next(exhausted, distribution, 0)))
     allocated, allocated_next = rand_next(exhausted, distribution, 0)
     @test isempty(allocated)
     @test allocated_next === exhausted
@@ -108,7 +109,7 @@ end
     )
     destination = fill(17.0, 2)
     original = copy(destination)
-    @test_throws StreamExhausted rand!(last, distribution, destination)
+    @test_throws StreamExhausted first(rand_next!(last, distribution, destination))
     @test destination == original
 end
 
@@ -122,12 +123,12 @@ end
     )
 
     for distribution in invalid
-        @test_throws ArgumentError rand(rng, distribution)
+        @test_throws ArgumentError first(rand_next(rng, distribution))
     end
 
     @test_throws ArgumentError rand_next!(rng, last(invalid), Float64[])
 
-    @test_throws MethodError rand(rng, LogNormal(Float16(0), Float16(1)))
+    @test_throws MethodError first(rand_next(rng, LogNormal(Float16(0), Float16(1))))
 end
 
 # Each mapping consumes the variate its sampler produces, so the round trip

@@ -50,20 +50,10 @@ end
     return length(prepared)
 end
 
-@inline function _draw_categorical(rng, d::Distributions.Categorical)
-    cpu_rng, total, prepared, is_cumulative = _prepare_categorical_scalar(rng, d)
-    IR._sampling_reservation(rng, 1, IR._WEIGHT_BITS)
-    return _draw_categorical_unchecked(cpu_rng, total, prepared, is_cumulative)
-end
-
 @inline function _draw_categorical_next(rng, d::Distributions.Categorical)
     cpu_rng, total, prepared, is_cumulative = _prepare_categorical_scalar(rng, d)
     next_rng = IR._sampling_reservation(rng, 1, IR._WEIGHT_BITS)
     return _draw_categorical_unchecked(cpu_rng, total, prepared, is_cumulative), next_rng
-end
-
-@inline function Random.rand(rng::IR._ScalarUniformGenerators, d::Distributions.Categorical)
-    return _draw_categorical(rng, d)
 end
 
 @inline function IR.rand_next(
@@ -157,17 +147,6 @@ end
     )
 end
 
-@inline function Random.rand(
-    rng::IR._ScalarUniformGenerators,
-    d::Distributions.Categorical,
-    dim1::Integer,
-    dims::Integer...;
-    threaded::Bool = false,
-)
-    destination, _ = _rand_categorical_next_array(rng, d, (dim1, dims...), threaded)
-    return destination
-end
-
 @inline function IR.rand_next(
     rng::IR._ScalarUniformGenerators,
     d::Distributions.Categorical,
@@ -176,16 +155,6 @@ end
     threaded::Bool = false,
 )
     return _rand_categorical_next_array(rng, d, (dim1, dims...), threaded)
-end
-
-@inline function Random.rand!(
-    rng::IR._ScalarUniformGenerators,
-    d::Distributions.Categorical,
-    destination::AbstractArray{Int};
-    threaded::Bool = false,
-)
-    result, _ = _rand_categorical_next_fill!(rng, d, destination, threaded)
-    return result
 end
 
 @inline function IR.rand_next!(
