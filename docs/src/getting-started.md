@@ -3,18 +3,10 @@
 ## Install
 
 PureRNGs requires Julia 1.10 or later.
-Install from GitHub:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/BJMCox/PureRNGs.jl")
-```
-
-For a local development checkout, use:
-
-```julia
-using Pkg
-Pkg.develop(path="/path/to/PureRNGs.jl")
+Pkg.add("PureRNGs")
 ```
 
 Load `Random` for Julia's standard sampling function names.

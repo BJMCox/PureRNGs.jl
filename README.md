@@ -10,11 +10,11 @@ Philox, Threefry, and ChaCha generators support uniform, normal, and exponential
 
 Use `_next` calls with pure generators. Standard `rand`, `randn`, `randexp`, and their fills require the mutable `StatefulRNG` wrapper.
 
-Install from GitHub using Julia 1.10 or later:
+Install using Julia 1.10 or later:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/BJMCox/PureRNGs.jl")
+Pkg.add("PureRNGs")
 ```
 
 ```julia
