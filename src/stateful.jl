@@ -276,6 +276,10 @@ for F in _GENERATOR_SYMBOLS
         )
 end
 
+@inline _fresh_bridge_rng(::PCG4D, seed::Integer) = PCG4D(seed)
+_fresh_bridge_rng(::PCG4D, device::Random.RandomDevice) =
+    PCG4D(Random.rand(device, UInt64) >> 2)
+
 @inline function Random.seed!(
     mutable_rng::StatefulRNG,
     seed::Union{Integer,Random.RandomDevice},

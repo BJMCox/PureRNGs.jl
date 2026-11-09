@@ -577,7 +577,7 @@ test_unified_device(Philox4x32(25) |> device)
 end
 
 @testset "CUDA Bool packed paths preserve every generator stream" begin
-    for F in GENERATOR_TYPES
+    for F in (GENERATOR_TYPES..., IR.PCG4D)
         rng = device(F(0x787))
         block_bits = Int(IR._block_bits(rng))
 
@@ -610,6 +610,8 @@ end
             _check_public_packed_fill(terminal_rng, Bool, block_bits, rand_next, rand_next!)
         @test terminal.position == _terminal(rng)
     end
+
+    _check_public_packed_fill(device(IR.PCG4D(0x789)), Bool, 8193, rand_next, rand_next!)
 
     rng = device(Philox4x32(0x788))
     destination = CUDA.CuArray{Bool}(undef, 4096)

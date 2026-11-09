@@ -6,6 +6,10 @@ const _NARROW_SPLIT_COUNT = UInt64(0xffffffff)
 const _SPLIT_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_SPLIT_SUBTAG)
 const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 
+@inline _derive_key(::Type{<:PCG4D}, key, index::UInt64) = _pcg4d_key(key, index, UInt32(1))
+@inline _subrng_key(::Type{<:PCG4D}, key, purpose::UInt64) =
+    _pcg4d_key(key, purpose, UInt32(2))
+
 @inline _derived_rng(rng::AbstractPureRNG, key) =
     typeof(rng)(_CONSTRUCTION_TOKEN, key, _zero_position(typeof(rng)), rng.device)
 
