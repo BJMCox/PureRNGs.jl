@@ -944,6 +944,19 @@ end
     end
 end
 
+@testset "large packed fills preserve addressed values and continuation" begin
+    cpu_rng = Philox4x32(0x784, UInt64(128) * ((UInt64(1) << 32) - 17))
+    # One GiB exceeds the packed launch caps on A100 and GH200. The extra pack
+    # also leaves a partial workgroup at the end of the grid-stride fill.
+    count = (1 << 28) + 4
+    destination = CUDA.CuArray{UInt32}(undef, count)
+    _, next_rng = rand_next!(device(cpu_rng), destination)
+    indices = [1, 68, 69, count ÷ 2, count - 3, count]
+    @test Array(destination[CUDA.CuArray(indices)]) ==
+          [rand_at(cpu_rng, UInt32, index) for index in indices]
+    @test rngposition(next_rng) == rngposition(cpu_rng) + UInt128(32) * count
+end
+
 @testset "public K=64 grouped and K=128 generic ranges" begin
     for F in GENERATOR_TYPES, range in (K64_RANGE, K128_RANGE)
         rng = device(F(0x785))
@@ -1128,10 +1141,14 @@ end
         packed_rng = device(F(0x785))
         destination = CUDA.CuArray{T}(undef, 1024)
         storage_type = extension_module._CUDANatural128Pack{T}
+        mode =
+            sizeof(destination) ÷ 16 <= extension_module._CUDA_FILL_THREADS ? Val(true) :
+            Val(false)
         packed_typed = CUDA.@device_code_typed kernel(
             packed_rng,
             destination,
             Val(storage_type),
+            mode,
             ndrange = extension_module._CUDA_FILL_THREADS,
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
@@ -1141,7 +1158,8 @@ end
             CUDA.@device_code_llvm io = io kernel(
                 packed_rng,
                 destination,
-                Val(storage_type);
+                Val(storage_type),
+                mode;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -1153,7 +1171,8 @@ end
             CUDA.@device_code_sass io = io kernel(
                 packed_rng,
                 destination,
-                Val(storage_type);
+                Val(storage_type),
+                mode;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )

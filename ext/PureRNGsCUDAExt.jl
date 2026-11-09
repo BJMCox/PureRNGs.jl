@@ -615,14 +615,17 @@ KernelAbstractions.@kernel function _natural128_fill_kernel!(
     rng,
     destination,
     ::Val{D},
-) where {D}
+    ::Val{single_pass},
+) where {D,single_pass}
     destination = reinterpret(D, vec(destination))
     index = KernelAbstractions.@index(Global, Linear)
     stride = KernelAbstractions.@ndrange()[1]
     while index <= length(destination)
         block_words = IR._block_words(rng, rng.position.block + UInt64(index - 1))
-        # VecElement lanes follow the result type's little-endian memory order.
+        # The loop guard bounds the store. VecElement lanes follow the result
+        # type's little-endian memory order.
         @inbounds destination[index] = _natural128_packed(block_words, eltype(destination))
+        single_pass && break
         index += stride
     end
 end
@@ -706,13 +709,17 @@ end
         )
     end
 
-    storage_type = _CUDANatural128Pack{T}
-    blocks = _cuda_packed_blocks(length(destination) ÷ (_CUDA_FILL_ALIGNMENT ÷ sizeof(T)))
+    packs = length(destination) ÷ (_CUDA_FILL_ALIGNMENT ÷ sizeof(T))
+    blocks = _cuda_packed_blocks(packs)
+    workitems = blocks * _CUDA_FILL_THREADS
+    # Only capped launches need another iteration; keep the ordinary fill loop-free.
+    mode = workitems >= packs ? Val(true) : Val(false)
     _natural128_fill_kernel!(backend)(
         rng,
         destination,
-        Val(storage_type);
-        ndrange = blocks * _CUDA_FILL_THREADS,
+        Val(_CUDANatural128Pack{T}),
+        mode;
+        ndrange = workitems,
         workgroupsize = _CUDA_FILL_THREADS,
     )
     return destination

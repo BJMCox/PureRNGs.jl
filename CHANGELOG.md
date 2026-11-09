@@ -57,6 +57,7 @@ Initial release.
 
 ### Changed
 
+- Aligned CUDA Philox4x32 and Threefry4x32 integer fills use a single pass when the launch covers every output block. Capped launches retain their grid-stride loop. Values, continuation and validation are unchanged.
 - Small device weighted samples use one kernel without a temporary threshold array. Large calls retain the two-kernel path to avoid increased synchronized latency. Values and stream advancement are unchanged.
 - Standard `Random.rand`, `randn`, `randexp`, and their fills require a mutable generator. Pure generators use explicit continuations, addressed draws, or the unified `!!` adapters. Batch generation and fill kernels are unchanged.
 - Primitive `rand_next`, `randn_next`, and `randexp_next` calls default to `Float64`, as in `Random`. A lone tuple is a population for `rand_next`. Use `rand_next(rng, Float64, dims)` instead of `rand_next(rng, dims)` when `dims` is a tuple.
