@@ -22,6 +22,7 @@ Then choose a task:
 - [Sampling](@ref): draw from integer ranges or weighted populations.
 - [Parallel jobs](@ref): assign stable streams to independent work.
 - [GPU kernels](@ref): generate numbers where the computation runs.
+- [Particle filter](@ref): combine propagation, weighting, and resampling, then fuse a small filter into one kernel.
 
 ## Understand the contract
 

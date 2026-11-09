@@ -32,6 +32,7 @@ makedocs(
         "Tutorials" => [
             "Parallel jobs" => "tutorials/parallel.md",
             "GPU kernels" => "tutorials/cuda.md",
+            "Particle filter" => "tutorials/particle-filter.md",
         ],
         "Integrations" => [
             "Random" => "integrations/random.md",
