@@ -177,6 +177,36 @@ PureRNGs.rand_next(rng::MyEngine, d; kwargs...) = PureRNGs._engine_rand_next(rng
 Keep the engine's own `rand_next(rng, ::Type{T})` methods. They are more specific
 than an untyped forwarder.
 
+## Stateful bridge
+
+An engine can reuse `StatefulRNG` without subtyping `AbstractPureRNG`. Its package
+defines the public constructor for its own engine and passes a CPU-bound value
+to the internal constructor:
+
+```julia
+PureRNGs.StatefulRNG(rng::MyEngine) =
+    PureRNGs._stateful_rng(MLDataDevices.CPUDevice()(rng))
+```
+
+The bridge holds that engine directly. Primitive `rand`, `randn`, `randexp`,
+and concrete `Array` and `BitArray` fills call the engine's public `*_next` or
+`*_next!` methods and retain their returned state. An engine must provide its
+own uniform scalar and one-argument uniform fill methods, including its
+`BitArray` consumption law. Normal and exponential methods use the forwarding
+methods above. Each continuation must have the same concrete engine type.
+`parent`, `copy`, and `copy!` retain the immutable engine value without conversion.
+
+To support `Random.seed!`, define `_fresh_bridge_rng(rng::MyEngine, seed::Integer)`
+and `_fresh_bridge_rng(rng::MyEngine, device::Random.RandomDevice)`. Each returns
+a fresh CPU-bound engine of the same concrete type. The latter supplies the
+unseeded `seed!` and `seed!(bridge, nothing)` forms as well.
+
+The pure range, collection, and permutation bridge methods are specific to
+built-in generators. An external engine uses `Random`'s generic algorithms for
+these operations unless its package adds more specific adapter methods.
+Those algorithms need not match the engine's pure forms or consumption order.
+The engine need not implement unsupported pure collection or permutation forms.
+
 ## Stream obligations
 
 - A draw's span is fixed by its take signature. Rejection never changes how far

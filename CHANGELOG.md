@@ -4,6 +4,12 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.0.2 - Unreleased
+
+### Added
+
+- External sampler engines can use the host `StatefulRNG` bridge through the internal engine protocol. Primitive, normal, exponential, and packed-bit draws use the engine's continuation methods. Copying and reseeding preserve its type. Engine packages provide construction and reseeding hooks. Other `Random` samplers use Julia's generic methods unless the engine adds its own bridge methods.
+
 ## 0.0.1 - 2026-10-01
 
 Initial release.
