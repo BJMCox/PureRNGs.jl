@@ -175,8 +175,10 @@ the device, and starts each child at position zero. It never changes the parent.
 Calling `splitrng` again on an advanced parent therefore returns the same
 children, so derive from stable identifiers rather than from a stream position.
 
-Child keys are core output and can collide. Across `n` program-wide derivations
-with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
+Child keys are core output and can collide. Under a uniform-key model, across
+`n` program-wide derivations with `k` key bits, the collision probability is
+about `n^2 / 2^(k+1)`. This model does not establish the quality of experimental
+[`PCG4D`](@ref). A
 collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
 

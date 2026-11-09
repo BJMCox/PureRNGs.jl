@@ -18,6 +18,14 @@ Consecutive scalar draws inside one block reuse that decoded block.
 | `Threefry2x64` | 128 | 2 × 64 | 2^71 |
 | `Threefry4x64` | 256 | 4 × 64 | 2^136 |
 | `ChaCha` | 256 | 16 × 32 | 2^73 |
+| `PCG4D` (experimental, not recommended) | 62 | 4 × 32 | 2^71 |
+
+!!! warning "PCG4D fails statistical tests"
+    [`PCG4D`](@ref) is available for experiments and comparisons only. This
+    package's counter/key mapping fails PractRand and BigCrush and is not
+    recommended for practical use. Each output word's lowest bit repeats at a
+    distance of 2^17 blocks within a fixed-high-counter slice. Prefer `Philox4x32`.
+    See [Statistical validation](@ref) for the test scope. PCG4D does not support Reactant.
 
 Six aliases name the same generators at a reduced round count. Five use the smallest count that Salmon, Moraes, Dror, and Shaw (2011, Table 2) report as passing BigCrush for that shape.
 `Threefry4x64R13` uses thirteen rounds, one more than the twelve in that table and the reduced round count in Random123's known-answer tests.
@@ -38,6 +46,12 @@ They share every method with the full-round types, produce different streams, an
 The 64-bit block counter occupies the two counter words of the ChaCha state, and the nonce words carry the key derivation tag.
 
 The word width is not the counter width. A 32-bit generator does not stop after 2^32 draws.
+
+PCG4D follows the published four-word core without extra mixing. It places the
+64-bit counter in the first two input words and the 62-bit key in the last two.
+The top two bits carry the domain: zero for draws, one for splitting, and two for
+purpose derivation. This keeps addresses separate but does not ensure stream quality.
+It has no round-count aliases.
 
 Construct a generator from a nonnegative integer fitting its key, or an exact tuple of key words.
 New generators start at position zero on the CPU.
@@ -100,11 +114,12 @@ children_of_root
 Use stable integer purpose IDs. `subrng` reduces them modulo 2^64, so IDs differing by 2^64 alias.
 Splitting and purpose IDs use separate derivation namespaces.
 
-Child keys are core output. Across `n` program-wide derivations with `k` key
-bits, two derivations collide with probability about `n^2 / 2^(k+1)`, and a
+Child keys are core output. Under a uniform-key model, across `n` program-wide
+derivations with `k` key bits, two derivations collide with probability about
+`n^2 / 2^(k+1)`, and a
 collision makes both child subtrees identical. For many children, prefer a
 generator with at least 128 key bits. Distinct keys do not guarantee distinct
-output values.
+output values. This model does not establish the quality of experimental PCG4D.
 
 Use integer counts for ordinary splitting. `Val(N)` exposes a fixed tuple length to the compiler and suits small, statically known counts.
 

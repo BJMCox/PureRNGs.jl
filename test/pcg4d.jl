@@ -1,7 +1,7 @@
 using Random
 
 @testset "PCG4D stream and derivation" begin
-    F = PureRNGs.PCG4D
+    F = PCG4D
     # Independent C port of Jarzynski and Olano (2020), section 6.1.
     expected = UInt32[
         0x0f02f829,
@@ -34,6 +34,13 @@ using Random
     @test values == UInt32[0xa54d1892, 0x51fa5c67, 0x20321760, 0x52fc2208]
     @test rngposition(exhausted) == capacity
     @test_throws StreamExhausted rand_next(exhausted, Bool)
+
+    destination = zeros(Float32, 257)
+    values, next = rand_next!(F(123), destination)
+    @test values == [rand_at(F(123), Float32, i) for i in eachindex(values)]
+    @test F(rngkey(next), rngposition(next)) == next
+    @test_throws ArgumentError F(UInt64(1) << 62)
+    @test_throws ArgumentError F((UInt32(0), UInt32(1) << 30))
 
     bridge = StatefulRNG(F(123))
     Random.seed!(bridge, 456)

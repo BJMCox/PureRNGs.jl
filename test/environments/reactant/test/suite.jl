@@ -11,6 +11,10 @@ using Test
 
 include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
 
+@testset "PCG4D compiled support boundary" begin
+    @test_throws ArgumentError Reactant.to_rarray(PCG4D(12345))
+end
+
 function _select_generators(names)
     isempty(names) && return GENERATOR_TYPES
     return Tuple(map(names) do name

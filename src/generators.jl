@@ -313,7 +313,27 @@ struct ChaCha{D<:_BackendToken,R} <: AbstractPureRNG
         new{D,R}(key, position, device, block_words)
 end
 
-# Private prototype. The published core has no round-count parameter.
+"""
+    PCG4D(seed[, position])
+    PCG4D(key::NTuple{2,UInt32}[, position])
+
+Experimental four-word PCG hash from Jarzynski and Olano (2020, section 6.1).
+The key has 62 bits, the counter has 64 bits, and each block contains 128 bits.
+Seeds must satisfy `0 <= seed < 2^62`; the upper two bits of `key[2]` must be zero.
+`position` counts consumed bits, as for the other generators.
+
+!!! warning "Not recommended for practical use"
+    This package's counter/key mapping fails PractRand and BigCrush. For a fixed
+    key and high counter word, each output word's lowest bit repeats at a distance
+    of `2^17` blocks. Use [`Philox4x32`](@ref) for practical work. PCG4D is available
+    for experiments and comparisons, not as a statistically reliable generator.
+
+The published core has no configurable round count. The input words are the low
+and high counter words, the low key word, and the high key word with a two-bit
+domain tag. Draws, splitting, and purpose derivation use domains zero, one, and
+two. The tag separates addresses, not necessarily output values or correlations.
+Reactant conversion is not supported.
+"""
 struct PCG4D{D<:_BackendToken} <: AbstractPureRNG
     key::NTuple{2,UInt32}
     position::_Position64

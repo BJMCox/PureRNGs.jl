@@ -555,6 +555,9 @@ primary = first(devices)
 CUDA.device!(primary)
 device = MLD.CUDADevice(primary)
 
+include(joinpath(@__DIR__, "..", "..", "..", "pcg4d_device.jl"))
+test_pcg4d_device(device)
+
 include(joinpath(@__DIR__, "..", "..", "..", "unified_device.jl"))
 test_unified_device(Philox4x32(25) |> device)
 
