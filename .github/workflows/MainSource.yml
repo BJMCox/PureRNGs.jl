@@ -1,0 +1,58 @@
+name: Main source policy
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, edited, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Pull request number to check
+        required: true
+        type: number
+
+permissions:
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: main-source-${{ github.event.pull_request.number || inputs.pull_request_number }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: Check main source
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      # Run only trusted default-branch code. Never check out the PR here.
+      - name: Require this repository's dev branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          number=$(jq -r '.pull_request.number // .inputs.pull_request_number' "$GITHUB_EVENT_PATH")
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number")
+          base=$(jq -r '.base.ref' <<< "$pr")
+          head=$(jq -r '.head.ref' <<< "$pr")
+          repository=$(jq -r '.head.repo.full_name' <<< "$pr")
+          sha=$(jq -r '.head.sha' <<< "$pr")
+
+          state=failure
+          description='Only dev from this repository may merge into main'
+          if [[ "$base" == main && "$head" == dev && "$repository" == "$GITHUB_REPOSITORY" ]]; then
+            state=success
+            description='Source is dev from this repository'
+          fi
+
+          # pull_request_target runs on the base SHA. Attach the status to the head.
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$sha" \
+            -f state="$state" \
+            -f context='Dev source branch' \
+            -f description="$description" \
+            -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --silent
+          if [[ "$state" != success ]]; then
+            echo '::error::Target main only from dev in this repository. Target dev for other changes.'
+            exit 1
+          fi
