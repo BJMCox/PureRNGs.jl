@@ -220,6 +220,9 @@ function Reactant.to_rarray(rng::R) where {R<:IR.AbstractPureRNG}
     return _ReactantRNG{R,typeof(state)}(state)
 end
 
+Reactant.to_rarray(::IR.PCG4D) =
+    throw(ArgumentError("PCG4D does not support Reactant conversion"))
+
 @inline _key_count(::Type{R}) where {R} = fieldcount(fieldtype(R, :key))
 @inline _key_type(::Type{R}) where {R} = fieldtype(fieldtype(R, :key), 1)
 @inline _word_width(::Type{R}) where {R} = Val(8 * sizeof(_key_type(R)))

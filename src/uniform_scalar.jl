@@ -1,5 +1,5 @@
 const _ScalarUniform32Generators =
-    Union{Philox2x32,Philox4x32,Threefry2x32,Threefry4x32,ChaCha}
+    Union{Philox2x32,Philox4x32,Threefry2x32,Threefry4x32,ChaCha,PCG4D}
 const _ScalarUniform64Generators = Union{Philox2x64,Philox4x64,Threefry2x64,Threefry4x64}
 const _ScalarUniformGenerators =
     Union{_ScalarUniform32Generators,_ScalarUniform64Generators}

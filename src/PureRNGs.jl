@@ -21,6 +21,7 @@ export Philox2x32,
     ChaCha8,
     ChaCha12,
     ChaCha20,
+    PCG4D,
     AbstractPureRNG,
     splitrng,
     subrng,
@@ -66,6 +67,7 @@ include("core_words.jl")
 include("philox.jl")
 include("threefry.jl")
 include("chacha.jl")
+include("pcg4d.jl")
 include("generators.jl")
 include("allocation.jl")
 include("bits.jl")

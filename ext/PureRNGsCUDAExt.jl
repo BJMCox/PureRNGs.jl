@@ -109,11 +109,12 @@ end
 const _CUDAGenerators = IR._BackendGenerators{IR._CUDABackend}
 const _CUDAPhilox4x32 = IR.Philox4x32{IR._CUDABackend}
 const _CUDAThreefry4x32 = IR.Threefry4x32{IR._CUDABackend}
+const _CUDAPCG4D = IR.PCG4D{IR._CUDABackend}
 const _CUDAPhilox2x64 = IR.Philox2x64{IR._CUDABackend}
 const _CUDAPhilox4x64 = IR.Philox4x64{IR._CUDABackend}
 const _CUDAThreefry4x64 = IR.Threefry4x64{IR._CUDABackend}
 const _CUDAChaCha = IR.ChaCha{IR._CUDABackend}
-const _CUDANatural128 = Union{_CUDAPhilox4x32,_CUDAThreefry4x32}
+const _CUDANatural128 = Union{_CUDAPhilox4x32,_CUDAThreefry4x32,_CUDAPCG4D}
 const _CUDANonNatural128 = Union{
     IR.Philox2x32{IR._CUDABackend},
     IR.Philox2x64{IR._CUDABackend},
@@ -123,7 +124,7 @@ const _CUDANonNatural128 = Union{
     IR.Threefry4x64{IR._CUDABackend},
     IR.ChaCha{IR._CUDABackend},
 }
-const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32}
+const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32,_CUDAPCG4D}
 # A100 trials retain only generators where cooperative stores beat grouped fills.
 # The two-word generators are absent because their grouped store already
 # coalesces: Threefry2x64 measures 881 against 861 GiB/s on a 2^27 `UInt64` fill.
@@ -241,6 +242,7 @@ const _CUDAUniformLikeCodec =
 
 # A100 trials picked these output tiles and workgroup sizes.
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))
+@inline _cooperative_uniform_fill(::IR.PCG4D, ::Type{Bool}) = (Val(8192), Val(64))
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
 @inline _cooperative_uniform_fill(rng, T) = nothing
@@ -258,7 +260,7 @@ const _CUDAUniformLikeCodec =
 
 @inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
-    ::_CUDAThreefry4x32,
+    ::Union{_CUDAThreefry4x32,_CUDAPCG4D},
     ::Val{:uniform},
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)

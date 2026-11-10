@@ -76,6 +76,8 @@ ForwardDiff.derivative(μ -> rand_at(rng, Normal(μ, 2.0), 1), 0.5) == 1.0
 ## Reactant: pass state as runtime data
 
 Reactant support requires version 0.2.280 or later in the 0.2 series.
+Experimental [`PCG4D`](@ref) has no Reactant implementation; `Reactant.to_rarray`
+throws an `ArgumentError` for it.
 Convert the generator once before compilation:
 
 ```julia
