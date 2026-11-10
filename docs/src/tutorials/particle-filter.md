@@ -261,6 +261,72 @@ One block-sized filter does not occupy a whole GPU.
 This design suits batches of small filters, not an arbitrary large population.
 Benchmark the complete workload, including its final synchronization, before choosing either path.
 
+## Longer sequences and compilation
+
+The observation count is runtime data, not a compilation parameter.
+The same compiled kernel served 64, 256, and 1,024 observations on each GPU below.
+The loop does not unroll the observation sequence.
+A different `Val(N)` particle count, generator type, or GPU target can require a new specialization.
+
+First kernel requests took 1.38–3.15 seconds across these hosts.
+These single probes include host compiler work and GPU compilation after CUDA context creation.
+They exclude package loading and process startup.
+The first launch also has host compilation costs, so warm the complete call before timing.
+
+The following results use the full-loop kernel above with 256 separate filters, each with 256 particles.
+They use `Threefry4x32(123456)`, Float32 particles, and Float64 weights and estimates.
+The observations repeat the six-value sequence above to the stated length.
+These are not results for one 65,536-particle filter or for raw RNG throughput.
+
+| GPU            | 64 observations | 256 observations | 1,024 observations |
+|:-------------- | ---------------:| ----------------:| ------------------:|
+| A100-PCIE-40GB | 0.839–0.841 ms  | 2.715–2.762 ms   | 10.432–10.438 ms   |
+| GH200 480GB    | 0.653–0.656 ms  | 1.660–1.671 ms   | 5.725–5.742 ms     |
+| GB10           | 1.450–1.451 ms  | 5.714–5.722 ms   | 22.856–22.989 ms   |
+
+Measured on 2026-11-09 with Julia 1.13.3 and CUDA.jl 6.5.1, using this tutorial at commit `dd58480`.
+Each cell spans the medians of two warmed 10-second BenchmarkTools trials, not a confidence interval.
+Each timed call initializes particles, runs all observations, and synchronizes once at the end.
+The calls reuse buffers and leave outputs on the GPU. Host transfers are not timed.
+CPU, driver, and CUDA runtime versions differ across hosts, so these are whole-host results, not isolated GPU comparisons.
+
+After the CUDA example above, install BenchmarkTools in your working environment and time a longer sequence:
+
+```julia
+using BenchmarkTools
+
+function run_fused_filter!(estimates, particles, observations, root, ::Val{N}) where {N}
+    CUDA.@cuda threads=N blocks=size(observations, 2) fused_particle_filters!(
+        estimates,
+        particles,
+        observations,
+        root,
+        Val(N),
+    )
+    CUDA.synchronize()
+    return nothing
+end
+
+steps = 1_024
+long_observations = repeat(observations, cld(steps, length(observations)))[1:steps]
+device_observations = CuArray(repeat(long_observations, 1, filter_count))
+estimates = CUDA.zeros(Float64, steps, filter_count)
+final_particles = CUDA.zeros(Float32, particle_count, filter_count)
+count = Val(particle_count)
+run_fused_filter!(estimates, final_particles, device_observations, root, count)
+trial = @benchmark run_fused_filter!(
+    $estimates,
+    $final_particles,
+    $device_observations,
+    $root,
+    $count,
+) seconds=10 evals=1 samples=100_000_000
+median(trial).time / 1e6 # milliseconds
+```
+
+Repeating the same root repeats the same draws, which keeps this benchmark workload fixed.
+Derive fresh purpose keys for independent filter runs.
+
 ## References
 
 Doucet, Arnaud, and Adam M. Johansen (2011).
