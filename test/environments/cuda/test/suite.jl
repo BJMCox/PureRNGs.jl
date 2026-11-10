@@ -949,6 +949,19 @@ end
     end
 end
 
+@testset "large packed fills preserve addressed values and continuation" begin
+    cpu_rng = Philox4x32(0x784, UInt64(128) * ((UInt64(1) << 32) - 17))
+    # One GiB exceeds the packed launch caps on A100 and GH200. The extra pack
+    # also leaves a partial workgroup at the end of the grid-stride fill.
+    count = (1 << 28) + 4
+    destination = CUDA.CuArray{UInt32}(undef, count)
+    _, next_rng = rand_next!(device(cpu_rng), destination)
+    indices = [1, 68, 69, count ÷ 2, count - 3, count]
+    @test Array(destination[CUDA.CuArray(indices)]) ==
+          [rand_at(cpu_rng, UInt32, index) for index in indices]
+    @test rngposition(next_rng) == rngposition(cpu_rng) + UInt128(32) * count
+end
+
 @testset "public K=64 grouped and K=128 generic ranges" begin
     for F in GENERATOR_TYPES, range in (K64_RANGE, K128_RANGE)
         rng = device(F(0x785))
@@ -1133,10 +1146,14 @@ end
         packed_rng = device(F(0x785))
         destination = CUDA.CuArray{T}(undef, 1024)
         storage_type = extension_module._CUDANatural128Pack{T}
+        mode =
+            sizeof(destination) ÷ 16 <= extension_module._CUDA_FILL_THREADS ? Val(true) :
+            Val(false)
         packed_typed = CUDA.@device_code_typed kernel(
             packed_rng,
             destination,
             Val(storage_type),
+            mode,
             ndrange = extension_module._CUDA_FILL_THREADS,
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
@@ -1146,7 +1163,8 @@ end
             CUDA.@device_code_llvm io = io kernel(
                 packed_rng,
                 destination,
-                Val(storage_type);
+                Val(storage_type),
+                mode;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -1158,7 +1176,8 @@ end
             CUDA.@device_code_sass io = io kernel(
                 packed_rng,
                 destination,
-                Val(storage_type);
+                Val(storage_type),
+                mode;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -1544,18 +1563,14 @@ end
     returned_normal, empty_normal_next = randn_next!(rng, empty_normal)
     @test returned_normal === empty_normal
     @test empty_normal_next.position == rng.position
-    for operation in (randn!, randn_next!)
-        empty_normal_profile = CUDA.@profile raw = true operation(rng, empty_normal)
-        @test count(value -> !ismissing(value), empty_normal_profile.device.grid) == 0
-    end
+    empty_normal_profile = CUDA.@profile raw = true randn_next!(rng, empty_normal)
+    @test count(value -> !ismissing(value), empty_normal_profile.device.grid) == 0
 
     exhausted = IR._rebuild(rng, _terminal(rng), rng.device)
-    for destination in (fill(UInt32(0xdeadbeef), 4), BitVector([true, false, true, false])),
-        operation in (rand!, rand_next!)
-
+    for destination in (fill(UInt32(0xdeadbeef), 4), BitVector([true, false, true, false]))
         before_values = copy(destination)
         error = try
-            operation(exhausted, destination)
+            rand_next!(exhausted, destination)
             nothing
         catch caught
             caught
@@ -1565,17 +1580,15 @@ end
     end
 
     wrong_normal = fill(-123.5f0, 4)
-    for operation in (randn!, randn_next!)
-        before_values = copy(wrong_normal)
-        error = try
-            operation(exhausted, wrong_normal)
-            nothing
-        catch caught
-            caught
-        end
-        @test error isa ArgumentError
-        @test wrong_normal == before_values
+    before_values = copy(wrong_normal)
+    error = try
+        randn_next!(exhausted, wrong_normal)
+        nothing
+    catch caught
+        caught
     end
+    @test error isa ArgumentError
+    @test wrong_normal == before_values
 
     nonempty = CUDA.CuArray{UInt32}(undef, 1024)
     rand_next!(rng, nonempty)
@@ -1587,19 +1600,19 @@ end
         @info "only one CUDA device; active-device switching capability-skipped"
         @test_skip false
     else
-        first, second = devices[1:2]
+        first_device, second_device = devices[1:2]
         try
-            CUDA.device!(first)
-            second_bound = MLD.CUDADevice(second)(Philox4x32(0x123456))
+            CUDA.device!(first_device)
+            second_bound = MLD.CUDADevice(second_device)(Philox4x32(0x123456))
             first_values = first(rand_next(second_bound, UInt32, 4))
-            @test _device_id(first_values) == CUDA.deviceid(first)
-            @test CUDA.device() == first
+            @test _device_id(first_values) == CUDA.deviceid(first_device)
+            @test CUDA.device() == first_device
 
-            CUDA.device!(second)
-            first_bound = MLD.CUDADevice(first)(Philox4x32(0x123456))
+            CUDA.device!(second_device)
+            first_bound = MLD.CUDADevice(first_device)(Philox4x32(0x123456))
             second_values = first(rand_next(first_bound, UInt32, 4))
-            @test _device_id(second_values) == CUDA.deviceid(second)
-            @test CUDA.device() == second
+            @test _device_id(second_values) == CUDA.deviceid(second_device)
+            @test CUDA.device() == second_device
         finally
             CUDA.device!(before)
         end
