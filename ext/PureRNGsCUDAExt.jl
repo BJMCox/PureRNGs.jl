@@ -7,6 +7,8 @@ using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
 
+IR._backend_device(::IR._CUDABackend) = IR.MLDataDevices.CUDADevice(CUDA.device())
+
 const _HAS_WEIGHT_GROUP_SCAN = isdefined(KernelAbstractions, Symbol("@groupscan"))
 
 @static if _HAS_WEIGHT_GROUP_SCAN

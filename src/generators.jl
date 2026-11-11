@@ -68,7 +68,9 @@ MLDataDevices.get_device_type(::_MetalBackend) = MLDataDevices.MetalDevice
 
 MLDataDevices.get_device_type(rng::AbstractPureRNG) =
     MLDataDevices.get_device_type(rng.device)
-MLDataDevices.get_device(rng::AbstractPureRNG) = MLDataDevices.get_device_type(rng)()
+MLDataDevices.get_device(rng::AbstractPureRNG) = _backend_device(rng.device)
+
+_backend_device(token::_BackendToken) = MLDataDevices.get_device_type(token)()
 
 const _EXHAUSTED_BIT = typemax(UInt16)
 

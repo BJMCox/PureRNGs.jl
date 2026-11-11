@@ -33,7 +33,10 @@ cpu_rng = rng |> CPUDevice()
 
 `MLDataDevices.get_device(rng)` returns the generator's backend device.
 `MLDataDevices.get_device_type(rng)` returns its device type.
-Neither identifies a physical GPU.
+With CUDA or AMDGPU loaded, `get_device` resolves the active physical GPU at the
+time of the call, so device queries can combine a generator with arrays there.
+Without the backend loaded, it returns an unnamed backend device.
+`get_device_type` reports only the backend. Neither query pins the generator to a GPU.
 
 ## Select a physical GPU
 

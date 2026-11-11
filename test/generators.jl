@@ -107,6 +107,7 @@ end
           PureRNGs._CUDA_BACKEND
     @test MLDataDevices.with_eltype(MLDataDevices.CPUDevice(), Float32)(rng).device ===
           PureRNGs._CPU_BACKEND
+    @test MLDataDevices.get_device((rng, zeros(Float32, 1))) === MLDataDevices.CPUDevice()
     @test_throws ArgumentError MLDataDevices.oneAPIDevice()(rng)
     @test_throws ArgumentError MLDataDevices.ReactantDevice()(rng)
 end
