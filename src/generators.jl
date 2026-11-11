@@ -66,6 +66,12 @@ MLDataDevices.get_device_type(::_CUDABackend) = MLDataDevices.CUDADevice
 MLDataDevices.get_device_type(::_AMDGPUBackend) = MLDataDevices.AMDGPUDevice
 MLDataDevices.get_device_type(::_MetalBackend) = MLDataDevices.MetalDevice
 
+MLDataDevices.get_device_type(rng::AbstractPureRNG) =
+    MLDataDevices.get_device_type(rng.device)
+MLDataDevices.get_device(rng::AbstractPureRNG) = _backend_device(rng.device)
+
+_backend_device(token::_BackendToken) = MLDataDevices.get_device_type(token)()
+
 const _EXHAUSTED_BIT = typemax(UInt16)
 
 struct _Position64

@@ -108,6 +108,18 @@ Do not use that path for frequently changing RNG state.
 Select the Reactant backend before conversion. Use `"gpu"` for a supported GPU environment.
 This is not an MLDataDevices `ReactantDevice()` binding.
 
+To select placement explicitly, pass Reactant's conversion keywords:
+
+```julia
+client = Reactant.XLA.default_backend()
+device = last(Reactant.XLA.addressable_devices(client))
+rng = Reactant.to_rarray(Philox4x32(123456); client, device)
+```
+
+Keywords, including `client`, `device`, `sharding`, and `runtime`, go directly to
+the encoded state array. The state does not first visit the default device.
+No host round trip is needed to correct its placement after conversion.
+
 On a GPU, Reactant reserves three quarters of the device memory for its process by default.
 Compiled draws need a few hundred megabytes. Set `XLA_REACTANT_GPU_PREALLOCATE=false` before loading Reactant when other processes share the device.
 

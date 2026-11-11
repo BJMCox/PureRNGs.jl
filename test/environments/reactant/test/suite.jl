@@ -13,6 +13,7 @@ include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
 
 @testset "PCG4D compiled support boundary" begin
     @test_throws ArgumentError Reactant.to_rarray(PCG4D(12345))
+    @test_throws ArgumentError Reactant.to_rarray(PCG4D(12345); client = nothing)
 end
 
 function _select_generators(names)
@@ -614,6 +615,39 @@ end
 REACTANT_TEST_BACKEND in ("cpu", "gpu") ||
     error("PURERNGS_REACTANT_BACKEND must be cpu or gpu")
 Reactant.set_default_backend(REACTANT_TEST_BACKEND)
+
+@testset "Reactant generator placement keywords" begin
+    client = Reactant.XLA.default_backend()
+    device = last(Reactant.XLA.addressable_devices(client))
+    eager = Philox4x32(123, 64)
+    Reactant.set_default_backend("cpu")
+    try
+        carrier = Reactant.to_rarray(
+            eager;
+            client,
+            device,
+            runtime = Reactant.XLA.runtime(),
+            sharding = Reactant.Sharding.NoSharding(),
+        )
+        @test Reactant.XLA.client(carrier.state) == client
+        @test Reactant.XLA.device(carrier.state) == device
+        @test Array(carrier.state) == Array(Reactant.to_rarray(eager).state)
+
+        compiled = Reactant.@compile client = client rand_next(carrier, UInt32)
+        value, continued = compiled(carrier, UInt32)
+        expected, expected_next = rand_next(eager, UInt32)
+        @test UInt32(value) == expected
+        @test Array(continued.state) == Array(Reactant.to_rarray(expected_next).state)
+        @test Reactant.XLA.device(continued.state) == device
+
+        sharding = Reactant.Sharding.Replicated(Reactant.Sharding.Mesh([device], (:rng,)))
+        sharded = Reactant.to_rarray(eager; client, sharding)
+        @test sharded.state.sharding.mesh.device_ids == sharding.mesh.device_ids
+        @test Array(sharded.state) == Array(carrier.state)
+    finally
+        Reactant.set_default_backend(client)
+    end
+end
 
 # An extension is not a submodule of its parent, so a recursive scan that starts
 # at PureRNGs never reaches it. Scan each loaded extension itself.

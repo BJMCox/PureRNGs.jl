@@ -561,6 +561,17 @@ test_pcg4d_device(device)
 include(joinpath(@__DIR__, "..", "..", "..", "unified_device.jl"))
 test_unified_device(Philox4x32(25) |> device)
 
+@testset "CUDA generator device lookup" begin
+    rng = CUDADevice()(Philox4x32(123))
+    for active in CUDA.devices()
+        CUDA.device!(active) do
+            values = CUDA.CuArray{Float32}(undef, 1)
+            @test MLD.get_device((rng, values)) == MLD.get_device(values)
+            @test MLD.get_device_type((rng, values)) === CUDADevice
+        end
+    end
+end
+
 # Device code takes the widening product from `mul.hi.u64` and the host keeps
 # the portable four-product form, so the two must agree bit for bit.
 @testset "CUDA high product matches the portable product" begin
