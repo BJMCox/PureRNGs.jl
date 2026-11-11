@@ -95,6 +95,8 @@ end
         @test isbits(rebound.device)
         @test sizeof(rebound.device) == 0
         @test MLDataDevices.get_device_type(rebound.device) === device_type
+        @test MLDataDevices.get_device_type(rebound) === device_type
+        @test MLDataDevices.get_device(rebound)(rebound) === rebound
         @test MLDataDevices.CPUDevice()(rebound).device === PureRNGs._CPU_BACKEND
     end
 
