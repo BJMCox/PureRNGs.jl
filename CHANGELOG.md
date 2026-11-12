@@ -6,6 +6,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## 0.0.2 - Unreleased
 
+### Changed
+
+- CUDA Float32 normal fills share smaller tiles and scalar stores across generator families. Stream values and continuation are unchanged.
+
 ### Added
 
 - MLDataDevices device lookup for generators. CUDA and AMDGPU lookup resolves the active physical device without pinning it in the generator.
