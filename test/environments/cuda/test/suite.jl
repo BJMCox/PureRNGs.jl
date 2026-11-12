@@ -870,9 +870,11 @@ end
     end
 end
 
-@testset "Threefry normal fills cross workgroups from an unaligned bit" begin
-    for F in (Threefry4x32, Threefry4x32R12)
-        rng = _positioned_at_bit(device(F(0x782)), UInt64(9), UInt16(61))
+@testset "normal fills cross workgroups from an unaligned bit" begin
+    for F in (Threefry4x32, Threefry4x32R12, Philox4x64)
+        rng = device(F(0x782))
+        block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
+        rng = _positioned_at_bit(rng, block, UInt16(61))
         _check_public_packed_fill(
             rng,
             Float32,

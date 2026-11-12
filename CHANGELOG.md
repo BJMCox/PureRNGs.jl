@@ -8,7 +8,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- CUDA `Threefry4x32` Float32 normal fills use smaller tiles and scalar stores to reduce local-memory use. Stream values and continuation are unchanged.
+- CUDA Float32 normal fills share smaller tiles and scalar stores across generator families. Stream values and continuation are unchanged.
 
 ### Added
 

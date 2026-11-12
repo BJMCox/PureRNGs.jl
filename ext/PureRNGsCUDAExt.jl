@@ -249,7 +249,6 @@ const _CUDAUniformLikeCodec =
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
 @inline _cooperative_uniform_fill(rng, T) = nothing
 
-@inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(512), Val(32))
 @inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(512), Val(32))
 @inline _cooperative_normal_fill(rng, T) = nothing
 
@@ -744,13 +743,13 @@ end
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
     ::IR._NormalCodec{IR._CUDABackend},
-    ::Type{T},
-) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
+    ::Type{Float64},
+) = (Val(:cooperative), _packed_16byte_plan(Float64)...)
 
-# One normal transform per lane avoids the packed kernel's local-memory traffic.
+# Normal transforms favor small scalar-store tiles over the uniform-fill plan.
 @inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
-    ::_CUDAThreefry4x32,
+    ::_CUDAGenerators,
     ::IR._NormalCodec{IR._CUDABackend},
     ::Type{Float32},
 ) = (Val(:cooperative), Val(512), Val(32))
