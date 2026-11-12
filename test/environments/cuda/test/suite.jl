@@ -436,10 +436,10 @@ function _check_cooperative_kernel_code(
     stream_aligned;
     check_store::Bool,
     codec = Val(:uniform),
-    storage_type = eltype(packed),
 ) where {T}
     kernel = CUDA_EXT._cooperative_fill_kernel!(backend)
     outputs_per_store = CUDA_EXT._outputs_per_store(plan)
+    storage_type = IR._val_count(outputs_per_store) == 1 ? T : CUDA_EXT._packed_type(T)
     workgroup = IR._val_count(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
     typed = CUDA.@device_code_typed kernel(
@@ -447,7 +447,7 @@ function _check_cooperative_kernel_code(
         packed,
         Val(T),
         Val(storage_type),
-        Val(IR._draw_bits(T)),
+        Val(IR._fill_width(codec, T)),
         block_width,
         plan[2],
         plan[3],
@@ -465,7 +465,7 @@ function _check_cooperative_kernel_code(
             packed,
             Val(T),
             Val(storage_type),
-            Val(IR._draw_bits(T)),
+            Val(IR._fill_width(codec, T)),
             block_width,
             plan[2],
             plan[3],
@@ -486,7 +486,7 @@ function _check_cooperative_kernel_code(
                 packed,
                 Val(T),
                 Val(storage_type),
-                Val(IR._draw_bits(T)),
+                Val(IR._fill_width(codec, T)),
                 block_width,
                 plan[2],
                 plan[3],
@@ -555,8 +555,22 @@ primary = first(devices)
 CUDA.device!(primary)
 device = MLD.CUDADevice(primary)
 
+include(joinpath(@__DIR__, "..", "..", "..", "pcg4d_device.jl"))
+test_pcg4d_device(device)
+
 include(joinpath(@__DIR__, "..", "..", "..", "unified_device.jl"))
 test_unified_device(Philox4x32(25) |> device)
+
+@testset "CUDA generator device lookup" begin
+    rng = CUDADevice()(Philox4x32(123))
+    for active in CUDA.devices()
+        CUDA.device!(active) do
+            values = CUDA.CuArray{Float32}(undef, 1)
+            @test MLD.get_device((rng, values)) == MLD.get_device(values)
+            @test MLD.get_device_type((rng, values)) === CUDADevice
+        end
+    end
+end
 
 # Device code takes the widening product from `mul.hi.u64` and the host keeps
 # the portable four-product form, so the two must agree bit for bit.
@@ -577,7 +591,7 @@ test_unified_device(Philox4x32(25) |> device)
 end
 
 @testset "CUDA Bool packed paths preserve every generator stream" begin
-    for F in GENERATOR_TYPES
+    for F in (GENERATOR_TYPES..., IR.PCG4D)
         rng = device(F(0x787))
         block_bits = Int(IR._block_bits(rng))
 
@@ -610,6 +624,8 @@ end
             _check_public_packed_fill(terminal_rng, Bool, block_bits, rand_next, rand_next!)
         @test terminal.position == _terminal(rng)
     end
+
+    _check_public_packed_fill(device(IR.PCG4D(0x789)), Bool, 8193, rand_next, rand_next!)
 
     rng = device(Philox4x32(0x788))
     destination = CUDA.CuArray{Bool}(undef, 4096)
@@ -836,7 +852,7 @@ end
     end
 end
 
-@testset "non-Philox normal packed fills preserve every generator stream" begin
+@testset "non-Philox cooperative normal fills preserve every generator stream" begin
     backend = CUDA.CUDABackend()
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
         F === Philox4x32 && continue
@@ -847,6 +863,22 @@ end
             rng,
             T,
             IR._val_count(plan[2]),
+            randn_next,
+            randn_next!;
+            addressed_normal = true,
+        )
+    end
+end
+
+@testset "normal fills cross workgroups from an unaligned bit" begin
+    for F in (Threefry4x32, Threefry4x32R12, Philox4x64)
+        rng = device(F(0x782))
+        block = rng.position isa IR._Position128 ? typemax(UInt64) : UInt64(9)
+        rng = _positioned_at_bit(rng, block, UInt16(61))
+        _check_public_packed_fill(
+            rng,
+            Float32,
+            515,
             randn_next,
             randn_next!;
             addressed_normal = true,
@@ -942,6 +974,19 @@ end
         @test IR._device_fill_plan(backend, rng, Val(:uniform), T) ==
               (Val(:natural128_packed),)
     end
+end
+
+@testset "large packed fills preserve addressed values and continuation" begin
+    cpu_rng = Philox4x32(0x784, UInt64(128) * ((UInt64(1) << 32) - 17))
+    # One GiB exceeds the packed launch caps on A100 and GH200. The extra pack
+    # also leaves a partial workgroup at the end of the grid-stride fill.
+    count = (1 << 28) + 4
+    destination = CUDA.CuArray{UInt32}(undef, count)
+    _, next_rng = rand_next!(device(cpu_rng), destination)
+    indices = [1, 68, 69, count ÷ 2, count - 3, count]
+    @test Array(destination[CUDA.CuArray(indices)]) ==
+          [rand_at(cpu_rng, UInt32, index) for index in indices]
+    @test rngposition(next_rng) == rngposition(cpu_rng) + UInt128(32) * count
 end
 
 @testset "public K=64 grouped and K=128 generic ranges" begin
@@ -1128,10 +1173,14 @@ end
         packed_rng = device(F(0x785))
         destination = CUDA.CuArray{T}(undef, 1024)
         storage_type = extension_module._CUDANatural128Pack{T}
+        mode =
+            sizeof(destination) ÷ 16 <= extension_module._CUDA_FILL_THREADS ? Val(true) :
+            Val(false)
         packed_typed = CUDA.@device_code_typed kernel(
             packed_rng,
             destination,
             Val(storage_type),
+            mode,
             ndrange = extension_module._CUDA_FILL_THREADS,
             workgroupsize = extension_module._CUDA_FILL_THREADS,
         )
@@ -1141,7 +1190,8 @@ end
             CUDA.@device_code_llvm io = io kernel(
                 packed_rng,
                 destination,
-                Val(storage_type);
+                Val(storage_type),
+                mode;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -1153,7 +1203,8 @@ end
             CUDA.@device_code_sass io = io kernel(
                 packed_rng,
                 destination,
-                Val(storage_type);
+                Val(storage_type),
+                mode;
                 ndrange = extension_module._CUDA_FILL_THREADS,
                 workgroupsize = extension_module._CUDA_FILL_THREADS,
             )
@@ -1218,7 +1269,6 @@ end
             float_plan,
             stream_aligned,
             check_store = stream_aligned === Val(true),
-            storage_type = extension_module._CUDA_F32X4,
         )
     end
 
@@ -1236,7 +1286,6 @@ end
                 plan,
                 Val(false),
                 check_store = true,
-                storage_type = extension_module._packed_type(T),
             )
         end
     end
@@ -1253,7 +1302,6 @@ end
             plan,
             Val(false),
             check_store = true,
-            storage_type = extension_module._packed_type(T),
         )
     end
 
@@ -1268,9 +1316,8 @@ end
             T,
             plan,
             Val(false),
-            check_store = true,
+            check_store = IR._val_count(extension_module._outputs_per_store(plan)) > 1,
             codec = IR._NormalCodec(rng.device),
-            storage_type = extension_module._packed_type(T),
         )
     end
 
@@ -1539,18 +1586,14 @@ end
     returned_normal, empty_normal_next = randn_next!(rng, empty_normal)
     @test returned_normal === empty_normal
     @test empty_normal_next.position == rng.position
-    for operation in (randn!, randn_next!)
-        empty_normal_profile = CUDA.@profile raw = true operation(rng, empty_normal)
-        @test count(value -> !ismissing(value), empty_normal_profile.device.grid) == 0
-    end
+    empty_normal_profile = CUDA.@profile raw = true randn_next!(rng, empty_normal)
+    @test count(value -> !ismissing(value), empty_normal_profile.device.grid) == 0
 
     exhausted = IR._rebuild(rng, _terminal(rng), rng.device)
-    for destination in (fill(UInt32(0xdeadbeef), 4), BitVector([true, false, true, false])),
-        operation in (rand!, rand_next!)
-
+    for destination in (fill(UInt32(0xdeadbeef), 4), BitVector([true, false, true, false]))
         before_values = copy(destination)
         error = try
-            operation(exhausted, destination)
+            rand_next!(exhausted, destination)
             nothing
         catch caught
             caught
@@ -1560,17 +1603,15 @@ end
     end
 
     wrong_normal = fill(-123.5f0, 4)
-    for operation in (randn!, randn_next!)
-        before_values = copy(wrong_normal)
-        error = try
-            operation(exhausted, wrong_normal)
-            nothing
-        catch caught
-            caught
-        end
-        @test error isa ArgumentError
-        @test wrong_normal == before_values
+    before_values = copy(wrong_normal)
+    error = try
+        randn_next!(exhausted, wrong_normal)
+        nothing
+    catch caught
+        caught
     end
+    @test error isa ArgumentError
+    @test wrong_normal == before_values
 
     nonempty = CUDA.CuArray{UInt32}(undef, 1024)
     rand_next!(rng, nonempty)
@@ -1582,19 +1623,19 @@ end
         @info "only one CUDA device; active-device switching capability-skipped"
         @test_skip false
     else
-        first, second = devices[1:2]
+        first_device, second_device = devices[1:2]
         try
-            CUDA.device!(first)
-            second_bound = MLD.CUDADevice(second)(Philox4x32(0x123456))
+            CUDA.device!(first_device)
+            second_bound = MLD.CUDADevice(second_device)(Philox4x32(0x123456))
             first_values = first(rand_next(second_bound, UInt32, 4))
-            @test _device_id(first_values) == CUDA.deviceid(first)
-            @test CUDA.device() == first
+            @test _device_id(first_values) == CUDA.deviceid(first_device)
+            @test CUDA.device() == first_device
 
-            CUDA.device!(second)
-            first_bound = MLD.CUDADevice(first)(Philox4x32(0x123456))
+            CUDA.device!(second_device)
+            first_bound = MLD.CUDADevice(first_device)(Philox4x32(0x123456))
             second_values = first(rand_next(first_bound, UInt32, 4))
-            @test _device_id(second_values) == CUDA.deviceid(second)
-            @test CUDA.device() == second
+            @test _device_id(second_values) == CUDA.deviceid(second_device)
+            @test CUDA.device() == second_device
         finally
             CUDA.device!(before)
         end

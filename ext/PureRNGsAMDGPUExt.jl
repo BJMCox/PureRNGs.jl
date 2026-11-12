@@ -5,6 +5,8 @@ import PureRNGs
 
 const IR = PureRNGs
 
+IR._backend_device(::IR._AMDGPUBackend) = IR.MLDataDevices.AMDGPUDevice(AMDGPU.device())
+
 @inline function IR._allocate_array(::IR._AMDGPUBackend, ::Type{T}, dims::Tuple) where {T}
     return AMDGPU.ROCArray{T}(undef, dims)
 end

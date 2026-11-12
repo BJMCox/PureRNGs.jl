@@ -234,6 +234,13 @@ if AMDGPU.functional()
     active_device = AMDGPU.device_id()
     @info "AMDGPU preview software identity" identity = _software_identity()
 
+    @testset "AMDGPU generator device lookup" begin
+        rng = AMDGPUDevice()(Philox4x32(123))
+        values = AMDGPU.ROCArray{Float32}(undef, 1)
+        @test MLDataDevices.get_device((rng, values)) == MLDataDevices.get_device(values)
+        @test MLDataDevices.get_device_type((rng, values)) === AMDGPUDevice
+    end
+
     @testset "AMDGPU allocation smoke" begin
         for F in GENERATOR_TYPES,
             T in (Bool, UInt32, Int32, UInt64, Int64, Float32, Float64)

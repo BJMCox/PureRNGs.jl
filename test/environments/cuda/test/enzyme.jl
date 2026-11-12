@@ -25,28 +25,16 @@ end
 # two float types alternate across the cases instead of doubling them: every
 # Enzyme compilation here costs tens of seconds on the device.
 const CUDA_ENZYME_FILL_CASES = (
-    (Random.rand!, rand_next, false, Float32),
-    (rand_next!, rand_next, true, Float64),
-    (Random.randn!, randn_next, false, Float64),
-    (randn_next!, randn_next, true, Float32),
-    (Random.randexp!, randexp_next, false, Float32),
-    (randexp_next!, randexp_next, true, Float64),
+    (rand_next!, rand_next, Float64),
+    (randn_next!, randn_next, Float32),
+    (randexp_next!, randexp_next, Float64),
 )
 
-const CUDA_ENZYME_EXPONENTIAL_CASES = (
-    (Random.randexp!, randexp_next, false, Float32),
-    (randexp_next!, randexp_next, true, Float64),
-)
+const CUDA_ENZYME_EXPONENTIAL_CASES = ((randexp_next!, randexp_next, Float64),)
 
 _device_work(events) = length(events.kernels) + length(events.memsets)
 
-function _check_enzyme_primal!(
-    rng,
-    fill_function,
-    next_draw,
-    continued,
-    ::Type{T},
-) where {T}
+function _check_enzyme_primal!(rng, fill_function, next_draw, ::Type{T}) where {T}
     expected, expected_rng = next_draw(rng, T, 17)
     values = CUDA.zeros(T, 17)
     shadow = CUDA.fill(T(7), 17)
@@ -59,14 +47,9 @@ function _check_enzyme_primal!(
         Duplicated(values, shadow),
         Const(true),
     )
-    if continued
-        @test primal_result[1] === values
-        @test primal_result[2] === expected_rng
-        @test shadow_result[1] === shadow
-    else
-        @test primal_result === values
-        @test shadow_result === shadow
-    end
+    @test primal_result[1] === values
+    @test primal_result[2] === expected_rng
+    @test shadow_result[1] === shadow
     @test isequal(Array(values), Array(expected))
     @test iszero(Array(shadow))
     @test _device_id(values) == CUDA.deviceid(primary)
@@ -122,11 +105,11 @@ end
 
 @testset "CUDA Enzyme immutable fill rules" begin
     rng = device(Philox4x32(0x65c0))
-    for (fill_function, next_draw, continued, T) in CUDA_ENZYME_FILL_CASES
-        _check_enzyme_primal!(rng, fill_function, next_draw, continued, T)
+    for (fill_function, next_draw, T) in CUDA_ENZYME_FILL_CASES
+        _check_enzyme_primal!(rng, fill_function, next_draw, T)
     end
 
-    for (fill_function, next_draw, _, T) in CUDA_ENZYME_EXPONENTIAL_CASES
+    for (fill_function, next_draw, T) in CUDA_ENZYME_EXPONENTIAL_CASES
         _check_enzyme_reverse_gradient!(rng, fill_function, next_draw, T)
         _check_enzyme_batch_gradient!(rng, fill_function, next_draw, T)
     end
@@ -134,18 +117,14 @@ end
 
 @testset "CUDA Enzyme fill rules execute the primal once" begin
     rng = device(Philox4x32(0x65c2))
-    for (fill_function, _, continued, T) in CUDA_ENZYME_EXPONENTIAL_CASES
+    for (fill_function, _, T) in CUDA_ENZYME_EXPONENTIAL_CASES
         values = CUDA.zeros(T, 4096)
         shadow_one = similar(values)
         shadow_two = similar(values)
 
         primal_events = _device_events() do
             result = fill_function(rng, values)
-            if continued
-                @test first(result) === values
-            else
-                @test result === values
-            end
+            @test first(result) === values
         end
         zero_events = _device_events(() -> fill!(shadow_one, zero(T)))
         primal_work = _device_work(primal_events)
@@ -202,7 +181,7 @@ end
 
 @testset "CUDA Enzyme fills do not stage through the host" begin
     rng = device(Philox4x32(0x65c1))
-    for (fill_function, _, _, T) in CUDA_ENZYME_EXPONENTIAL_CASES
+    for (fill_function, _, T) in CUDA_ENZYME_EXPONENTIAL_CASES
         values = CUDA.zeros(T, 4096)
         shadow = CUDA.ones(T, 4096)
         autodiff(

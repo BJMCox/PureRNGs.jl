@@ -6,6 +6,10 @@ const _NARROW_SPLIT_COUNT = UInt64(0xffffffff)
 const _SPLIT_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_SPLIT_SUBTAG)
 const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 
+@inline _derive_key(::Type{<:PCG4D}, key, index::UInt64) = _pcg4d_key(key, index, UInt32(1))
+@inline _subrng_key(::Type{<:PCG4D}, key, purpose::UInt64) =
+    _pcg4d_key(key, purpose, UInt32(2))
+
 @inline _derived_rng(rng::AbstractPureRNG, key) =
     typeof(rng)(_CONSTRUCTION_TOKEN, key, _zero_position(typeof(rng)), rng.device)
 
@@ -171,8 +175,10 @@ the device, and starts each child at position zero. It never changes the parent.
 Calling `splitrng` again on an advanced parent therefore returns the same
 children, so derive from stable identifiers rather than from a stream position.
 
-Child keys are core output and can collide. Across `n` program-wide derivations
-with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
+Child keys are core output and can collide. Under a uniform-key model, across
+`n` program-wide derivations with `k` key bits, the collision probability is
+about `n^2 / 2^(k+1)`. This model does not establish the quality of experimental
+[`PCG4D`](@ref). A
 collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
 

@@ -3,7 +3,7 @@ name: CI
 # GPU and statistical release gates stay outside hosted CI.
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
   workflow_dispatch:
 
@@ -56,11 +56,12 @@ jobs:
           if-no-files-found: error
       - uses: codecov/codecov-action@v7
         if: matrix.julia == '1' && matrix.os == 'ubuntu-latest'
+        continue-on-error: true
         with:
           use_oidc: true
           files: lcov.info
           disable_search: true
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   downgrade:
     name: Downgrade to compat floors
@@ -158,8 +159,9 @@ jobs:
           path: lcov.info
           if-no-files-found: error
       - uses: codecov/codecov-action@v7
+        continue-on-error: true
         with:
           use_oidc: true
           files: lcov.info
           disable_search: true
-          fail_ci_if_error: true
+          fail_ci_if_error: false

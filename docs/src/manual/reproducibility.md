@@ -14,6 +14,18 @@ PureRNGs implements the Philox and Threefry keyed bijections, but its public str
 
 ## Statistical validation
 
+!!! warning "PCG4D is excluded from the passing evidence"
+    Experimental [`PCG4D`](@ref) fails PractRand and BigCrush and is not
+    recommended for practical use. It uses the published PCG4D core with this
+    package's counter/key mapping, not the paper's input enumeration.
+    It is not covered by the passing configurations or evidence archive below.
+
+    On a root seeded with `12345`, PractRand 0.96 reports 61 FAIL lines at
+    256 MiB for the combined native-word stream. Each word also fails on its
+    own at 64 MiB. These counts describe result lines, not independent events.
+    The `UInt32` and `Float64` BigCrush lanes both fail their acceptance criteria.
+    Splitting keys does not make this generator suitable for practical work.
+
 The Philox and Threefry cores reproduce the Random123 known-answer vectors, and the ChaCha core reproduces the ChaCha8, ChaCha12, and ChaCha20 test vectors.
 RNGTest BigCrush tests the packed uniform stream in the `UInt32` and `Float64` lanes.
 PractRand tests the native word stream and the split and `subrng` children.
@@ -30,7 +42,7 @@ revisions and dates and remain outside Git. Publication does not imply that
 every battery ran again on the latest commit.
 Hosted CI has CPU tests only, including separate extension jobs.
 
-The published archive covers every named configuration at its recorded revision:
+The published archive covers the following configurations at their recorded revisions, not experimental PCG4D:
 
 | Configuration | BigCrush | PractRand |
 |:--|:--|:--|
@@ -60,6 +72,9 @@ failures and publish the complete logs before release; a pending run is not
 a pass. Earlier results remain usable only when their tested streams are
 unchanged. Record the tested revisions and the basis for carrying results
 forward instead of relabeling old runs as new ones.
+
+PCG4D is an explicitly experimental exception to this acceptance gate. Its
+known failures must remain documented; exposing it does not make them passes.
 
 ## Separate bits from floating-point transforms
 

@@ -4,6 +4,19 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.0.2 - Unreleased
+
+### Changed
+
+- CUDA Float32 normal fills share smaller tiles and scalar stores across generator families. Stream values and continuation are unchanged.
+
+### Added
+
+- MLDataDevices device lookup for generators. CUDA and AMDGPU lookup resolves the active physical device without pinning it in the generator.
+- Reactant generator conversion forwards placement keywords directly to the encoded state array.
+- Experimental `PCG4D` with a 62-bit key, 64-bit counter, explicit continuations, key derivation, and CPU/GPU fills. Its published core is unchanged, but this package's counter/key mapping fails PractRand and BigCrush. It is not recommended for practical use, is never the default, and does not support Reactant.
+- External sampler engines can use the host `StatefulRNG` bridge through the internal engine protocol. Primitive, normal, exponential, and packed-bit draws use the engine's continuation methods. Copying and reseeding preserve its type. Engine packages provide construction and reseeding hooks. Other `Random` samplers use Julia's generic methods unless the engine adds its own bridge methods.
+
 ## 0.0.1 - 2026-10-01
 
 Initial release.
@@ -57,6 +70,7 @@ Initial release.
 
 ### Changed
 
+- Aligned CUDA Philox4x32 and Threefry4x32 integer fills use a single pass when the launch covers every output block. Capped launches retain their grid-stride loop. Values, continuation and validation are unchanged.
 - Small device weighted samples use one kernel without a temporary threshold array. Large calls retain the two-kernel path to avoid increased synchronized latency. Values and stream advancement are unchanged.
 - Standard `Random.rand`, `randn`, `randexp`, and their fills require a mutable generator. Pure generators use explicit continuations, addressed draws, or the unified `!!` adapters. Batch generation and fill kernels are unchanged.
 - Primitive `rand_next`, `randn_next`, and `randexp_next` calls default to `Float64`, as in `Random`. A lone tuple is a population for `rand_next`. Use `rand_next(rng, Float64, dims)` instead of `rand_next(rng, dims)` when `dims` is a tuple.

@@ -4,6 +4,14 @@ Use a Julia session opened at the repository root.
 Keep package code and code documentation in Git.
 Keep statistical logs and generated reports outside Git.
 
+## Branches and merging
+
+Open development pull requests against `dev`.
+Use a `dev`-to-`main` pull request to promote tested work for release.
+This is a contributor convention, not an automated source-branch restriction.
+Maintainers may use another source branch when needed.
+Required CI and documentation checks still apply.
+
 ## Architecture
 
 Two fill scaffolds cover every array-producing draw. The generic scaffold is
@@ -234,7 +242,7 @@ Measure precompile cost, package load and first-call latency separately.
 
 ## Before pushing
 
-Hosted CI runs on every push to `main` and every pull request, but GPU and
+Hosted CI runs on every push to `main` and `dev` and every pull request, but GPU and
 statistical checks stay outside it, so this recipe is the gate.
 
 1. Run `Pkg.test()` on the package. It sets `--check-bounds=yes`, so allocation
@@ -300,7 +308,9 @@ Every successful coverage run uploads to Codecov using GitHub OIDC, without an o
 The first upload must confirm that Codecov accepts the repository's OIDC identity.
 Coverage measures executed lines, not statistical quality. No percentage target is set.
 
-CI and documentation runs start on every push to `main` and every pull request. Both workflows also support manual dispatch.
+CI runs on pushes to `main` and `dev` and on pull requests.
+Documentation runs on pushes to `main` and on pull requests.
+Both workflows also support manual dispatch.
 Dependabot checks GitHub Actions weekly and groups updates into one pull request.
 Version tags and GitHub releases are managed manually.
 

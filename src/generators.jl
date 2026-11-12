@@ -66,6 +66,12 @@ MLDataDevices.get_device_type(::_CUDABackend) = MLDataDevices.CUDADevice
 MLDataDevices.get_device_type(::_AMDGPUBackend) = MLDataDevices.AMDGPUDevice
 MLDataDevices.get_device_type(::_MetalBackend) = MLDataDevices.MetalDevice
 
+MLDataDevices.get_device_type(rng::AbstractPureRNG) =
+    MLDataDevices.get_device_type(rng.device)
+MLDataDevices.get_device(rng::AbstractPureRNG) = _backend_device(rng.device)
+
+_backend_device(token::_BackendToken) = MLDataDevices.get_device_type(token)()
+
 const _EXHAUSTED_BIT = typemax(UInt16)
 
 struct _Position64
@@ -313,6 +319,58 @@ struct ChaCha{D<:_BackendToken,R} <: AbstractPureRNG
         new{D,R}(key, position, device, block_words)
 end
 
+"""
+    PCG4D(seed[, position])
+    PCG4D(key::NTuple{2,UInt32}[, position])
+
+Experimental four-word PCG hash from Jarzynski and Olano (2020, section 6.1).
+The key has 62 bits, the counter has 64 bits, and each block contains 128 bits.
+Seeds must satisfy `0 <= seed < 2^62`; the upper two bits of `key[2]` must be zero.
+`position` counts consumed bits, as for the other generators.
+
+!!! warning "Not recommended for practical use"
+    This package's counter/key mapping fails PractRand and BigCrush. For a fixed
+    key and high counter word, each output word's lowest bit repeats at a distance
+    of `2^17` blocks. Use [`Philox4x32`](@ref) for practical work. PCG4D is available
+    for experiments and comparisons, not as a statistically reliable generator.
+
+The published core has no configurable round count. The input words are the low
+and high counter words, the low key word, and the high key word with a two-bit
+domain tag. Draws, splitting, and purpose derivation use domains zero, one, and
+two. The tag separates addresses, not necessarily output values or correlations.
+Reactant conversion is not supported.
+"""
+struct PCG4D{D<:_BackendToken} <: AbstractPureRNG
+    key::NTuple{2,UInt32}
+    position::_Position64
+    device::D
+    block_words::NTuple{2,UInt64}
+
+    PCG4D{D}(::_ConstructionToken, key, position, device, words) where {D} =
+        new{D}(key, position, device, words)
+end
+
+@inline PCG4D{D}(token::_ConstructionToken, key, position, device::D) where {D} =
+    PCG4D{D}(token, key, position, device, _decoded_block_words(PCG4D{D}, key, position))
+@inline _with_device(::Type{<:PCG4D}, ::Type{D}) where {D} = PCG4D{D}
+@inline _display_name(::Type{<:PCG4D}) = :PCG4D
+
+function PCG4D(key::NTuple{2,UInt32}, position::Integer = 0)
+    iszero(key[2] >> 30) || throw(ArgumentError("PCG4D key exceeds 62 bits"))
+    return PCG4D{_CPUBackend}(
+        _CONSTRUCTION_TOKEN,
+        key,
+        _position_from_bits(PCG4D, position),
+        _CPU_BACKEND,
+    )
+end
+
+function PCG4D(seed::Integer, position::Integer = 0)
+    0 <= seed < (UInt64(1) << 62) || throw(ArgumentError("PCG4D seed must fit 62 bits"))
+    value = UInt64(seed)
+    return PCG4D((value % UInt32, (value >> 32) % UInt32), position)
+end
+
 const _GENERATOR_SYMBOLS = (
     :Philox2x32,
     :Philox4x32,
@@ -325,13 +383,21 @@ const _GENERATOR_SYMBOLS = (
     :ChaCha,
 )
 const _Backend32Generators{D} =
-    Union{Philox2x32{D},Philox4x32{D},Threefry2x32{D},Threefry4x32{D},ChaCha{D}}
+    Union{Philox2x32{D},Philox4x32{D},Threefry2x32{D},Threefry4x32{D},ChaCha{D},PCG4D{D}}
 const _Backend64Generators{D} =
     Union{Philox2x64{D},Philox4x64{D},Threefry2x64{D},Threefry4x64{D}}
 const _BackendGenerators{D} = Union{_Backend32Generators{D},_Backend64Generators{D}}
 
-const _Position64Generators =
-    Union{Philox2x32,Philox4x32,Philox2x64,Threefry2x32,Threefry4x32,Threefry2x64,ChaCha}
+const _Position64Generators = Union{
+    Philox2x32,
+    Philox4x32,
+    Philox2x64,
+    Threefry2x32,
+    Threefry4x32,
+    Threefry2x64,
+    ChaCha,
+    PCG4D,
+}
 const _Position128Generators = Union{Philox4x64,Threefry4x64}
 const _NarrowGenerators = Union{Philox2x32,Threefry2x32}
 @inline _zero_position(::Type{<:_Position64Generators}) = _Position64(0, 0)
@@ -588,8 +654,9 @@ end
     _unsupported_device(device)
 
 @inline _block_shift(::Type{<:_NarrowGenerators}) = UInt8(6)
-@inline _block_shift(::Type{<:Union{Philox4x32,Philox2x64,Threefry4x32,Threefry2x64}}) =
-    UInt8(7)
+@inline _block_shift(
+    ::Type{<:Union{Philox4x32,Philox2x64,Threefry4x32,Threefry2x64,PCG4D}},
+) = UInt8(7)
 @inline _block_shift(::Type{<:_Position128Generators}) = UInt8(8)
 @inline _block_shift(::Type{<:ChaCha}) = UInt8(9)
 @inline _block_shift(rng::AbstractPureRNG) = _block_shift(typeof(rng))

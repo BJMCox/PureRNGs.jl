@@ -206,19 +206,24 @@ end
 end
 
 """
-    Reactant.to_rarray(rng::AbstractPureRNG)
+    Reactant.to_rarray(rng::AbstractPureRNG; kwargs...)
 
 Move `rng` into a compiled carrier holding its key and bit position.
+Forward conversion keywords, including `client`, `device`, and `sharding`,
+directly to the encoded state array.
 
 The carrier omits the counter-capacity check that eager generators apply, so a
 compiled draw past the per-key capacity wraps instead of throwing. Keep every
 compiled draw within capacity. The "Differentiation and compilation" page of
 the documentation states the full compiled contract.
 """
-function Reactant.to_rarray(rng::R) where {R<:IR.AbstractPureRNG}
-    state = Reactant.to_rarray(_encode_state(rng))
+function Reactant.to_rarray(rng::R; kwargs...) where {R<:IR.AbstractPureRNG}
+    state = Reactant.to_rarray(_encode_state(rng); kwargs...)
     return _ReactantRNG{R,typeof(state)}(state)
 end
+
+Reactant.to_rarray(::IR.PCG4D; kwargs...) =
+    throw(ArgumentError("PCG4D does not support Reactant conversion"))
 
 @inline _key_count(::Type{R}) where {R} = fieldcount(fieldtype(R, :key))
 @inline _key_type(::Type{R}) where {R} = fieldtype(fieldtype(R, :key), 1)

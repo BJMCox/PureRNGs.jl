@@ -7,6 +7,8 @@ using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
 
+IR._backend_device(::IR._CUDABackend) = IR.MLDataDevices.CUDADevice(CUDA.device())
+
 const _HAS_WEIGHT_GROUP_SCAN = isdefined(KernelAbstractions, Symbol("@groupscan"))
 
 @static if _HAS_WEIGHT_GROUP_SCAN
@@ -109,11 +111,12 @@ end
 const _CUDAGenerators = IR._BackendGenerators{IR._CUDABackend}
 const _CUDAPhilox4x32 = IR.Philox4x32{IR._CUDABackend}
 const _CUDAThreefry4x32 = IR.Threefry4x32{IR._CUDABackend}
+const _CUDAPCG4D = IR.PCG4D{IR._CUDABackend}
 const _CUDAPhilox2x64 = IR.Philox2x64{IR._CUDABackend}
 const _CUDAPhilox4x64 = IR.Philox4x64{IR._CUDABackend}
 const _CUDAThreefry4x64 = IR.Threefry4x64{IR._CUDABackend}
 const _CUDAChaCha = IR.ChaCha{IR._CUDABackend}
-const _CUDANatural128 = Union{_CUDAPhilox4x32,_CUDAThreefry4x32}
+const _CUDANatural128 = Union{_CUDAPhilox4x32,_CUDAThreefry4x32,_CUDAPCG4D}
 const _CUDANonNatural128 = Union{
     IR.Philox2x32{IR._CUDABackend},
     IR.Philox2x64{IR._CUDABackend},
@@ -123,7 +126,7 @@ const _CUDANonNatural128 = Union{
     IR.Threefry4x64{IR._CUDABackend},
     IR.ChaCha{IR._CUDABackend},
 }
-const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32}
+const _CUDANonPhilox4x32 = Union{_CUDANonNatural128,_CUDAThreefry4x32,_CUDAPCG4D}
 # A100 trials retain only generators where cooperative stores beat grouped fills.
 # The two-word generators are absent because their grouped store already
 # coalesces: Threefry2x64 measures 881 against 861 GiB/s on a 2^27 `UInt64` fill.
@@ -241,11 +244,11 @@ const _CUDAUniformLikeCodec =
 
 # A100 trials picked these output tiles and workgroup sizes.
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Bool}) = (Val(4096), Val(32))
+@inline _cooperative_uniform_fill(::IR.PCG4D, ::Type{Bool}) = (Val(8192), Val(64))
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(2048), Val(32))
 @inline _cooperative_uniform_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(1024), Val(64))
 @inline _cooperative_uniform_fill(rng, T) = nothing
 
-@inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float32}) = (Val(512), Val(32))
 @inline _cooperative_normal_fill(::IR.Philox4x32, ::Type{Float64}) = (Val(512), Val(32))
 @inline _cooperative_normal_fill(rng, T) = nothing
 
@@ -258,7 +261,7 @@ const _CUDAUniformLikeCodec =
 
 @inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
-    ::_CUDAThreefry4x32,
+    ::Union{_CUDAThreefry4x32,_CUDAPCG4D},
     ::Val{:uniform},
     ::Type{T},
 ) where {T<:IR._UniformInteger} = (Val(:natural128_packed),)
@@ -615,14 +618,17 @@ KernelAbstractions.@kernel function _natural128_fill_kernel!(
     rng,
     destination,
     ::Val{D},
-) where {D}
+    ::Val{single_pass},
+) where {D,single_pass}
     destination = reinterpret(D, vec(destination))
     index = KernelAbstractions.@index(Global, Linear)
     stride = KernelAbstractions.@ndrange()[1]
     while index <= length(destination)
         block_words = IR._block_words(rng, rng.position.block + UInt64(index - 1))
-        # VecElement lanes follow the result type's little-endian memory order.
+        # The loop guard bounds the store. VecElement lanes follow the result
+        # type's little-endian memory order.
         @inbounds destination[index] = _natural128_packed(block_words, eltype(destination))
+        single_pass && break
         index += stride
     end
 end
@@ -706,13 +712,17 @@ end
         )
     end
 
-    storage_type = _CUDANatural128Pack{T}
-    blocks = _cuda_packed_blocks(length(destination) ÷ (_CUDA_FILL_ALIGNMENT ÷ sizeof(T)))
+    packs = length(destination) ÷ (_CUDA_FILL_ALIGNMENT ÷ sizeof(T))
+    blocks = _cuda_packed_blocks(packs)
+    workitems = blocks * _CUDA_FILL_THREADS
+    # Only capped launches need another iteration; keep the ordinary fill loop-free.
+    mode = workitems >= packs ? Val(true) : Val(false)
     _natural128_fill_kernel!(backend)(
         rng,
         destination,
-        Val(storage_type);
-        ndrange = blocks * _CUDA_FILL_THREADS,
+        Val(_CUDANatural128Pack{T}),
+        mode;
+        ndrange = workitems,
         workgroupsize = _CUDA_FILL_THREADS,
     )
     return destination
@@ -733,8 +743,16 @@ end
     ::CUDA.CUDABackend,
     ::_CUDANonPhilox4x32,
     ::IR._NormalCodec{IR._CUDABackend},
-    ::Type{T},
-) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
+    ::Type{Float64},
+) = (Val(:cooperative), _packed_16byte_plan(Float64)...)
+
+# Normal transforms favor small scalar-store tiles over the uniform-fill plan.
+@inline IR._device_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAGenerators,
+    ::IR._NormalCodec{IR._CUDABackend},
+    ::Type{Float32},
+) = (Val(:cooperative), Val(512), Val(32))
 
 @inline IR._device_fill_plan(
     ::CUDA.CUDABackend,

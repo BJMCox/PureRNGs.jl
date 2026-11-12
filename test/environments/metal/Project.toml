@@ -19,7 +19,7 @@ PureRNGs = {path = "../../.."}
 Distributions = "0.25"
 ForwardDiff = "1"
 KernelAbstractions = "0.9, 0.10"
-PureRNGs = "0.0.1"
+PureRNGs = "0.0.2"
 MLDataDevices = "1.17"
 Metal = "1.7"
 Random = "1"
