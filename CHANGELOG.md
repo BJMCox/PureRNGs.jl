@@ -6,6 +6,10 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## 0.0.2 - Unreleased
 
+### Changed
+
+- CUDA `Threefry4x32` Float32 normal fills use smaller tiles and scalar stores to reduce local-memory use. Stream values and continuation are unchanged.
+
 ### Added
 
 - MLDataDevices device lookup for generators. CUDA and AMDGPU lookup resolves the active physical device without pinning it in the generator.

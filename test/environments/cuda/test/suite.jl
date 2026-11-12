@@ -436,10 +436,10 @@ function _check_cooperative_kernel_code(
     stream_aligned;
     check_store::Bool,
     codec = Val(:uniform),
-    storage_type = eltype(packed),
 ) where {T}
     kernel = CUDA_EXT._cooperative_fill_kernel!(backend)
     outputs_per_store = CUDA_EXT._outputs_per_store(plan)
+    storage_type = IR._val_count(outputs_per_store) == 1 ? T : CUDA_EXT._packed_type(T)
     workgroup = IR._val_count(plan[3])
     block_width = Val(Int(IR._block_bits(rng)))
     typed = CUDA.@device_code_typed kernel(
@@ -447,7 +447,7 @@ function _check_cooperative_kernel_code(
         packed,
         Val(T),
         Val(storage_type),
-        Val(IR._draw_bits(T)),
+        Val(IR._fill_width(codec, T)),
         block_width,
         plan[2],
         plan[3],
@@ -465,7 +465,7 @@ function _check_cooperative_kernel_code(
             packed,
             Val(T),
             Val(storage_type),
-            Val(IR._draw_bits(T)),
+            Val(IR._fill_width(codec, T)),
             block_width,
             plan[2],
             plan[3],
@@ -486,7 +486,7 @@ function _check_cooperative_kernel_code(
                 packed,
                 Val(T),
                 Val(storage_type),
-                Val(IR._draw_bits(T)),
+                Val(IR._fill_width(codec, T)),
                 block_width,
                 plan[2],
                 plan[3],
@@ -852,7 +852,7 @@ end
     end
 end
 
-@testset "non-Philox normal packed fills preserve every generator stream" begin
+@testset "non-Philox cooperative normal fills preserve every generator stream" begin
     backend = CUDA.CUDABackend()
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
         F === Philox4x32 && continue
@@ -863,6 +863,20 @@ end
             rng,
             T,
             IR._val_count(plan[2]),
+            randn_next,
+            randn_next!;
+            addressed_normal = true,
+        )
+    end
+end
+
+@testset "Threefry normal fills cross workgroups from an unaligned bit" begin
+    for F in (Threefry4x32, Threefry4x32R12)
+        rng = _positioned_at_bit(device(F(0x782)), UInt64(9), UInt16(61))
+        _check_public_packed_fill(
+            rng,
+            Float32,
+            515,
             randn_next,
             randn_next!;
             addressed_normal = true,
@@ -1253,7 +1267,6 @@ end
             float_plan,
             stream_aligned,
             check_store = stream_aligned === Val(true),
-            storage_type = extension_module._CUDA_F32X4,
         )
     end
 
@@ -1271,7 +1284,6 @@ end
                 plan,
                 Val(false),
                 check_store = true,
-                storage_type = extension_module._packed_type(T),
             )
         end
     end
@@ -1288,7 +1300,6 @@ end
             plan,
             Val(false),
             check_store = true,
-            storage_type = extension_module._packed_type(T),
         )
     end
 
@@ -1303,9 +1314,8 @@ end
             T,
             plan,
             Val(false),
-            check_store = true,
+            check_store = IR._val_count(extension_module._outputs_per_store(plan)) > 1,
             codec = IR._NormalCodec(rng.device),
-            storage_type = extension_module._packed_type(T),
         )
     end
 

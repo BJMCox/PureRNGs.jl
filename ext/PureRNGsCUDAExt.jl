@@ -747,6 +747,14 @@ end
     ::Type{T},
 ) where {T<:Union{Float32,Float64}} = (Val(:cooperative), _packed_16byte_plan(T)...)
 
+# One normal transform per lane avoids the packed kernel's local-memory traffic.
+@inline IR._device_fill_plan(
+    ::CUDA.CUDABackend,
+    ::_CUDAThreefry4x32,
+    ::IR._NormalCodec{IR._CUDABackend},
+    ::Type{Float32},
+) = (Val(:cooperative), Val(512), Val(32))
+
 @inline IR._device_fill_plan(
     ::CUDA.CUDABackend,
     ::_CUDAGenerators,
