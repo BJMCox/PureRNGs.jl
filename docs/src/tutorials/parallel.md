@@ -29,7 +29,8 @@ results
 The root uses a 128-bit key to leave room for many derived job keys.
 Inner fills run serially by default, so the outer loop owns all the parallelism.
 
-`subrng` reduces its purpose ID modulo 2^64, so job IDs differing by 2^64 alias.
+Job IDs must be integers in `0:typemax(UInt64)`, excluding `Bool`.
+`subrng` rejects IDs outside that domain instead of wrapping them to another job's ID.
 
 If a job needs several batches, continue its local generator with `randn_next!`.
 Do not derive the same job key again for each batch unless repetition is intentional.

@@ -616,6 +616,11 @@ REACTANT_TEST_BACKEND in ("cpu", "gpu") ||
     error("PURERNGS_REACTANT_BACKEND must be cpu or gpu")
 Reactant.set_default_backend(REACTANT_TEST_BACKEND)
 
+@testset "Reactant purpose ID preflight" begin
+    rng = Reactant.to_rarray(Philox4x32(123))
+    @test_throws ArgumentError subrng(rng, true)
+end
+
 @testset "Reactant generator placement keywords" begin
     client = Reactant.XLA.default_backend()
     device = last(Reactant.XLA.addressable_devices(client))

@@ -16,8 +16,11 @@ zero_position(rng) = PureRNGs._zero_position(typeof(rng))
     end
 
     rng = Philox4x32(123)
-    @test subrng(rng, -1) == subrng(rng, typemax(UInt64))
-    @test subrng(rng, (UInt128(1) << 64) + UInt128(42)) == subrng(rng, 42)
+    for purpose in (true, -1, UInt128(1) << 64)
+        @test_throws ArgumentError subrng(rng, purpose)
+    end
+    @test subrng(rng, Int128(42)) == subrng(rng, UInt64(42))
+    @test subrng(rng, big(typemax(UInt64))) == subrng(rng, typemax(UInt64))
 end
 
 @testset "derivation golden vectors" begin

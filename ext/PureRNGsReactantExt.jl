@@ -1021,7 +1021,7 @@ IR.splitrng(rng::_ReactantRNG) = IR.splitrng(rng, Val(2))
 end
 
 @inline IR.subrng(rng::_ReactantRNG{R}, purpose::Integer) where {R} =
-    _purpose_child(rng, purpose % UInt64, Val(_lane_barriers(R)))
+    _purpose_child(rng, IR._checked_purpose(purpose), Val(_lane_barriers(R)))
 
 @inline _purpose_child(rng::_ReactantRNG{R}, purpose, barriers::Val) where {R} =
     _child(rng, IR._subrng_key(R, _key(rng, barriers), purpose))

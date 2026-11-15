@@ -111,7 +111,8 @@ children_of_root = indexed_children(Threefry4x32(123456), 3)
 children_of_root
 ```
 
-Use stable integer purpose IDs. `subrng` reduces them modulo 2^64, so IDs differing by 2^64 alias.
+Use stable integer purpose IDs in `0:typemax(UInt64)`.
+`subrng` rejects `Bool`, negative IDs, and IDs above that range with `ArgumentError`.
 Splitting and purpose IDs use separate derivation namespaces.
 
 Child keys are core output. Under a uniform-key model, across `n` program-wide
