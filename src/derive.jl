@@ -313,18 +313,29 @@ end
 @inline _subrng(rng::AbstractPureRNG, purpose::UInt64) =
     _derived_rng(rng, _subrng_key(typeof(rng), rng.key, purpose))
 
+@inline function _checked_purpose(purpose::Integer)
+    !(purpose isa Bool) && 0 <= purpose <= typemax(UInt64) ||
+        throw(ArgumentError("purpose must be in 0:typemax(UInt64), excluding Bool"))
+    return purpose % UInt64
+end
+
 """
     subrng(rng, purpose)
+    subrng(rng, first_purpose, second_purpose, purposes...)
 
 Derive one child key for the stable integer `purpose`. Use fixed purpose ids for
 independent roles, such as `subrng(root, 1)` for proposals and
 `subrng(root, 2)` for resampling. Use `subrng(root, chunk_id)` to assign
 explicit large-job chunks.
 
-`purpose` is reduced modulo `2^64`, so a negative value or a value at or above
-`2^64` aliases the child of an existing purpose id. Purpose ids are a separate
+Each purpose must be an integer in `0:typemax(UInt64)`, excluding `Bool`.
+`Bool` and out-of-range integers throw `ArgumentError`. Purpose ids are a separate
 namespace from stream positions, which [`rngposition`](@ref) returns as a
 `UInt128`, or a `BigInt` for `Philox4x64` and `Threefry4x64`.
+
+Several purposes describe a path of successive children, from left to right:
+`subrng(root, a, b)` equals `subrng(subrng(root, a), b)`. All ids are checked
+before derivation. Each level costs one ordinary purpose derivation.
 
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts the child at position zero. It never changes the parent.
@@ -348,8 +359,22 @@ julia> first(rand_next(subrng(rng, 1), UInt32))
 julia> first(rand_next(subrng(rng, 2), UInt32))
 0x65feaf98
 
-julia> rand_next(subrng(rng, -1), UInt32) == rand_next(subrng(rng, big(2)^64 - 1), UInt32)
+julia> subrng(rng, UInt64(42)) == subrng(rng, big(42))
+true
+
+julia> subrng(rng, 3, 17, 1) == subrng(subrng(subrng(rng, 3), 17), 1)
 true
 ```
 """
-@inline subrng(rng::AbstractPureRNG, purpose::Integer) = _subrng(rng, purpose % UInt64)
+@inline subrng(rng::AbstractPureRNG, purpose::Integer) =
+    _subrng(rng, _checked_purpose(purpose))
+
+@inline function subrng(
+    rng::Union{AbstractPureRNG,_ReactantRNG},
+    first_purpose::Integer,
+    second_purpose::Integer,
+    purposes::Integer...,
+)
+    ids = map(_checked_purpose, (first_purpose, second_purpose, purposes...))
+    return foldl(subrng, ids; init = rng)
+end

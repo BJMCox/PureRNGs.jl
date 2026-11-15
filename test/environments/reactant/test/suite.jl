@@ -616,6 +616,17 @@ REACTANT_TEST_BACKEND in ("cpu", "gpu") ||
     error("PURERNGS_REACTANT_BACKEND must be cpu or gpu")
 Reactant.set_default_backend(REACTANT_TEST_BACKEND)
 
+@testset "Reactant purpose IDs and paths" begin
+    eager = Philox4x32(123)
+    rng = Reactant.to_rarray(eager)
+    @test_throws ArgumentError subrng(rng, true)
+    @test_throws ArgumentError subrng(rng, 1, true)
+    draw_child = rng -> first(rand_next(subrng(rng, 1, 2, 3), UInt32))
+    compiled = Reactant.@compile draw_child(rng)
+    nested = subrng(subrng(subrng(eager, 1), 2), 3)
+    @test UInt32(compiled(rng)) == first(rand_next(nested, UInt32))
+end
+
 @testset "Reactant generator placement keywords" begin
     client = Reactant.XLA.default_backend()
     device = last(Reactant.XLA.addressable_devices(client))

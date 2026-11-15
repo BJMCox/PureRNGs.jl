@@ -16,8 +16,25 @@ zero_position(rng) = PureRNGs._zero_position(typeof(rng))
     end
 
     rng = Philox4x32(123)
-    @test subrng(rng, -1) == subrng(rng, typemax(UInt64))
-    @test subrng(rng, (UInt128(1) << 64) + UInt128(42)) == subrng(rng, 42)
+    for purpose in (true, -1, UInt128(1) << 64)
+        @test_throws ArgumentError subrng(rng, purpose)
+    end
+    @test subrng(rng, Int128(42)) == subrng(rng, UInt64(42))
+    @test subrng(rng, big(typemax(UInt64))) == subrng(rng, typemax(UInt64))
+end
+
+@testset "purpose paths" begin
+    rng = Philox4x32R7(123, 17)
+    path = (UInt8(0), typemax(UInt64), Int128(42))
+    nested = subrng(subrng(subrng(rng, path[1]), path[2]), path[3])
+    child = @inferred subrng(rng, path...)
+    @test child == nested
+    @test subrng(rng, path[1], path[2]) == subrng(subrng(rng, path[1]), path[2])
+    @test subrng(subrng(rng, path[1]), path[2], path[3]) == child
+    @test rngposition(child) == 0 && rngposition(rng) == 17
+    for purpose in (true, -1, UInt128(1) << 64)
+        @test_throws ArgumentError subrng(rng, 0, purpose, 1)
+    end
 end
 
 @testset "derivation golden vectors" begin
@@ -177,7 +194,11 @@ function serial_split_overhead(rng, count)
 end
 
 # Specialize the measurement so Julia 1.10 does not box heterogeneous loop results.
-derive_allocations(rng) = (@allocated(splitrng(rng, Val(3))), @allocated(subrng(rng, 42)))
+derive_allocations(rng) = (
+    @allocated(splitrng(rng, Val(3))),
+    @allocated(subrng(rng, 42)),
+    @allocated(subrng(rng, 0, 42, typemax(UInt64))),
+)
 
 @testset "inference and allocation" begin
     for F in (Philox2x32, Threefry4x64)
@@ -185,7 +206,7 @@ derive_allocations(rng) = (@allocated(splitrng(rng, Val(3))), @allocated(subrng(
         @test @inferred(splitrng(rng, Val(3))) isa NTuple{3,typeof(rng)}
         @test @inferred(subrng(rng, 42)) isa typeof(rng)
         derive_allocations(rng)
-        @test derive_allocations(rng) == (0, 0)
+        @test derive_allocations(rng) == (0, 0, 0)
     end
 
     rng = Philox4x32(123)
