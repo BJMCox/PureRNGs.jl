@@ -115,6 +115,18 @@ Use stable integer purpose IDs in `0:typemax(UInt64)`.
 `subrng` rejects `Bool`, negative IDs, and IDs above that range with `ArgumentError`.
 Splitting and purpose IDs use separate derivation namespaces.
 
+Several IDs describe a path through successive child streams:
+
+```@example keys
+chain, step, purpose = 3, 17, 1
+proposal = subrng(root, chain, step, purpose)
+@assert proposal == subrng(subrng(subrng(root, chain), step), purpose)
+```
+
+The IDs are applied from left to right, with one derivation per level.
+All IDs are validated before derivation. Repeating the same path gives the same
+child, regardless of earlier draws. Continue the child to draw more from it.
+
 Child keys are core output. Under a uniform-key model, across `n` program-wide
 derivations with `k` key bits, two derivations collide with probability about
 `n^2 / 2^(k+1)`, and a

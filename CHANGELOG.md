@@ -13,6 +13,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Integer purpose paths in `subrng(root, chain, step, purpose)`, equivalent to successive single-ID derivations. Every ID follows the same validation rules.
 - MLDataDevices device lookup for generators. CUDA and AMDGPU lookup resolves the active physical device without pinning it in the generator.
 - Reactant generator conversion forwards placement keywords directly to the encoded state array.
 - Experimental `PCG4D` with a 62-bit key, 64-bit counter, explicit continuations, key derivation, and CPU/GPU fills. Its published core is unchanged, but this package's counter/key mapping fails PractRand and BigCrush. It is not recommended for practical use, is never the default, and does not support Reactant.
