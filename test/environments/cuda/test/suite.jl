@@ -2144,8 +2144,8 @@ end
 end
 
 @testset "CUDA WeightTable storage survives cross-task reuse" begin
-    for scale in (1.0, floatmin(Float64))
-        weights = [mod(7index, 11) + 0.5 for index = 1:257]
+    for count in (257, 8193), scale in (1.0, floatmin(Float64))
+        weights = [mod(7index, 11) + 0.5 for index = 1:count]
         weights .*= scale
         cpu_rng = Philox4x32(0x796)
         gpu_rng = device(cpu_rng)
