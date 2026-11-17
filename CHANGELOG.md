@@ -8,6 +8,8 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- Pure generators use `randperm_next`, `randcycle_next`, `shuffle_next`, and their in-place
+  forms. The corresponding `Random` methods require `StatefulRNG`.
 - Scalar uniform draws through `StatefulRNG` inline Random's sampler entry, reducing overhead for large external generator states.
 - `subrng` rejects `Bool`, negative purpose IDs, and IDs above `typemax(UInt64)` instead of wrapping them. Keys and streams for valid IDs are unchanged.
 - CUDA Float32 normal fills share smaller tiles and scalar stores across generator families. Stream values and continuation are unchanged.
