@@ -18,6 +18,8 @@ We thank these packages' authors and contributors for their work.
 Philox and Threefry come from the work of Salmon, Moraes, Dror, and Shaw[^random123paper] and the Random123 reference implementation.[^random123]
 Our core tests use Random123's known-answer vectors.
 ChaCha follows Daniel J. Bernstein's design.[^chacha]
+Experimental PCG4D follows the four-word hash of Mark Jarzynski and Marc Olano.[^pcg4d]
+Its input mapping here differs from the paper's test enumeration and fails our statistical tests.
 
 CPU normal sampling uses Michael J. Wichura's AS241 approximation.[^wichura]
 Native GPU normal sampling uses Mike Giles' inverse-error-function approximation.[^giles]
@@ -44,6 +46,8 @@ Software repositories were accessed on 22 September 2026.
 [^random123]: D. E. Shaw Research. *Random123* (version 1.14.0) [Computer software]. [Source repository and reference vectors](https://github.com/DEShawResearch/random123/tree/v1.14.0).
 
 [^chacha]: Bernstein, Daniel J. (2008). *ChaCha, a variant of Salsa20*. In *Workshop Record of SASC 2008: The State of the Art of Stream Ciphers*. [Author's publication record and paper](https://cr.yp.to/papers.html#chacha).
+
+[^pcg4d]: Jarzynski, Mark, and Marc Olano. (2020). *Hash Functions for GPU Rendering*. *Journal of Computer Graphics Techniques*, **9**(3), 21–38. [Paper and supplementary materials](https://jcgt.org/published/0009/03/02/).
 
 [^wichura]: Wichura, Michael J. (1988). *Algorithm AS 241: The Percentage Points of the Normal Distribution*. *Journal of the Royal Statistical Society. Series C (Applied Statistics)*, **37**(3), 477–484. [doi:10.2307/2347330](https://doi.org/10.2307/2347330).
 

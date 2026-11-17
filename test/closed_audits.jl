@@ -10,7 +10,7 @@ function _audit_error(call)
 end
 
 @testset "Random calls require a mutable generator" begin
-    for F in (Philox4x32, Threefry2x64, ChaCha)
+    for F in (Philox4x32, Threefry2x64, ChaCha, PCG4D)
         root = F(0xa71)
         for (draw, next, fill!, next!) in (
             (rand, rand_next, rand!, rand_next!),

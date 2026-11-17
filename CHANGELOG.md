@@ -4,6 +4,42 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.0.2 - 2026-11-17
+
+### Added
+
+- `StatefulRNG` supports external sampler engines and optional cached host state.
+  `parent` returns the exact immutable generator.
+- Integer purpose paths such as `subrng(root, chain, step, purpose)` derive
+  successive child generators and validate every ID up front.
+- `MLDataDevices.get_device` and `get_device_type` support generators.
+  CUDA and AMDGPU device lookup resolves the active GPU at call time.
+- Experimental `PCG4D` supports CPU and GPU draws with a 62-bit key and 64-bit
+  counter. This mapping fails PractRand and BigCrush. Prefer Philox for
+  practical use. PCG4D lacks Reactant support.
+
+### Changed
+
+- `subrng` rejects `Bool`, negative IDs, and IDs above `typemax(UInt64)`. Valid
+  IDs produce the same child streams.
+- `Reactant.to_rarray` forwards placement keywords directly to the encoded RNG
+  state.
+- Scalar uniform draws through `StatefulRNG` reduce overhead for large external
+  generator states.
+- Aligned CUDA integer fills for `Philox4x32` and `Threefry4x32` use a single
+  pass when the launch covers all output blocks.
+- CUDA `Float32` normal fills use smaller tiles and scalar stores across
+  generator families.
+- Large CUDA weighted draws reuse the final cumulative weight as the total,
+  saving one kernel launch and one device allocation.
+- The particle-filter tutorial covers GPU batching, kernel fusion, and
+  compilation and runtime measurements.
+
+### Removed
+
+- Standard `Random.randperm`, `randcycle`, `shuffle`, and their in-place forms
+  require `StatefulRNG`. Use the corresponding `_next` forms with pure generators.
+
 ## 0.0.1 - 2026-10-01
 
 Initial release.

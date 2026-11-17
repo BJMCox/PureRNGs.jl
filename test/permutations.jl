@@ -22,14 +22,13 @@ _chi_square(counts, expected) = sum((count - expected)^2 / expected for count in
             permutation, next_rng = randperm_next(rng, n)
             @test permutation == sortperm(keys)
             @test next_rng == keys_next
-            @test randperm(rng, n) == permutation
             @test first(randperm_next(rng, n; threaded = true)) == permutation
             destination = Matrix{Int}(undef, 1, n)
             @test first(randperm_next!(rng, destination)) === destination
             @test vec(destination) == permutation
         end
     end
-    @test eltype(randperm(Philox4x32(1), Int32(5))) === Int32
+    @test eltype(first(randperm_next(Philox4x32(1), Int32(5)))) === Int32
     @test_throws ArgumentError randperm_next(Philox4x32(1), -1)
 end
 
@@ -38,7 +37,7 @@ end
     for T in (Bool, Int8, UInt8)
         n = Int(typemax(T))
         destination = zeros(T, n)
-        @test first(randperm_next!(rng, destination)) == randperm(rng, T(n))
+        @test first(randperm_next!(rng, destination)) == first(randperm_next(rng, T(n)))
         for draw! in (randperm_next!, randcycle_next!)
             too_short = fill(typemax(T), n + 1)
             @test_throws InexactError draw!(rng, too_short)
@@ -76,7 +75,7 @@ end
 @testset "permutations of four are uniform" begin
     counts = Dict{Vector{Int},Int}()
     for seed = 1:24_000
-        permutation = randperm(Philox4x32(seed), 4)
+        permutation, _ = randperm_next(Philox4x32(seed), 4)
         counts[permutation] = get(counts, permutation, 0) + 1
     end
     @test length(counts) == 24
@@ -92,7 +91,6 @@ end
         @test isperm(cycle)
         @test _is_one_cycle(cycle)
         @test all(cycle[permutation[i]] == permutation[mod1(i + 1, n)] for i = 1:n)
-        @test randcycle(rng, n) == cycle
         @test first(randcycle_next!(rng, Vector{Int}(undef, n))) == cycle
     end
 end
@@ -106,11 +104,9 @@ end
         @test vec(shuffled) == vec(values)[permutation]
         @test size(shuffled) == size(values)
         @test next_rng == permutation_next
-        @test shuffle(rng, values) == shuffled
         in_place = copy(values)
         @test first(shuffle_next!(rng, in_place)) === in_place
         @test in_place == shuffled
-        @test shuffle!(rng, copy(values)) == shuffled
     end
 end
 
@@ -139,18 +135,21 @@ end
     end
 end
 
-@testset "the bridge permutes owned arrays by the pure law" begin
+@testset "Random permutations require the mutable bridge" begin
     rng = Philox4x32(0x7e6)
     values = collect(1:20)
-    for (bridge_call, pure_call) in (
-        (bridge -> randperm(bridge, 20), rng -> randperm_next(rng, 20)),
-        (bridge -> randcycle(bridge, 20), rng -> randcycle_next(rng, 20)),
-        (bridge -> shuffle(bridge, values), rng -> shuffle_next(rng, values)),
-        (bridge -> shuffle!(bridge, copy(values)), rng -> shuffle_next(rng, values)),
+    for (draw, next, destination) in (
+        (randperm, randperm_next, () -> 20),
+        (randperm!, randperm_next!, () -> similar(values)),
+        (randcycle, randcycle_next, () -> 20),
+        (randcycle!, randcycle_next!, () -> similar(values)),
+        (shuffle, shuffle_next, () -> values),
+        (shuffle!, shuffle_next!, () -> copy(values)),
     )
+        @test_throws MethodError draw(rng, destination())
         bridge = StatefulRNG(rng)
-        expected, next_rng = pure_call(rng)
-        @test bridge_call(bridge) == expected
+        expected, next_rng = next(rng, destination())
+        @test draw(bridge, destination()) == expected
         @test parent(bridge) == next_rng
     end
 end

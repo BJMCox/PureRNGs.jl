@@ -101,7 +101,8 @@ Tie shuffles use the fixed-width range mapping described above, including its fi
 `shuffle_next` moves elements in linear order by that permutation.
 `randcycle_next` sends `p[i]` to `p[i + 1]`, which gives a cyclic permutation with the same finite-grid limitation.
 `randsample(...; replace = false)` returns the leading elements of the shuffled population, so it consumes 64 bits per population element whatever the count.
-`Random.randperm`, `randcycle`, `shuffle`, and their in-place forms accept a generator too, and `StatefulRNG` uses the same law.
+Use the `_next` forms with pure generators. The standard `Random.randperm`,
+`randcycle`, `shuffle`, and their in-place forms require `StatefulRNG` and use the same law.
 
 The keys are ordered by a counting pass over their top bits, in expected linear time, on the CPU and on a GPU.
 A GPU permutation of 2^24 elements takes 13.7 ms on an A100, against 104 ms for CUDA.jl's `sortperm!`.

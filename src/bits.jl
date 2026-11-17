@@ -9,6 +9,9 @@
 @inline _address32_narrow(block::UInt64) =
     (block % UInt32, ((block >> 32) & 0x00ffffff) % UInt32)
 
+@inline _core_block(::Type{<:PCG4D}, key, block::UInt64) =
+    _pcg4d(_pcg4d_input(key, block, UInt32(0)))
+
 # `_core_block` runs the core for one block address. It takes the key rather than
 # a generator so that a generator can decode its own block while it is built.
 @inline _core_block(::Type{F}, key, block::UInt64) where {F<:Philox2x32} =

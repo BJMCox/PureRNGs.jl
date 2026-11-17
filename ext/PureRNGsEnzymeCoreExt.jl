@@ -61,6 +61,10 @@ end
     destination,
     threaded,
 )
+    # CUDA.jl 6.4.1 + Enzyme 0.13.219 eagerly links CUDA 12.9 driver-log APIs here.
+    # GPU AD can fail with `cuLogsCurrent` missing even when ordinary fills work.
+    # Use a driver exposing CUDA 12.9 APIs (GA: Linux 575.51.03, Windows 576.02).
+    # https://docs.nvidia.com/cuda/archive/12.9.0/cuda-toolkit-release-notes/index.html
     result = function_annotation.val(map(_primal, arguments)...; threaded = threaded)
     _zero_shadow!(destination)
     return _forward_return(config, result, destination)

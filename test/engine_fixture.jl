@@ -10,6 +10,39 @@ struct WrappedEngine{R}
     inner::R
 end
 
+# Uniform draws remain the engine's own methods, including the Boolean fill law.
+function PureRNGs.rand_next(engine::WrappedEngine, ::Type{T}) where {T}
+    value, next = rand_next(engine.inner, T)
+    return value, WrappedEngine(next)
+end
+
+function PureRNGs.rand_next!(engine::WrappedEngine, destination::AbstractArray; kwargs...)
+    value, next = rand_next!(engine.inner, destination; kwargs...)
+    return value, WrappedEngine(next)
+end
+
+PureRNGs.StatefulRNG(engine::WrappedEngine) =
+    PureRNGs._stateful_rng(WrappedEngine(PureRNGs.MLDataDevices.CPUDevice()(engine.inner)))
+
+mutable struct WrappedBridgeStorage{R}
+    engine::WrappedEngine{R}
+end
+
+PureRNGs._bridge_storage(engine::WrappedEngine) = WrappedBridgeStorage(engine)
+PureRNGs._bridge_parent(storage::WrappedBridgeStorage) = storage.engine
+function PureRNGs._bridge_adopt!(
+    storage::WrappedBridgeStorage{R},
+    engine::WrappedEngine{R},
+) where {R}
+    storage.engine = engine
+    return storage
+end
+
+PureRNGs._fresh_bridge_rng(
+    engine::WrappedEngine,
+    seed::Union{Integer,Random.RandomDevice},
+) = WrappedEngine(parent(Random.seed!(StatefulRNG(engine.inner), seed)))
+
 # An engine that defines only the required hooks. The core's defaults serve its
 # reservation, scalar draws, and host fills from those hooks, so its draws must
 # equal the wrapped generator's through the defaults alone.

@@ -6,6 +6,10 @@ const _NARROW_SPLIT_COUNT = UInt64(0xffffffff)
 const _SPLIT_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_SPLIT_SUBTAG)
 const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 
+@inline _derive_key(::Type{<:PCG4D}, key, index::UInt64) = _pcg4d_key(key, index, UInt32(1))
+@inline _subrng_key(::Type{<:PCG4D}, key, purpose::UInt64) =
+    _pcg4d_key(key, purpose, UInt32(2))
+
 @inline _derived_rng(rng::AbstractPureRNG, key) =
     typeof(rng)(_CONSTRUCTION_TOKEN, key, _zero_position(typeof(rng)), rng.device)
 
@@ -171,8 +175,10 @@ the device, and starts each child at position zero. It never changes the parent.
 Calling `splitrng` again on an advanced parent therefore returns the same
 children, so derive from stable identifiers rather than from a stream position.
 
-Child keys are core output and can collide. Across `n` program-wide derivations
-with `k` key bits, the collision probability is about `n^2 / 2^(k+1)`. A
+Child keys are core output and can collide. Under a uniform-key model, across
+`n` program-wide derivations with `k` key bits, the collision probability is
+about `n^2 / 2^(k+1)`. This model does not establish the quality of experimental
+[`PCG4D`](@ref). A
 collision makes both child subtrees identical. Use a generator with at least 128
 key bits for per-particle or per-proposal derivation at scale.
 
@@ -307,18 +313,29 @@ end
 @inline _subrng(rng::AbstractPureRNG, purpose::UInt64) =
     _derived_rng(rng, _subrng_key(typeof(rng), rng.key, purpose))
 
+@inline function _checked_purpose(purpose::Integer)
+    !(purpose isa Bool) && 0 <= purpose <= typemax(UInt64) ||
+        throw(ArgumentError("purpose must be in 0:typemax(UInt64), excluding Bool"))
+    return purpose % UInt64
+end
+
 """
     subrng(rng, purpose)
+    subrng(rng, first_purpose, second_purpose, purposes...)
 
 Derive one child key for the stable integer `purpose`. Use fixed purpose ids for
 independent roles, such as `subrng(root, 1)` for proposals and
 `subrng(root, 2)` for resampling. Use `subrng(root, chunk_id)` to assign
 explicit large-job chunks.
 
-`purpose` is reduced modulo `2^64`, so a negative value or a value at or above
-`2^64` aliases the child of an existing purpose id. Purpose ids are a separate
+Each purpose must be an integer in `0:typemax(UInt64)`, excluding `Bool`.
+`Bool` and out-of-range integers throw `ArgumentError`. Purpose ids are a separate
 namespace from stream positions, which [`rngposition`](@ref) returns as a
 `UInt128`, or a `BigInt` for `Philox4x64` and `Threefry4x64`.
+
+Several purposes describe a path of successive children, from left to right:
+`subrng(root, a, b)` equals `subrng(subrng(root, a), b)`. All ids are checked
+before derivation. Each level costs one ordinary purpose derivation.
 
 Derivation reads only the parent key. It ignores the parent position, preserves
 the device, and starts the child at position zero. It never changes the parent.
@@ -342,8 +359,22 @@ julia> first(rand_next(subrng(rng, 1), UInt32))
 julia> first(rand_next(subrng(rng, 2), UInt32))
 0x65feaf98
 
-julia> rand_next(subrng(rng, -1), UInt32) == rand_next(subrng(rng, big(2)^64 - 1), UInt32)
+julia> subrng(rng, UInt64(42)) == subrng(rng, big(42))
+true
+
+julia> subrng(rng, 3, 17, 1) == subrng(subrng(subrng(rng, 3), 17), 1)
 true
 ```
 """
-@inline subrng(rng::AbstractPureRNG, purpose::Integer) = _subrng(rng, purpose % UInt64)
+@inline subrng(rng::AbstractPureRNG, purpose::Integer) =
+    _subrng(rng, _checked_purpose(purpose))
+
+@inline function subrng(
+    rng::Union{AbstractPureRNG,_ReactantRNG},
+    first_purpose::Integer,
+    second_purpose::Integer,
+    purposes::Integer...,
+)
+    ids = map(_checked_purpose, (first_purpose, second_purpose, purposes...))
+    return foldl(subrng, ids; init = rng)
+end

@@ -37,6 +37,7 @@ ChaCha
 ChaCha8
 ChaCha12
 ChaCha20
+PCG4D
 ```
 
 ## Continuation draws

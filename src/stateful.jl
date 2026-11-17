@@ -31,26 +31,40 @@ julia> first(rand_next(parent(bridge), UInt32))
 0xc25ecc0b
 ```
 """
-mutable struct StatefulRNG{R<:AbstractPureRNG} <: Random.AbstractRNG
-    rng::R
+mutable struct StatefulRNG{R,S,B} <: Random.AbstractRNG
+    # Exactly one field carries state. The unused field has type Nothing.
+    rng::S
+    const backing::B
 
-    StatefulRNG{R}(::_ConstructionToken, rng::R) where {R} = new{R}(rng)
+    StatefulRNG{R,S,B}(::_ConstructionToken, rng::S, backing::B) where {R,S,B} =
+        new{R,S,B}(rng, backing)
 end
 
-@inline _stateful_rng(rng::R) where {R<:AbstractPureRNG} =
-    StatefulRNG{R}(_CONSTRUCTION_TOKEN, rng)
+@inline _bridge_storage(rng) = nothing
+function _bridge_parent end
+function _bridge_adopt! end
+
+@inline _stateful_rng(rng) = _stateful_rng(rng, _bridge_storage(rng))
+@inline _stateful_rng(rng::R, ::Nothing) where {R} =
+    StatefulRNG{R,R,Nothing}(_CONSTRUCTION_TOKEN, rng, nothing)
+@inline _stateful_rng(::R, backing::B) where {R,B} =
+    StatefulRNG{R,Nothing,B}(_CONSTRUCTION_TOKEN, nothing, backing)
 
 @inline StatefulRNG(rng::AbstractPureRNG) = _stateful_rng(MLDataDevices.CPUDevice()(rng))
 
-@inline Base.parent(mutable_rng::StatefulRNG) = mutable_rng.rng
+@inline Base.parent(mutable_rng::StatefulRNG{R,R,Nothing}) where {R} = mutable_rng.rng
+@inline Base.parent(mutable_rng::StatefulRNG{R}) where {R} =
+    _bridge_parent(mutable_rng.backing)::R
 
 Base.show(io::IO, mutable_rng::StatefulRNG) =
-    print(io, "StatefulRNG(", mutable_rng.rng, ")")
+    print(io, "StatefulRNG(", parent(mutable_rng), ")")
 
-# Reading the held generator whole copies it through a stack blob that the
+@inline _held(mutable_rng::StatefulRNG) = parent(mutable_rng)
+
+# Reading a built-in generator whole copies it through a stack blob that the
 # next draw's stores then feed back through memory. Reading it word by word
 # keeps the scalar bridge path in registers between the load and the store.
-@inline function _held(mutable_rng::StatefulRNG)
+@inline function _held(mutable_rng::StatefulRNG{<:AbstractPureRNG})
     rng = mutable_rng.rng
     return typeof(rng)(
         _CONSTRUCTION_TOKEN,
@@ -65,15 +79,36 @@ end
     mutable_rng::StatefulRNG{R},
     result::Tuple{T,R},
 ) where {R,T}
-    mutable_rng.rng = last(result)
+    _set_bridge!(mutable_rng, last(result))
     return first(result)
 end
+
+@inline function _set_bridge!(mutable_rng::StatefulRNG{R,R,Nothing}, rng::R) where {R}
+    mutable_rng.rng = rng
+    return nothing
+end
+@inline function _set_bridge!(mutable_rng::StatefulRNG{R}, rng::R) where {R}
+    _bridge_adopt!(mutable_rng.backing, rng)
+    return nothing
+end
+
+@inline _bridge_draw!(mutable_rng::StatefulRNG, draw::F, ::Type{T}) where {F,T} =
+    _commit_bridge!(mutable_rng, draw(_held(mutable_rng), T))
+
+# Large external draw bodies can keep Random's scalar entry out of line.
+# Keep its sampler dispatch while allowing state reuse across scalar calls.
+@inline Random.rand(
+    mutable_rng::StatefulRNG,
+    ::Type{T},
+) where {T<:Union{Bool,Base.BitInteger,_TransformFloat}} =
+    rand(mutable_rng, Random.Sampler(mutable_rng, T, Val(1)))::T
+
+@inline Random.rand(mutable_rng::StatefulRNG) = rand(mutable_rng, Float64)
 
 @inline Random.rand(
     mutable_rng::StatefulRNG,
     ::Random.SamplerType{T},
-) where {T<:Union{Bool,Base.BitInteger}} =
-    _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), T))
+) where {T<:Union{Bool,Base.BitInteger}} = _bridge_draw!(mutable_rng, rand_next, T)
 
 # `Random` builds wide range and collection samplers from 64-bit words.
 Random.rng_native_52(::StatefulRNG) = UInt64
@@ -83,23 +118,23 @@ Random.rng_native_52(::StatefulRNG) = UInt64
 @inline Random.rand(
     mutable_rng::StatefulRNG,
     ::Random.SamplerTrivial{Random.CloseOpen01{Float32}},
-) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float32))
+) = _bridge_draw!(mutable_rng, rand_next, Float32)
 @inline Random.rand(
     mutable_rng::StatefulRNG,
     ::Random.SamplerTrivial{Random.CloseOpen01{Float64}},
-) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float64))
+) = _bridge_draw!(mutable_rng, rand_next, Float64)
 @inline Random.rand(
     mutable_rng::StatefulRNG,
     ::Random.SamplerTrivial{Random.CloseOpen01{Float16}},
-) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), Float16))
+) = _bridge_draw!(mutable_rng, rand_next, Float16)
 for T in (Float16, Float32, Float64)
     @eval begin
         @inline Random.randn(mutable_rng::StatefulRNG, ::Type{$T}) =
-            _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), $T))
+            _bridge_draw!(mutable_rng, randn_next, $T)
         @inline Random.randn(mutable_rng::StatefulRNG, ::Type{Complex{$T}}) =
-            _commit_bridge!(mutable_rng, randn_next(_held(mutable_rng), Complex{$T}))
+            _bridge_draw!(mutable_rng, randn_next, Complex{$T})
         @inline Random.randexp(mutable_rng::StatefulRNG, ::Type{$T}) =
-            _commit_bridge!(mutable_rng, randexp_next(_held(mutable_rng), $T))
+            _bridge_draw!(mutable_rng, randexp_next, $T)
     end
 end
 
@@ -115,31 +150,39 @@ end
 for Integers in (:_RangeInteger64, :_WideInteger)
     @eval begin
         @inline Random.Sampler(
-            ::Type{<:StatefulRNG},
+            ::Type{<:StatefulRNG{<:AbstractPureRNG}},
             range::AbstractRange{T},
             ::Random.Repetition,
         ) where {T<:$Integers} = _StatefulRangeSampler(range)
 
         @inline Random.Sampler(
-            ::Type{<:StatefulRNG},
+            ::Type{<:StatefulRNG{<:AbstractPureRNG}},
             range::AbstractUnitRange{T},
             ::Random.Repetition,
         ) where {T<:$Integers} = _StatefulRangeSampler(range)
     end
 end
 
-@inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulRangeSampler) =
-    _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), sampler.range))
+@inline Random.rand(
+    mutable_rng::StatefulRNG{<:AbstractPureRNG},
+    sampler::_StatefulRangeSampler,
+) = _commit_bridge!(mutable_rng, rand_next(_held(mutable_rng), sampler.range))
 
 # The bridge shuffles owned arrays by the pure law, so a wrapped generator and
 # its immutable state give the same permutation. `randperm`, `randcycle`, and
 # `shuffle` reach these through Random's own allocating methods.
-@inline Random.shuffle!(mutable_rng::StatefulRNG, values::Union{Array,BitArray}) =
-    _commit_bridge!(mutable_rng, shuffle_next!(_held(mutable_rng), values))
-@inline Random.randperm!(mutable_rng::StatefulRNG, destination::Array{<:Integer}) =
-    _commit_bridge!(mutable_rng, randperm_next!(_held(mutable_rng), destination))
-@inline Random.randcycle!(mutable_rng::StatefulRNG, destination::Array{<:Integer}) =
-    _commit_bridge!(mutable_rng, randcycle_next!(_held(mutable_rng), destination))
+@inline Random.shuffle!(
+    mutable_rng::StatefulRNG{<:AbstractPureRNG},
+    values::Union{Array,BitArray},
+) = _commit_bridge!(mutable_rng, shuffle_next!(_held(mutable_rng), values))
+@inline Random.randperm!(
+    mutable_rng::StatefulRNG{<:AbstractPureRNG},
+    destination::Array{<:Integer},
+) = _commit_bridge!(mutable_rng, randperm_next!(_held(mutable_rng), destination))
+@inline Random.randcycle!(
+    mutable_rng::StatefulRNG{<:AbstractPureRNG},
+    destination::Array{<:Integer},
+) = _commit_bridge!(mutable_rng, randcycle_next!(_held(mutable_rng), destination))
 
 # Random picks from arrays through a range draw, which already matches the pure
 # pick. It samples tuples, strings, dicts, and sets with its own rejection loops,
@@ -164,17 +207,19 @@ for (Population, Repetition) in (
     (:(Union{AbstractDict,AbstractSet}), :(Random.Repetition)),
 )
     @eval @inline Random.Sampler(
-        ::Type{<:StatefulRNG},
+        ::Type{<:StatefulRNG{<:AbstractPureRNG}},
         population::$Population,
         ::$Repetition,
     ) = _StatefulPickSampler(population)
 end
 
-@inline Random.rand(mutable_rng::StatefulRNG, sampler::_StatefulPickSampler) =
-    _commit_bridge!(mutable_rng, _rand_next_pick(_held(mutable_rng), sampler.population))
+@inline Random.rand(
+    mutable_rng::StatefulRNG{<:AbstractPureRNG},
+    sampler::_StatefulPickSampler,
+) = _commit_bridge!(mutable_rng, _rand_next_pick(_held(mutable_rng), sampler.population))
 
 @inline function Random.rand!(
-    mutable_rng::StatefulRNG,
+    mutable_rng::StatefulRNG{<:AbstractPureRNG},
     destination::Array{T},
     range::AbstractRange{T},
 ) where {T<:_RangeInteger}
@@ -224,8 +269,10 @@ end
 @inline Random.rand!(
     mutable_rng::StatefulRNG,
     destination::Array{T},
-) where {T<:_UniformResult} =
-    _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
+) where {T<:_UniformResult} = _commit_bridge!(
+    mutable_rng,
+    rand_next!(parent(mutable_rng), destination; threaded = false),
+)
 
 # Without this hook `rand(m, T, n)` falls to Random's scalar loop instead of the
 # package fill.
@@ -233,18 +280,22 @@ end
     mutable_rng::StatefulRNG,
     destination::Array{T},
     ::Random.SamplerTrivial{Random.CloseOpen01{T}},
-) where {T<:_TransformFloat} =
-    _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
+) where {T<:_TransformFloat} = _commit_bridge!(
+    mutable_rng,
+    rand_next!(parent(mutable_rng), destination; threaded = false),
+)
 
-@inline Random.rand!(mutable_rng::StatefulRNG, destination::BitArray) =
-    _commit_bridge!(mutable_rng, rand_next!(mutable_rng.rng, destination; threaded = false))
+@inline Random.rand!(mutable_rng::StatefulRNG, destination::BitArray) = _commit_bridge!(
+    mutable_rng,
+    rand_next!(parent(mutable_rng), destination; threaded = false),
+)
 
 @inline Random.randn!(
     mutable_rng::StatefulRNG,
     destination::Array{T},
 ) where {T<:_NormalResult} = _commit_bridge!(
     mutable_rng,
-    randn_next!(mutable_rng.rng, destination; threaded = false),
+    randn_next!(parent(mutable_rng), destination; threaded = false),
 )
 
 @inline Random.randexp!(
@@ -252,7 +303,7 @@ end
     destination::Array{T},
 ) where {T<:_TransformFloat} = _commit_bridge!(
     mutable_rng,
-    randexp_next!(mutable_rng.rng, destination; threaded = false),
+    randexp_next!(parent(mutable_rng), destination; threaded = false),
 )
 
 for F in _GENERATOR_SYMBOLS
@@ -265,32 +316,38 @@ for F in _GENERATOR_SYMBOLS
         )
 end
 
-@inline function Random.seed!(mutable_rng::StatefulRNG, seed::Integer)
-    fresh = _fresh_bridge_rng(mutable_rng.rng, seed)
-    mutable_rng.rng = fresh
+@inline _fresh_bridge_rng(::PCG4D, seed::Integer) = PCG4D(seed)
+_fresh_bridge_rng(::PCG4D, device::Random.RandomDevice) =
+    PCG4D(Random.rand(device, UInt64) >> 2)
+
+@inline function Random.seed!(
+    mutable_rng::StatefulRNG,
+    seed::Union{Integer,Random.RandomDevice},
+)
+    fresh = _fresh_bridge_rng(parent(mutable_rng), seed)
+    _set_bridge!(mutable_rng, fresh)
     return mutable_rng
 end
 
 # An unseeded reseed draws a full-width key from the operating system, as
 # `Random.seed!(rng)` does for the built-in generators.
-function Random.seed!(mutable_rng::StatefulRNG, device::Random.RandomDevice)
-    held = mutable_rng.rng
+function _fresh_bridge_rng(held::AbstractPureRNG, device::Random.RandomDevice)
     R = typeof(held)
     key = map(word -> rand(device, typeof(word)), held.key)
-    mutable_rng.rng = R(_CONSTRUCTION_TOKEN, key, _zero_position(R), _CPU_BACKEND)
-    return mutable_rng
+    return R(_CONSTRUCTION_TOKEN, key, _zero_position(R), _CPU_BACKEND)
 end
 Random.seed!(mutable_rng::StatefulRNG, ::Nothing) =
     Random.seed!(mutable_rng, Random.RandomDevice())
 # Julia 1.10 has no generic `seed!(rng)`; it defines `seed!(rng, nothing)` from it.
 Random.seed!(mutable_rng::StatefulRNG) = Random.seed!(mutable_rng, Random.RandomDevice())
 
-@inline Base.copy(mutable_rng::StatefulRNG) = _stateful_rng(mutable_rng.rng)
+@inline Base.copy(mutable_rng::StatefulRNG) = _stateful_rng(parent(mutable_rng))
 
 function Base.copy!(destination::StatefulRNG{R}, source::StatefulRNG{R}) where {R}
-    destination.rng = source.rng
+    _set_bridge!(destination, parent(source))
     return destination
 end
 
-Base.:(==)(a::StatefulRNG, b::StatefulRNG) = a.rng == b.rng
-Base.hash(mutable_rng::StatefulRNG, h::UInt) = hash(mutable_rng.rng, hash(StatefulRNG, h))
+Base.:(==)(a::StatefulRNG, b::StatefulRNG) = parent(a) == parent(b)
+Base.hash(mutable_rng::StatefulRNG, h::UInt) =
+    hash(parent(mutable_rng), hash(StatefulRNG, h))

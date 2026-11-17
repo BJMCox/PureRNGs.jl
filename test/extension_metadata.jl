@@ -47,6 +47,7 @@ using TOML
         :ChaCha12,
         :ChaCha20,
         :ChaCha8,
+        :PCG4D,
         :Philox2x32,
         :Philox2x64,
         :Philox2x64R6,
