@@ -257,22 +257,3 @@ advanced immutable generator.
 """
 shuffle_next!(rng::AbstractPureRNG, values::AbstractArray; threaded::Bool = false) =
     _shuffle_next!(rng, values, threaded)
-
-Random.randperm(rng::AbstractPureRNG, n::Integer; threaded::Bool = false) =
-    first(_randperm_next(rng, n, threaded))
-Random.randperm!(
-    rng::AbstractPureRNG,
-    destination::AbstractArray{<:Integer};
-    threaded::Bool = false,
-) = first(_randperm_next!(rng, destination, threaded))
-Random.randcycle(rng::AbstractPureRNG, n::Integer; threaded::Bool = false) =
-    first(_randcycle_next(rng, n, threaded))
-Random.randcycle!(
-    rng::AbstractPureRNG,
-    destination::AbstractArray{<:Integer};
-    threaded::Bool = false,
-) = first(_randcycle_next!(rng, destination, threaded))
-Random.shuffle(rng::AbstractPureRNG, values::AbstractArray; threaded::Bool = false) =
-    first(_shuffle_next(rng, values, threaded))
-Random.shuffle!(rng::AbstractPureRNG, values::AbstractArray; threaded::Bool = false) =
-    first(_shuffle_next!(rng, values, threaded))
