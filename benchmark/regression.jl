@@ -1,4 +1,4 @@
-# Include from a benchmark REPL, then run_regression("apple-cpu") or "a100".
+# Include from a benchmark REPL, then run_regression("apple-cpu"), "a100", or "gh200".
 # Load CUDA before a CUDA run. The command-line forms remain supported.
 using PureRNGs
 using BenchmarkTools
@@ -7,6 +7,7 @@ using LinearAlgebra
 using Printf
 using TOML
 import KernelAbstractions
+using KernelAbstractions: @kernel, @index
 import MLDataDevices
 
 const TYPES = Dict(
@@ -17,12 +18,18 @@ const FILLS = Dict("rand" => rand_next!, "randn" => randn_next!, "randexp" => ra
 
 function case_name(case)
     parts = [case["kind"], case["family"], get(case, "type", ""), string(case["elements"])]
-    for key in ("shape", "components", "storage", "cached", "threaded")
+    for key in ("shape", "components", "storage", "cached", "threaded", "position_bits")
         haskey(case, key) && push!(parts, "$key=$(case[key])")
     end
     haskey(case, "count") &&
         push!(parts, "count=$(case["count"]) replace=$(case["replace"])")
     return join(filter(!isempty, parts), " ")
+end
+
+@kernel function fused_normal_step!(output, input, rng)
+    i = @index(Global, Linear)
+    T = eltype(output)
+    output[i] = muladd(T(0.9), input[i], T(0.3) * randn_at(rng, T, i))
 end
 
 function case_distribution(case, ::Type{T}) where {T}
@@ -40,7 +47,8 @@ end
 # Build fixtures before timing. Distribution cases time an in-place public call,
 # including any parameter validation or device preparation that call performs.
 function case_operation(case, target)
-    rng = target(getfield(PureRNGs, Symbol(case["family"]))(12345))
+    generator = getfield(PureRNGs, Symbol(case["family"]))
+    rng = target(generator(12345, get(case, "position_bits", 0)))
     n = case["elements"]
     threaded = get(case, "threaded", false)
     kind = case["kind"]
@@ -53,6 +61,11 @@ function case_operation(case, target)
             () -> fill!(rng, values; threaded)
         end
         return operation, values
+    elseif kind == "fused_normal"
+        input = target(fill(one(TYPES[case["type"]]), n))
+        values = similar(input)
+        kernel! = fused_normal_step!(KernelAbstractions.get_backend(values))
+        return () -> kernel!(values, input, rng; ndrange = n), values
     elseif kind == "randperm"
         return () -> randperm_next(rng, n; threaded), nothing
     elseif kind == "weighted"
