@@ -70,6 +70,16 @@ end
     return first(result)
 end
 
+# Large external draw bodies can keep Random's scalar entry out of line.
+# Keep its sampler dispatch while allowing state reuse across scalar calls.
+@inline Random.rand(
+    mutable_rng::StatefulRNG,
+    ::Type{T},
+) where {T<:Union{Bool,Base.BitInteger,_TransformFloat}} =
+    rand(mutable_rng, Random.Sampler(mutable_rng, T, Val(1)))::T
+
+@inline Random.rand(mutable_rng::StatefulRNG) = rand(mutable_rng, Float64)
+
 @inline Random.rand(
     mutable_rng::StatefulRNG,
     ::Random.SamplerType{T},

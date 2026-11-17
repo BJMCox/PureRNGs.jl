@@ -344,6 +344,8 @@ end
         push!(required[function_], method)
     end
 
+    require(Random.rand, Tuple{M})
+    require(Random.rand, Tuple{M,Type{UInt32}})
     for sampler in (
         Random.SamplerType{Bool},
         Random.SamplerType{UInt32},
