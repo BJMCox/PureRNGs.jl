@@ -61,6 +61,13 @@ end
     replay = copy(bridge)
     @test rand(replay, UInt64) === rand(bridge, UInt64)
     @test parent(replay) === parent(bridge)
+    snapshot = parent(bridge)
+    destination = StatefulRNG(WrappedEngine(Philox4x32(0xe22)))
+    @test copy!(destination, bridge) === destination
+    expected, after = rand_next(snapshot.inner, UInt32)
+    @test rand(destination, UInt32) === expected
+    @test parent(destination).inner === after
+    @test parent(bridge) === snapshot
     @test Random.seed!(bridge, 0xe21) === bridge
     @test parent(bridge).inner === Philox4x32(0xe21)
     @test rand(bridge, UInt64) === first(rand_next(Philox4x32(0xe21), UInt64))

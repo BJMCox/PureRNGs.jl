@@ -14,6 +14,7 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- External generators can provide cached state for the host `StatefulRNG` bridge. `parent` still returns the exact immutable generator.
 - Integer purpose paths in `subrng(root, chain, step, purpose)`, equivalent to successive single-ID derivations. Every ID follows the same validation rules.
 - MLDataDevices device lookup for generators. CUDA and AMDGPU lookup resolves the active physical device without pinning it in the generator.
 - Reactant generator conversion forwards placement keywords directly to the encoded state array.

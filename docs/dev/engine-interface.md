@@ -188,7 +188,7 @@ PureRNGs.StatefulRNG(rng::MyEngine) =
     PureRNGs._stateful_rng(MLDataDevices.CPUDevice()(rng))
 ```
 
-The bridge holds that engine directly. Primitive `rand`, `randn`, `randexp`,
+By default, the bridge holds that engine directly. Primitive `rand`, `randn`, `randexp`,
 and concrete `Array` and `BitArray` fills call the engine's public `*_next` or
 `*_next!` methods and retain their returned state. An engine must provide its
 own uniform scalar and one-argument uniform fill methods, including its
@@ -200,6 +200,20 @@ To support `Random.seed!`, define `_fresh_bridge_rng(rng::MyEngine, seed::Intege
 and `_fresh_bridge_rng(rng::MyEngine, device::Random.RandomDevice)`. Each returns
 a fresh CPU-bound engine of the same concrete type. The latter supplies the
 unseeded `seed!` and `seed!(bridge, nothing)` forms as well.
+
+An engine can keep a mutable cache for scalar draws. Define
+`_bridge_storage(rng::MyEngine)` to construct fresh storage from a CPU-bound
+engine. The bridge owns it. Implement `_bridge_parent(storage)` to return the
+exact immutable generator and `_bridge_adopt!(storage, rng::MyEngine)` to update
+the same storage after a fill, reseed, or `copy!`. Snapshots must not alias
+mutable storage. Constructing a copy calls `_bridge_storage` again.
+
+Specialize `_bridge_draw!(bridge, draw, ::Type{T})` for the engine and storage
+types in `StatefulRNG{R,S,B}`. Cached bridges use `S = Nothing` and store the
+cache in `bridge.backing` of type `B`. For the overridden `rand_next`,
+`randn_next`, or `randexp_next` draw, return the value and advance the cache.
+Use the same value and continuation as the corresponding immutable call,
+including its behavior when a draw fails. Other draws still use that call.
 
 The pure range, collection, and permutation bridge methods are specific to
 built-in generators. An external engine uses `Random`'s generic algorithms for

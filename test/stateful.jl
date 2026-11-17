@@ -321,7 +321,8 @@ end
 end
 
 @testset "closed bridge method surface" begin
-    M = StatefulRNG{typeof(Philox4x32(0x811))}
+    R = typeof(Philox4x32(0x811))
+    M = StatefulRNG{R}
     required = Dict(
         function_ => Set{Method}() for function_ in (
             Random.rand,
@@ -397,6 +398,7 @@ end
     require(Random.seed!, Tuple{M,Random.RandomDevice})
     require(copy, Tuple{M})
     require(parent, Tuple{M})
+    require(parent, Tuple{StatefulRNG{R,R,Nothing}})
 
     for (function_, methods_) in required
         @test _bridge_methods(function_) == methods_
