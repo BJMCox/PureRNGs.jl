@@ -6,22 +6,39 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## 0.0.2 - Unreleased
 
-### Changed
-
-- Pure generators use `randperm_next`, `randcycle_next`, `shuffle_next`, and their in-place
-  forms. The corresponding `Random` methods require `StatefulRNG`.
-- Scalar uniform draws through `StatefulRNG` inline Random's sampler entry, reducing overhead for large external generator states.
-- `subrng` rejects `Bool`, negative purpose IDs, and IDs above `typemax(UInt64)` instead of wrapping them. Keys and streams for valid IDs are unchanged.
-- CUDA Float32 normal fills share smaller tiles and scalar stores across generator families. Stream values and continuation are unchanged.
-
 ### Added
 
-- External generators can provide cached state for the host `StatefulRNG` bridge. `parent` still returns the exact immutable generator.
-- Integer purpose paths in `subrng(root, chain, step, purpose)`, equivalent to successive single-ID derivations. Every ID follows the same validation rules.
-- MLDataDevices device lookup for generators. CUDA and AMDGPU lookup resolves the active physical device without pinning it in the generator.
-- Reactant generator conversion forwards placement keywords directly to the encoded state array.
-- Experimental `PCG4D` with a 62-bit key, 64-bit counter, explicit continuations, key derivation, and CPU/GPU fills. Its published core is unchanged, but this package's counter/key mapping fails PractRand and BigCrush. It is not recommended for practical use, is never the default, and does not support Reactant.
-- External sampler engines can use the host `StatefulRNG` bridge through the internal engine protocol. Primitive, normal, exponential, and packed-bit draws use the engine's continuation methods. Copying and reseeding preserve its type. Engine packages provide construction and reseeding hooks. Other `Random` samplers use Julia's generic methods unless the engine adds its own bridge methods.
+- `StatefulRNG` supports external sampler engines and optional cached host state.
+  `parent` returns the exact immutable generator.
+- Integer purpose paths such as `subrng(root, chain, step, purpose)` derive
+  successive child generators and validate every ID up front.
+- `MLDataDevices.get_device` and `get_device_type` support generators.
+  CUDA and AMDGPU device lookup resolves the active GPU at call time.
+- Experimental `PCG4D` supports CPU and GPU draws with a 62-bit key and 64-bit
+  counter. This mapping fails PractRand and BigCrush. Prefer Philox for
+  practical use. PCG4D lacks Reactant support.
+
+### Changed
+
+- `subrng` rejects `Bool`, negative IDs, and IDs above `typemax(UInt64)`. Valid
+  IDs produce the same child streams.
+- `Reactant.to_rarray` forwards placement keywords directly to the encoded RNG
+  state.
+- Scalar uniform draws through `StatefulRNG` reduce overhead for large external
+  generator states.
+- Aligned CUDA integer fills for `Philox4x32` and `Threefry4x32` use a single
+  pass when the launch covers all output blocks.
+- CUDA `Float32` normal fills use smaller tiles and scalar stores across
+  generator families.
+- Large CUDA weighted draws reuse the final cumulative weight as the total,
+  saving one kernel launch and one device allocation.
+- The particle-filter tutorial covers GPU batching, kernel fusion, and
+  compilation and runtime measurements.
+
+### Removed
+
+- Standard `Random.randperm`, `randcycle`, `shuffle`, and their in-place forms
+  require `StatefulRNG`. Use the corresponding `_next` forms with pure generators.
 
 ## 0.0.1 - 2026-10-01
 
@@ -76,7 +93,6 @@ Initial release.
 
 ### Changed
 
-- Aligned CUDA Philox4x32 and Threefry4x32 integer fills use a single pass when the launch covers every output block. Capped launches retain their grid-stride loop. Values, continuation and validation are unchanged.
 - Small device weighted samples use one kernel without a temporary threshold array. Large calls retain the two-kernel path to avoid increased synchronized latency. Values and stream advancement are unchanged.
 - Standard `Random.rand`, `randn`, `randexp`, and their fills require a mutable generator. Pure generators use explicit continuations, addressed draws, or the unified `!!` adapters. Batch generation and fill kernels are unchanged.
 - Primitive `rand_next`, `randn_next`, and `randexp_next` calls default to `Float64`, as in `Random`. A lone tuple is a population for `rand_next`. Use `rand_next(rng, Float64, dims)` instead of `rand_next(rng, dims)` when `dims` is a tuple.
