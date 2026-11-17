@@ -1,0 +1,43 @@
+description = "NVIDIA GH200 on batserv02, small and medium CUDA calls"
+device = "cuda"
+host = "batserv02"
+gpu = "NVIDIA GH200 480GB"
+julia = "1.13.3"
+source_sha = "6480dd8d4675208e8242240b7df4a41e5417e787"
+seconds = 10.0
+threads = 1
+tolerance = 0.10
+
+[packages]
+BenchmarkTools = "1.8.0"
+CUDA = "6.5.1"
+KernelAbstractions = "0.10.7"
+
+[[case]]
+elements = 1024
+family = "Philox4x32"
+kind = "rand"
+minimum_ms = 0.009408
+type = "Float32"
+
+[[case]]
+elements = 65536
+family = "Philox4x32"
+kind = "randn"
+minimum_ms = 0.010912
+type = "Float32"
+
+[[case]]
+elements = 65536
+family = "Philox4x32"
+kind = "randn"
+minimum_ms = 0.011008
+position_bits = 3
+type = "Float32"
+
+[[case]]
+elements = 65536
+family = "Philox4x32"
+kind = "fused_normal"
+minimum_ms = 0.009888
+type = "Float32"

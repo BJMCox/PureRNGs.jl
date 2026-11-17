@@ -211,8 +211,11 @@ report = run_regression("apple-cpu"; extra_cases = distribution_cases(),
     report_path = "/tmp/purerngs-performance.toml")
 ```
 
-Load CUDA first and select `"a100"` on the CUDA host. Use `--threads=auto` for
-the Mac pins. The command-line form `regression.jl <name> [--update]` remains
+Load CUDA first. Select `"a100"` for large fills or `"gh200"` for small and
+medium fills, unaligned normal draws, and a fused normal consumer on the
+corresponding GPU. Use one Julia thread for the CUDA pins and `--threads=auto`
+for the Mac pins.
+The command-line form `regression.jl <name> [--update]` remains
 available and exits unsuccessfully for regressions beyond the pin's tolerance.
 Update pins only after explaining and accepting the measured change.
 
