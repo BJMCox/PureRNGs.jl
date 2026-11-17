@@ -56,11 +56,6 @@ KernelAbstractions.@kernel function _weight_values_kernel!(
     end
 end
 
-KernelAbstractions.@kernel function _weight_total_kernel!(total_result, cumulative)
-    total = @inbounds cumulative[end]
-    @inbounds total_result[1] = total
-end
-
 function IR._fold_device_weights(device::IR._CUDABackend, weights, agnostic::Bool)
     # A100 timings favor a collective for 256–1024 weights, not tiny inputs.
     count = length(weights)
@@ -92,7 +87,6 @@ function IR._fold_device_weights(device::IR._CUDABackend, weights, agnostic::Boo
         return nothing, total_result, cumulative
     end
 
-    total_result = IR._allocate_array(device, Float64, (1,))
     _weight_values_kernel!(backend)(
         cumulative,
         source,
@@ -103,7 +97,7 @@ function IR._fold_device_weights(device::IR._CUDABackend, weights, agnostic::Boo
     _weight_values_kernel!(backend)(cumulative, source, Val(true); ndrange = length(source))
     # Restore monotonicity and zero-weight plateaus after rounded tree sums.
     accumulate!(max, cumulative, cumulative)
-    _weight_total_kernel!(backend)(total_result, cumulative; ndrange = 1)
+    total_result = view(cumulative, count:count)
     IR._finish_device_weights!(backend, total_result, cumulative)
     return nothing, total_result, cumulative
 end
