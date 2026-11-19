@@ -123,29 +123,45 @@ end
     rng::Philox4x32,
     block::UInt64,
     ::Val{W},
-) where {W}
+    ::Type{U},
+) where {W,U<:Union{UInt32,UInt64}}
     draws = _transformed_group_draws(W)
     blocks = draws * W ÷ 128
     chunks = blocks ÷ 4
-    chunk_words = 8chunks
+    word_bits = 8sizeof(U)
+    words_per_block = 128 ÷ word_bits
+    words_per_group = 4words_per_block
+    chunk_words = chunks * words_per_group
     function word_ref(word)
-        word < chunk_words && return :($(Symbol(:group_, word>>3))[$((word&7)+1)])
-        rest = word - chunk_words
-        return :($(Symbol(:group_, chunks+(rest>>1)))[$((rest&1)+1)])
+        if word < chunk_words
+            group, lane = divrem(word, words_per_group)
+            ref = Symbol(:group_, group)
+            if U === UInt32
+                subblock, slot = divrem(lane, words_per_block)
+                return :($ref[$(subblock+1)][$(slot+1)])
+            end
+            return :($ref[$(lane+1)])
+        end
+        tail, lane = divrem(word - chunk_words, words_per_block)
+        return :($(Symbol(:group_, chunks+tail))[$(lane+1)])
     end
-    body = Expr[:(mask = _low_mask(UInt16($W)))]
+    # Float32 normals consume 23 bits. Decode directly from the core's UInt32
+    # words when a draw fits, instead of packing pairs into UInt64 first.
+    group_blocks = U === UInt32 ? :_blocks4 : :_blocks4_words
+    single_block = U === UInt32 ? :_block : :_block_words
+    body = Expr[:(mask = _low_mask(UInt16($W)) % $U)]
     for source = 0:(chunks+blocks%4-1)
         words =
-            source < chunks ? :(_blocks4_words(rng, block + UInt64($(4source)))) :
-            :(_block_words(rng, block + UInt64($(3chunks + source))))
+            source < chunks ? :($group_blocks(rng, block + UInt64($(4source)))) :
+            :($single_block(rng, block + UInt64($(3chunks + source))))
         push!(body, :($(Symbol(:group_, source)) = $words))
     end
     raws = map(0:(draws-1)) do draw
-        offset = W * draw
-        word, start = offset >> 6, offset & 63
-        start + W <= 64 && return :(($(word_ref(word)) >> $(64 - start - W)) & mask)
-        head = :($(word_ref(word)) << $(start + W - 64))
-        tail = :($(word_ref(word + 1)) >> $(128 - start - W))
+        word, start = divrem(W * draw, word_bits)
+        start + W <= word_bits &&
+            return :(($(word_ref(word)) >> $(word_bits - start - W)) & mask)
+        head = :($(word_ref(word)) << $(start + W - word_bits))
+        tail = :($(word_ref(word + 1)) >> $(2word_bits - start - W))
         return :(($head | $tail) & mask)
     end
     push!(body, Expr(:tuple, raws...))
@@ -163,7 +179,7 @@ end
     ::Type{T},
     width::Val,
 ) where {T}
-    raws = _decode_transformed_group(rng, block, width)
+    raws = _decode_transformed_group(rng, block, width, UInt64)
     @inbounds for draw in eachindex(raws)
         destination[index+draw-1] = _cooperative_value(codec, T, raws[draw])
     end
@@ -186,12 +202,12 @@ end
     ::Type{Float32},
     width::Val,
 )
-    raws = _decode_transformed_group(rng, block, width)
+    raws = _decode_transformed_group(rng, block, width, UInt32)
     # On the 23-bit midpoint lattice, q = (2k - (2^23 - 1)) * 2^-24 exactly.
     # The inclusive central interval contains center_width + 1 consecutive k.
     midpoint_span = Int32(0x7f_ffff)
-    center_width = UInt64(0.425f0 * Float32(0x1p24))
-    center_start = (UInt64(midpoint_span) - center_width) >> 1
+    center_width = UInt32(0.425f0 * Float32(0x1p24))
+    center_start = (UInt32(midpoint_span) - center_width) >> 1
     @inbounds for draw in eachindex(raws)
         q = Float32(Int32(2) * (raws[draw] % Int32) - midpoint_span) * Float32(0x1p-24)
         destination[index+draw-1] = _as241_central(q)
@@ -200,7 +216,7 @@ end
         raw = raws[draw]
         # Below center_start, unsigned subtraction wraps past center_width.
         if raw - center_start > center_width
-            u = _open_midpoint(Float32, raw)
+            u = _open_midpoint(Float32, UInt64(raw))
             destination[index+draw-1] = _as241_tail(u, u - 0.5f0)
         end
     end
