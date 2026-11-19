@@ -196,6 +196,16 @@ end
     end
 end
 
+@testset "Grouped Float32 normals agree at the AS241 cutoff" begin
+    # Positions and indices yield the first and last central values and their tail neighbours.
+    for (position, index) in
+        ((237_931_136, 34), (346_349_824, 111), (34_038_528, 121), (64_541_312, 50))
+        rng = Philox4x32(4211, position)
+        draws, _ = randn_next(rng, Float32, 128)
+        @test draws[index] === randn_at(rng, Float32, index)
+    end
+end
+
 @testset "normal generator and mixed positions" begin
     # A normal draw leaves the stream where a uniform draw can carry on.
     for F in GENERATOR_TYPES, T in NORMAL_TYPES

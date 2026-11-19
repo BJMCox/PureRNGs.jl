@@ -176,9 +176,8 @@ end
 # elements that belong in the tail. Each element still sees the same operations
 # in the same order, so no value moves.
 #
-# `Float32` only. Pass two repeats the midpoint conversion for every element of
-# the group, and at `Float64` the vector is half as wide, so the repeat costs
-# more than the branch it removes: 5.21 against 5.07 ns per element.
+# Keep Float64 on the one-pass path. The two-pass transform was slower with
+# half-width vectors: 5.21 against 5.07 ns per element.
 @inline function _store_transformed_group!(
     destination,
     index::Int,
@@ -189,14 +188,21 @@ end
     width::Val,
 )
     raws = _decode_transformed_group(rng, block, width)
+    # On the 23-bit midpoint lattice, q = (2k - (2^23 - 1)) * 2^-24 exactly.
+    # The inclusive central interval contains center_width + 1 consecutive k.
+    midpoint_span = Int32(0x7f_ffff)
+    center_width = UInt64(0.425f0 * Float32(0x1p24))
+    center_start = (UInt64(midpoint_span) - center_width) >> 1
     @inbounds for draw in eachindex(raws)
-        destination[index+draw-1] =
-            _as241_central(_open_midpoint(Float32, raws[draw]) - 0.5f0)
+        q = Float32(Int32(2) * (raws[draw] % Int32) - midpoint_span) * Float32(0x1p-24)
+        destination[index+draw-1] = _as241_central(q)
     end
     @inbounds for draw in eachindex(raws)
-        u = _open_midpoint(Float32, raws[draw])
-        q = u - 0.5f0
-        abs(q) <= 0.425f0 || (destination[index+draw-1] = _as241_tail(u, q))
+        raw = raws[draw]
+        if raw - center_start > center_width
+            u = _open_midpoint(Float32, raw)
+            destination[index+draw-1] = _as241_tail(u, u - 0.5f0)
+        end
     end
     return nothing
 end
