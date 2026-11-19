@@ -172,9 +172,8 @@ end
 
 # The AS241 tail branch costs 0.83 ns per element even when every element is
 # central, because it stops the group loop vectorizing. Pass one runs the
-# central rational over the whole group with no branch, pass two overwrites the
-# elements that belong in the tail. Each element still sees the same operations
-# in the same order, so no value moves.
+# central rational over the whole group without a branch. Pass two overwrites
+# the tail. Both AS241 formulas receive the same Float32 inputs as scalar draws.
 #
 # Keep Float64 on the one-pass path. The two-pass transform was slower with
 # half-width vectors: 5.21 against 5.07 ns per element.
@@ -199,6 +198,7 @@ end
     end
     @inbounds for draw in eachindex(raws)
         raw = raws[draw]
+        # Below center_start, unsigned subtraction wraps past center_width.
         if raw - center_start > center_width
             u = _open_midpoint(Float32, raw)
             destination[index+draw-1] = _as241_tail(u, u - 0.5f0)
