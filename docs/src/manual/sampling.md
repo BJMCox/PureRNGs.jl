@@ -46,6 +46,7 @@ letters
 
 A pick accepts any array or range, a tuple, a string, a dict, or a set, as `rand` does in `Random`.
 It consumes and returns exactly what `randsample_next(rng, collection, 1)` does, and the array forms equal `randsample_next`.
+Array populations follow the same placement rules as sampling. A scalar pick from a matching GPU array on the host transfers only the selected element.
 Strings, dicts, and sets reach the drawn position by iteration, so one pick costs time linear in their length.
 A lone tuple is a collection, including a tuple of integers. Use an explicit type for tuple dimensions:
 
@@ -198,7 +199,7 @@ A destination must not alias a `WeightTable`'s prepared storage.
 An array population must match the generator's backend. The same rule applies to array weights.
 A host array with a CUDA-bound generator throws instead of silently copying.
 
-Device-agnostic inputs, such as integer ranges, can serve a device-bound generator.
+Device-agnostic inputs, such as integer ranges and inline `isbits` static arrays, can serve a device-bound generator.
 GPU populations must also support device indexing and storage.
 
 Results stay on the generator's backend. Weighted validation can require a small host result.

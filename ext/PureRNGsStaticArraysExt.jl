@@ -9,6 +9,12 @@ using StaticArrays: StaticArrays, StaticArray
 
 const IR = PureRNGs
 
+# An inline SArray carries its values into a kernel, like a tuple.
+@inline function IR._check_population_device(rng, population::StaticArrays.SArray)
+    isbitstype(typeof(population)) && return true
+    return invoke(IR._check_population_device, Tuple{Any,Any}, rng, population)
+end
+
 # A static type with a static template denotes one sample, not an array of them.
 @inline IR.randset!!(
     rng,

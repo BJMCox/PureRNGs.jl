@@ -9,6 +9,23 @@ const _PickPopulation = Union{AbstractArray,Tuple,AbstractString,AbstractDict,Ab
 @inline _population_value(population, ordinal::UInt64) =
     first(Iterators.drop(population, Int(ordinal) - 1))
 
+# Native kernel arguments are already indexed on the device. Follow wrappers
+# to their storage before running the host placement check.
+@inline _kernel_population(population) = false
+@inline function _kernel_population(population::AbstractArray)
+    storage = parent(population)
+    return storage !== population && _kernel_population(storage)
+end
+
+@inline _pick_access_backend(rng, population) = nothing
+@inline _pick_access_backend(rng, population::AbstractRange) = nothing
+@inline function _pick_access_backend(rng, population::AbstractArray)
+    _kernel_population(population) && return nothing
+    return _check_population_device(rng, population) ? nothing : rng.device
+end
+
+@inline _pick_value(backend, population, ordinal) = _population_value(population, ordinal)
+
 @noinline _empty_collection_error() =
     throw(ArgumentError("cannot pick from an empty collection"))
 
@@ -18,15 +35,16 @@ const _PickPopulation = Union{AbstractArray,Tuple,AbstractString,AbstractDict,Ab
     return cardinality
 end
 
-@inline function _pick_unchecked(rng, position, population, cardinality::UInt64)
+@inline function _pick_unchecked(rng, position, population, cardinality::UInt64, backend)
     offset = _range_offset(rng, position, cardinality)
-    return _population_value(population, offset + one(UInt64))
+    return _pick_value(backend, population, offset + one(UInt64))
 end
 
 @inline function _rand_next_pick(rng::_ScalarUniformGenerators, population)
+    backend = _pick_access_backend(rng, population)
     cardinality = _pick_cardinality(population)
     next_rng = _reserve_scalar(rng, _range_bits(cardinality))
-    return _pick_unchecked(rng, rng.position, population, cardinality), next_rng
+    return _pick_unchecked(rng, rng.position, population, cardinality, backend), next_rng
 end
 
 @inline function _rand_next_pick_array(
@@ -49,9 +67,10 @@ end
     population::_PickPopulation,
     i::Integer,
 )
+    backend = _pick_access_backend(rng, population)
     cardinality = _pick_cardinality(population)
     addressed = _addressed_rng(rng, _range_bits(cardinality), i)
-    return _pick_unchecked(addressed, addressed.position, population, cardinality)
+    return _pick_unchecked(addressed, addressed.position, population, cardinality, backend)
 end
 
 @inline function rand_next(

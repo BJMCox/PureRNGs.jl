@@ -60,6 +60,12 @@ end
     return agnostic
 end
 
+# Array storage is on the host regardless of the placement of its elements.
+@inline function _check_population_device(rng, ::Array)
+    rng.device isa _CPUBackend || _sampling_device_mismatch("population")
+    return false
+end
+
 # Weighted sampling folds Float64 weights; a backend without Float64 rejects it.
 @inline _check_weighted_serviceability(rng) = _check_weighted_backend(_engine_backend(rng))
 @inline _check_weighted_backend(::_BackendToken) = nothing

@@ -9,6 +9,10 @@ const IR = PureRNGs
 
 IR._backend_device(::IR._CUDABackend) = IR.MLDataDevices.CUDADevice(CUDA.device())
 
+@inline IR._kernel_population(::CUDA.CuDeviceArray) = true
+@inline IR._pick_value(::IR._CUDABackend, population, ordinal) =
+    CUDA.@allowscalar IR._population_value(population, ordinal)
+
 const _HAS_WEIGHT_GROUP_SCAN = isdefined(KernelAbstractions, Symbol("@groupscan"))
 
 @static if _HAS_WEIGHT_GROUP_SCAN
