@@ -109,14 +109,15 @@ end
     count::Integer,
     ::Val{W},
     i::Integer,
+    last_index::Integer = i,
 ) where {W}
     stride_hi, stride = _mulhilo64(UInt64(count), UInt64(W))
     if !iszero(stride_hi)
         wide_stride = (UInt128(stride_hi) << 64) | UInt128(stride)
-        return _addressed_rng(rng, wide_stride, i)
+        return _addressed_rng(rng, wide_stride, i, last_index)
     end
-    stride <= typemax(UInt16) && return _addressed_rng(rng, UInt16(stride), i)
-    return _addressed_rng(rng, stride, i)
+    stride <= typemax(UInt16) && return _addressed_rng(rng, UInt16(stride), i, last_index)
+    return _addressed_rng(rng, stride, i, last_index)
 end
 
 # The draws an engine gets from its hooks alone. A built-in generator overrides
@@ -203,6 +204,17 @@ function _engine_rand_next! end
 function _engine_rand_at end
 
 # Addressed draws `indices` are the fill that starts at the first of them.
+@inline _addressed_range_start(rng::AbstractPureRNG, count, width, indices) =
+    _addressed_state(rng, count, width, first(indices), last(indices))
+
+@inline function _addressed_range_start(rng, count, width, indices)
+    lo, hi = first(indices), last(indices)
+    lo < 1 && _invalid_address_index()
+    # Check the final draw against the caller's cursor before starting the fill.
+    final = _addressed_state(rng, count, width, hi)
+    return lo == hi ? final : _addressed_state(rng, count, width, lo)
+end
+
 @inline function _engine_addressed_array(
     rng,
     codec,
@@ -213,7 +225,7 @@ function _engine_rand_at end
     _check_serviceability(rng, T)
     isempty(indices) && return _allocate_draw_array(_engine_backend(rng), T, (0,))
     count, width = _codec_takes(codec, T)
-    addressed = _addressed_state(rng, count, width, first(indices))
+    addressed = _addressed_range_start(rng, count, width, indices)
     destination = _allocate_draw_array(_engine_backend(rng), T, (length(indices),))
     return first(_engine_fill!(addressed, destination, threaded, codec))
 end

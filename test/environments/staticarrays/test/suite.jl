@@ -108,6 +108,13 @@ end
     @test rand_at(last_rng, SVector{1,UInt32}, 1) ==
           SVector(first(rand_next(last_rng, UInt32)))
     @test_throws StreamExhausted rand_at(last_rng, SVector{2,UInt32}, 1)
+    near = Philox4x64(1, capacity - 160)
+    err = try
+        rand_at(near, SVector{2,UInt32}, 2:3)
+    catch e
+        e
+    end
+    @test err isa StreamExhausted && err.bits == 3 * 2 * 32
 end
 
 @testset "mutable static batches contain independent chained draws" begin

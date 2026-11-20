@@ -114,7 +114,7 @@ for (next, next!, at, width) in (
         ) where {SA<:StaticArray}
             isempty(indices) && return IR._allocate_array(rng.device, SA, (0,))
             width = IR.$width(_element(SA))
-            addressed = _static_address(rng, width, length(SA), first(indices))
+            addressed = IR._addressed_range_start(rng, length(SA), Val(Int(width)), indices)
             return first(IR.$next(addressed, SA, length(indices); threaded))
         end
 
