@@ -171,6 +171,9 @@ end
                 rng,
                 _advance_stream_block_unchecked(block, UInt64($(3chunks + source))),
             ))
+        # A ChaCha normal group reads 23 blocks. Keep the first eight cores
+        # inline and share the rest to bound the generated code size.
+        R <: ChaCha && source >= 8 && (words = :(Base.@noinline $words))
         push!(body, :($(Symbol(:group_, source)) = $words))
     end
     raws = map(0:(draws-1)) do draw
