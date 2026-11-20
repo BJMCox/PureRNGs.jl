@@ -460,6 +460,7 @@ end
 
 @inline _beta_fraction(device, delta) = _beta_from_log_difference(delta)
 @inline function _beta_fraction(::_MetalBackend, delta)
+    _primal_float(typeof(delta)) === Float32 || return _beta_from_log_difference(delta)
     _primal_value(delta) < -log(floatmin(Float32)) &&
         return _beta_from_log_difference(delta)
     return _beta_from_units(_beta_subnormal_units(delta, Float32))

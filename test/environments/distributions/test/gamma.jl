@@ -93,6 +93,17 @@ end
     end
 end
 
+@testset "Float64 Beta host draws on a Metal-bound stream" begin
+    rng = IR.MLDataDevices.MetalDevice()(Threefry4x64(0))
+    d = Beta(0.01, 1.0)
+    x, second = rand_next(rng, Gamma(d.α))
+    y, expected_after = rand_next(second, Gamma(d.β))
+    value, after = rand_next(rng, d)
+    @test value ≈ x / (x + y) rtol = 256eps(Float64)
+    @test rand_at(rng, d, 1) == value
+    @test after == expected_after
+end
+
 @testset "tiny Beta and Dirichlet shapes normalize without log overflow" begin
     for T in (Float64, Float32),
         small in (nextfloat(zero(T)), T === Float64 ? T(1e-320) : T(1e-40), 32floatmin(T))
