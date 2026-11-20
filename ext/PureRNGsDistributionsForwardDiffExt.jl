@@ -14,7 +14,7 @@ include("distributions_gamma.jl")
 
 const _DualMapped = _FloatMapped{<:ForwardDiff.Dual}
 const _DualGammaFamily = _GammaFamily{<:ForwardDiff.Dual}
-const _DualDistribution = Union{_DualMapped,_DualGammaFamily}
+const _DualDistribution{T<:ForwardDiff.Dual} = Union{_FloatMapped{T},_GammaFamily{T}}
 
 IR._primal_float(::Type{<:ForwardDiff.Dual{<:Any,V}}) where {V} = IR._primal_float(V)
 IR._primal_value(value::ForwardDiff.Dual) = IR._primal_value(ForwardDiff.value(value))
@@ -111,10 +111,10 @@ IR._engine_rand_at(rng, d::_DualDistribution, index::Integer) =
 # A dual is a plain bits type, so a device fill runs the generic kernel.
 function IR._engine_rand_next!(
     rng,
-    d::_DualDistribution,
-    destination::AbstractArray{<:ForwardDiff.Dual};
+    d::_DualDistribution{T},
+    destination::AbstractArray{T};
     threaded::Bool = false,
-)
+) where {T<:ForwardDiff.Dual}
     IR._check_serviceability(rng, IR._primal_float(Distributions.partype(d)))
     IR._check_fill_device(rng, destination)
     return IR._engine_fill!(rng, destination, threaded, _dual_codec(rng, d))
@@ -142,10 +142,10 @@ IR.rand_at(rng::IR._ScalarUniformGenerators, d::_DualDistribution, index::Intege
     IR._engine_rand_at(rng, d, index)
 IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
-    d::_DualDistribution,
-    destination::AbstractArray{<:ForwardDiff.Dual};
+    d::_DualDistribution{T},
+    destination::AbstractArray{T};
     threaded::Bool = false,
-) = IR._engine_rand_next!(rng, d, destination; threaded)
+) where {T<:ForwardDiff.Dual} = IR._engine_rand_next!(rng, d, destination; threaded)
 
 IR.rand_next(
     rng::IR._ScalarUniformGenerators,

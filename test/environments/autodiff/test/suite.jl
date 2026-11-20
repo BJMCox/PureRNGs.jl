@@ -234,6 +234,24 @@ end
     end
 end
 
+@testset "dual fills preserve their parameter representation" begin
+    rng = Philox4x32(12)
+    p = ForwardDiff.Dual{:location}(1.0, 1e-60)
+    d = Normal(p, one(p))
+    values, after = rand_next!(rng, d, zeros(typeof(p), 3))
+    @test all(x -> ForwardDiff.partials(x, 1) == 1e-60, values)
+    @test (values, after) == rand_next(rng, d, 3)
+    for T in (
+        ForwardDiff.Dual{:location,Float32,1},
+        ForwardDiff.Dual{:location,Float64,2},
+        ForwardDiff.Dual{:other,Float64,1},
+    )
+        destination = zeros(T, 3)
+        @test_throws MethodError rand_next!(rng, d, destination)
+        @test all(iszero, destination)
+    end
+end
+
 # Device fills differentiate the Gamma family through the core's tangents, since
 # rules on the Gamma primitives do not reach a kernel. On the CPU they match the
 # dual draw, which reaches the implicit derivative through its own methods.
@@ -286,6 +304,11 @@ include(joinpath(@__DIR__, "..", "..", "..", "engine_fixture.jl"))
         @test rand_at(engine, d, 7) === rand_at(rng, d, 7)
         @test unwrap(rand_next(engine, d, 65)) == rand_next(rng, d, 65)
     end
+    @test_throws MethodError rand_next!(
+        engine,
+        Normal(dual(0.5), 2.0),
+        zeros(ForwardDiff.Dual{:engine,Float32,1}, 3),
+    )
     d = MvNormal([dual(0.5), dual(-1.0)], [2.0 0.3; 0.3 1.0])
     @test unwrap(rand_next(engine, d)) == rand_next(rng, d)
     d = Dirichlet([dual(0.5), dual(1.5), dual(2.0)])
