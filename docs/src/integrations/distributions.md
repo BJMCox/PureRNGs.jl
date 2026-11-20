@@ -86,13 +86,12 @@ retries a draw. The exact random bits, order, and continuation agree within an
 execution site, while transcendental transforms may differ between CPU, CUDA,
 and compiled execution.
 
-CUDA supports these direct methods.
-AMDGPU serves the same direct methods as CUDA.
-Reactant supports scalar, continuation, and addressed forms for these
-continuous distributions, using its native compiled arithmetic. This does not
-add parameter-gradient support or a general distribution AD guarantee.
-Metal serves every distribution with `Float32` parameters; `Float64`
-parameters need Float64 arithmetic, which Metal lacks.
+CUDA supports these eager methods. AMDGPU provides preview paths for them.
+For device execution on Metal, use the `Float32` parameter forms or
+`DiscreteUniform`. See [Devices](@ref) for device-wide constraints.
+Reactant supports scalar `rand_next` and `rand_at` for the fixed forms listed
+here, using native compiled arithmetic. See [Differentiation and compilation](@ref)
+for the compiled and parameter-gradient scopes.
 
 ## Categorical
 

@@ -98,8 +98,8 @@ end
     return _randsample_next_unweighted!(rng, population, destination, true, threaded)
 end
 
-# Characters are uniform over the Unicode scalar values, as in `Random`: an
-# offset over the 1,112,064 values steps over the 2,048 surrogates.
+# The 64-bit range map selects one of 1,112,064 Unicode scalar ordinals
+# and the offset skips the 2,048 surrogates.
 struct _CharCodec <: _MappedFillCodec end
 
 const _CHAR_SPAN = UInt64(0x110000 - 0x800)

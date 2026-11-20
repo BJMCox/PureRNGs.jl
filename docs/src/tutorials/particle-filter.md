@@ -114,7 +114,7 @@ exact = kalman_means(observations)
 maximum(abs.(result.estimates - exact))
 ```
 
-The particle estimate has Monte Carlo error. Increasing the particle count reduces that error, not floating-point differences between backends.
+Larger particle counts generally reduce Monte Carlo error. Floating-point differences between backends can remain.
 
 ## Run the array version on CUDA
 

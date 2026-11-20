@@ -63,8 +63,9 @@ _, rng = rand_next!(rng, buffer; threaded=true)
 ```
 
 Destination fills, allocating draws, sampling, and `splitrng(rng, n)` all take the keyword.
-It never changes the values: a threaded fill writes the same stream as the serial one.
-It affects CPU execution only. Fills too small to split stay on the calling task.
+Threaded and serial CPU fills write the same stream.
+Fills stay on the calling task when they are too small to split or their storage
+cannot be partitioned safely, as with some packed Boolean wrappers.
 Leave it off inside your own threaded loop, so the outer loop owns the parallelism.
 
 Each internally threaded call creates tasks and synchronization objects.

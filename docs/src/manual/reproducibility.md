@@ -60,8 +60,8 @@ Statistical stream tests do not validate distribution transforms or GPU performa
 
 ### Statistical release gate
 
-Before the first package release, complete both batteries for all 17 named
-configurations above. `ChaCha` and `ChaCha12` denote the same configuration.
+The archived campaign completed both batteries for all 17 named configurations
+above. `ChaCha` and `ChaCha12` denote the same configuration.
 BigCrush requires both `UInt32` and `Float64` lanes. PractRand requires a 1 TiB
 root stream and 256 GiB each of split-eight and `subrng`-eight streams, with
 one native word per child in round-robin order. Every stream starts from

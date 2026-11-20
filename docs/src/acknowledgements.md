@@ -55,4 +55,4 @@ Software repositories were accessed on 22 September 2026.
 
 [^testu01]: L'Ecuyer, Pierre, and Richard Simard. (2007). *TestU01: A C Library for Empirical Testing of Random Number Generators*. *ACM Transactions on Mathematical Software*, **33**(4), article 22, pp. 1–40. [doi:10.1145/1268776.1268777](https://doi.org/10.1145/1268776.1268777).
 
-[^practrand]: Doty-Humphrey, Chris. *PractRand (Practically Random)* (version 0.96) [Computer software]. [Project website and documentation](https://pracrand.sourceforge.net/).
+[^practrand]: Doty-Humphrey, Chris. *PractRand (Practically Random)* (version 0.96) [Computer software]. [SourceForge project and documentation links](https://sourceforge.net/projects/pracrand/).

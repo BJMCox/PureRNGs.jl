@@ -13,7 +13,7 @@ evens
 ```
 
 Ranges support signed and unsigned integer element types from 8 through 128 bits.
-The 128-bit element types run on the CPU only.
+Use host arithmetic for 128-bit elements. See [Devices](@ref).
 
 Each range draw consumes a fixed number of bits based on its cardinality.
 
@@ -63,7 +63,7 @@ matrix, rng = rand_next(rng, Float64, (2, 3))
 @assert size(matrix) == (2, 3)
 ```
 
-`rand_next(rng, Char)` is uniform over the 1,112,064 Unicode scalar values, as in `Random`.
+`rand_next(rng, Char)` uses the 64-bit finite-grid range mapping over the 1,112,064 Unicode scalar values.
 It draws the offset `k` from `0:0x10f7ff` and skips the surrogates: `k < 0xd800 ? Char(k) : Char(k + 0x800)`.
 
 ## Sample a population

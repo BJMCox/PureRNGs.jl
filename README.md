@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/BJMCox/PureRNGs.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/BJMCox/PureRNGs.jl/actions/workflows/CI.yml)
 [![Coverage](https://codecov.io/gh/BJMCox/PureRNGs.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/BJMCox/PureRNGs.jl)
-[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://bjmcox.github.io/PureRNGs.jl/)
+[![Docs](https://img.shields.io/badge/docs-main-blue.svg)](https://bjmcox.github.io/PureRNGs.jl/)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-blue.svg)](LICENSE)
 
 Counter-based random numbers for Julia, with explicit state and CPU/GPU array generation.
