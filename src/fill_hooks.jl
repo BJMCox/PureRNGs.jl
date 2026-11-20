@@ -6,10 +6,15 @@
 # device method, which returns the launchable backend.
 @inline _fill_backend(::_CPUBackend, destination) = _CPU_BACKEND
 
-# Indexing by an index vector the package built, so every index is in bounds.
-# The KernelAbstractions extension gives GPU backends kernels for both, since
-# GPUArrays' indexing reads the index extrema back to the host to check them.
-_gather(backend, source, indices) = source[indices]
+# Gather takes one-based ordinals in linear order, even for an offset source.
+# The KernelAbstractions extension gives GPU backends kernels for gather and
+# scatter, since GPUArrays' indexing checks the index extrema on the host.
+function _gather(backend, source, ordinals)
+    start = firstindex(source)
+    isone(start) && return source[ordinals]
+    return eltype(source)[source[start+(ordinal-1)] for ordinal in ordinals]
+end
+
 function _scatter!(backend, destination, indices, source)
     destination[indices] = source
     return destination

@@ -323,7 +323,7 @@ function _weighted_unique_sample(
     exponentials, next_rng = randexp_next(rng, Float64, length(converted); threaded)
     keys = _race_key.(exponentials, converted)
     order = _race_order(rng, keys, count)
-    return _gather(_fill_backend(rng.device, keys), vec(indexed), order), next_rng
+    return _gather(_fill_backend(rng.device, keys), indexed, order), next_rng
 end
 
 function _randsample_next_weighted(

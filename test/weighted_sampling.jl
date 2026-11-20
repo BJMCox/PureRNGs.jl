@@ -387,6 +387,14 @@ end
     @test randsample(rng, 1:7, weights, 5; replace = false) == exact[1:5]
 end
 
+@testset "weighted sampling selects the first supported ordinal on offset axes" begin
+    rng = Philox4x32(42)
+    population = ZeroBasedVector([11, 22, 33])
+    _, expected_next = randexp_next(rng, Float64, length(population))
+    @test randsample_next(rng, population, [1.0, 0.0, 0.0], 1; replace = false) ==
+          ([11], expected_next)
+end
+
 @testset "weighted samples without replacement follow successive sampling" begin
     weights = [1.0, 2.0, 3.0, 4.0]
     total = sum(weights)

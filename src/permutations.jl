@@ -167,7 +167,7 @@ end
 function _shuffle_next!(rng::AbstractPureRNG, values::AbstractArray, threaded::Bool)
     _check_sampling_fill_device(rng, values)
     order, next_rng = _randperm_next(rng, length(values), threaded)
-    copyto!(values, _gather(_fill_backend(rng.device, order), vec(values), order))
+    copyto!(values, _gather(_fill_backend(rng.device, order), values, order))
     return values, next_rng
 end
 

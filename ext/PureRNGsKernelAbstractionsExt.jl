@@ -471,9 +471,9 @@ function IR._order_device_key_runs!(
 end
 
 
-KernelAbstractions.@kernel function _gather_kernel!(destination, source, indices)
+KernelAbstractions.@kernel function _gather_kernel!(destination, source, ordinals)
     slot = @index(Global, Linear)
-    destination[slot] = source[indices[slot]]
+    destination[slot] = source[firstindex(source)+(ordinals[slot]-1)]
 end
 
 KernelAbstractions.@kernel function _scatter_kernel!(destination, indices, source)
@@ -481,15 +481,15 @@ KernelAbstractions.@kernel function _scatter_kernel!(destination, indices, sourc
     destination[indices[slot]] = source[slot]
 end
 
-function IR._gather(backend::KernelAbstractions.Backend, source, indices)
+function IR._gather(backend::KernelAbstractions.Backend, source, ordinals)
     # A range has no device storage; otherwise preserve the source's storage kind.
     destination = if source isa AbstractRange
-        similar(indices, eltype(source), length(indices))
+        similar(ordinals, eltype(source), length(ordinals))
     else
-        similar(source, length(indices))
+        similar(source, length(ordinals))
     end
-    isempty(indices) ||
-        _gather_kernel!(backend)(destination, source, indices; ndrange = length(indices))
+    isempty(ordinals) ||
+        _gather_kernel!(backend)(destination, source, ordinals; ndrange = length(ordinals))
     return destination
 end
 

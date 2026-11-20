@@ -135,6 +135,18 @@ end
     end
 end
 
+@testset "sampling and shuffling follow the population's linear order" begin
+    rng = Philox4x32(42)
+    for population in
+        (ZeroBasedVector([11, 22, 33]), IdentityAxesMatrix(reshape(collect(11:16), 2, 3)))
+        order, expected_next = randperm_next(rng, length(population))
+        expected = vec(population.data)[order]
+        @test randsample_next(rng, population; replace = false) == (expected, expected_next)
+        @test shuffle_next!(rng, population) === (population, expected_next)
+        @test vec(population.data) == expected
+    end
+end
+
 @testset "Random permutations require the mutable bridge" begin
     rng = Philox4x32(0x7e6)
     values = collect(1:20)
