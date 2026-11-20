@@ -206,6 +206,33 @@ end
     end
 end
 
+@testset "Final grouped Float32 normals agree with addressed draws" begin
+    position = (UInt128(typemax(UInt64)) - 22) << 7
+    rng = Philox4x32(4211, position)
+    draws, next_rng = randn_next(rng, Float32, 128)
+    @test all(i -> draws[i] === randn_at(rng, Float32, i), eachindex(draws))
+    @test rngposition(next_rng) == position + 128 * 23
+end
+
+@testset "Grouped Float32 normals follow the scalar stream for $F" for F in (
+    LAYOUT_GENERATORS...,
+    Threefry4x32,
+    PCG4D,
+)
+    rng = F(4211, 17)
+    count = 2 * Int(IR._block_bits(rng)) + 3
+    values, next_rng = randn_next(rng, Float32, count)
+    @test isequal(values, [randn_at(rng, Float32, i) for i in eachindex(values)])
+    @test next_rng.position == _reference_position(rng, 23 * count)
+end
+
+@testset "Grouped Float32 normals cross a low-word carry" begin
+    rng = _positioned(Philox4x64, 4211, typemax(UInt64) - UInt64(10), UInt16(0))
+    values, next_rng = randn_next(rng, Float32, 257)
+    @test isequal(values, [randn_at(rng, Float32, i) for i in eachindex(values)])
+    @test next_rng.position == _reference_position(rng, 23 * length(values))
+end
+
 @testset "normal generator and mixed positions" begin
     # A normal draw leaves the stream where a uniform draw can carry on.
     for F in GENERATOR_TYPES, T in NORMAL_TYPES
