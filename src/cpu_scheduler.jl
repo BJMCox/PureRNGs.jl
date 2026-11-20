@@ -32,9 +32,8 @@ end
         return nothing
     end
     next = Threads.Atomic{Int}(1)
-    tasks = Vector{Task}(undef, min(Threads.nthreads(), workitems))
-    for t in eachindex(tasks)
-        tasks[t] = Threads.@spawn begin
+    @sync for _ = 1:min(Threads.nthreads(), workitems)
+        Threads.@spawn begin
             while true
                 workitem = Threads.atomic_add!(next, 1)
                 workitem > workitems && break
@@ -43,7 +42,6 @@ end
             end
         end
     end
-    foreach(wait, tasks)
     return nothing
 end
 
