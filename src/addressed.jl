@@ -25,11 +25,11 @@ end
 @inline _addressed_rng(rng::AbstractPureRNG, width::_AddressWidth, i::_AddressIndex64) =
     _addressed_rng_device(rng, width, i)
 
-# An index too wide for UInt64 needs BigInt arithmetic, so this body stays out
-# of the fast path. Both position widths are the same walk over stream bits:
+# An index or stride too wide for UInt64 needs BigInt arithmetic, so this
+# body stays out of the fast path. Both position widths walk over stream bits:
 # `rngposition` reads the current bit count and `_position_from_bits` writes it
 # back, and both report the terminal state as the full capacity.
-@noinline function _addressed_rng(rng::AbstractPureRNG, width::_AddressWidth, i::Integer)
+@noinline function _addressed_rng(rng::AbstractPureRNG, width::Integer, i::Integer)
     i < 1 && _invalid_address_index()
     offset = (BigInt(i) - 1) * BigInt(width)
     span = offset + BigInt(width)

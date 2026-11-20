@@ -24,6 +24,40 @@ using Distributions.PDMats.SparseArrays: sparse, nonzeros
     end
 end
 
+@testset "MvNormal uses complete addressed spans" begin
+    rng = Philox4x64(9, 3)
+    distribution = MvNormal(zeros(2), 1.0I)
+    for index in (1 << 62, typemax(Int), UInt64(1) << 63, big(1) << 129)
+        start = (big(index) - 1) * length(distribution)
+        expected = [randn_at(rng, Float64, start + component) for component = 1:2]
+        @test rand_at(rng, distribution, index) == expected
+    end
+
+    narrow = Philox2x32(9)
+    near_end = Philox2x32(9, (UInt128(1) << 62) - 3 * 52)
+    exact_end = Philox2x32(9, (UInt128(1) << 62) - 4 * 52)
+    @test rand_at(exact_end, distribution, 2) ==
+          [randn_at(exact_end, Float64, component) for component = 3:4]
+
+    wide_count = 1 << 62
+    wide_distribution = MvNormal(Distributions.Zeros{Float64}(wide_count), 1.0I)
+    for (held, d, index, span) in (
+        (near_end, distribution, 2, UInt128(4 * 52)),
+        (narrow, wide_distribution, 1, UInt128(wide_count) * 52),
+    )
+        exhausted = try
+            rand_at(held, d, index)
+            nothing
+        catch error
+            error
+        end
+        @test exhausted isa StreamExhausted
+        @test exhausted.bits == span
+    end
+
+    @test isempty(rand_at(rng, MvNormal(Float64[], 1.0I), big(1) << 200))
+end
+
 @testset "sparse MvNormal fills match allocating draws" begin
     rng = Philox4x32(123)
     d = MvNormal([1.0, -2.0], PDSparseMat(sparse([2.0 0.3; 0.3 1.0])))

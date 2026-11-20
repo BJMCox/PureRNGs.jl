@@ -110,7 +110,11 @@ end
     ::Val{W},
     i::Integer,
 ) where {W}
-    stride = UInt64(count) * UInt64(W)
+    stride_hi, stride = _mulhilo64(UInt64(count), UInt64(W))
+    if !iszero(stride_hi)
+        wide_stride = (UInt128(stride_hi) << 64) | UInt128(stride)
+        return _addressed_rng(rng, wide_stride, i)
+    end
     stride <= typemax(UInt16) && return _addressed_rng(rng, UInt16(stride), i)
     return _addressed_rng(rng, stride, i)
 end

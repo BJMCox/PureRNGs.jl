@@ -258,9 +258,13 @@ function IR._engine_rand_next(rng, d::_FloatMvNormal)
 end
 function IR._engine_rand_at(rng, d::_FloatMvNormal, index::Integer)
     index < 1 && IR._invalid_address_index()
-    start = Base.Checked.checked_mul(index - one(index), length(d)) + 1
-    values = IR._engine_randn_at(rng, eltype(d), start:(start+length(d)-1))
-    return _whitened_to_mvnormal!(IR._engine_backend(rng), d, values)
+    T = eltype(d)
+    IR._check_serviceability(rng, T)
+    count = length(d)
+    iszero(count) && return first(IR._engine_rand_next(rng, d))
+    width = Val(Int(IR._normal_bits(T)))
+    addressed = IR._addressed_state(rng, count, width, index)
+    return first(IR._engine_rand_next(addressed, d))
 end
 function IR._engine_rand_next(rng, d::_FloatMvNormal, n::Integer; threaded::Bool = false)
     values, next_rng = IR._engine_randn_next(rng, eltype(d), length(d), n; threaded)
