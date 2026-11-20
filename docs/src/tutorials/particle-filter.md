@@ -24,6 +24,11 @@ Compute the mean before resampling to avoid extra resampling noise.
 ```@example particle_filter
 using PureRNGs
 
+@inline function relative_logweight(y, particle, reference)
+    x = Float64(particle)
+    return (4.0 * (x - reference)) * y - 2.0 * x^2
+end
+
 function bootstrap_filter(root, observations, count; threaded = false)
     initial_rng = subrng(root, 1)
     propagation_rng = subrng(root, 2)
@@ -36,10 +41,12 @@ function bootstrap_filter(root, observations, count; threaded = false)
     estimates = Vector{Float64}(undef, length(observations))
 
     for (t, observation) in enumerate(observations)
+        y = Float64(observation)
+        isfinite(y) || throw(ArgumentError("observations must convert to finite Float64 values"))
         _, propagation_rng = randn_next!(propagation_rng, noise; threaded)
         @. particles = 0.9f0 * particles + 0.3f0 * noise
-        y = Float32(observation)
-        @. weights = -0.5 * ((y - particles) / 0.5f0)^2
+        reference = y < 0 ? minimum(particles) : maximum(particles)
+        @. weights = relative_logweight(y, particles, reference)
         peak = maximum(weights)
         @. weights = exp(weights - peak)
         @. weighted = particles * weights
@@ -63,9 +70,17 @@ result = bootstrap_filter(Philox4x32(123456), observations, 65_536)
 result.estimates
 ```
 
-Use positive particle counts and finite observations in this example.
-Subtracting the maximum log weight keeps the largest weight equal to one.
-The omitted Gaussian normalization constant cancels from relative weights.
+Use positive particle counts and observations that convert to finite `Float64` values.
+Expanding the squared residual and dropping the terms common to every particle
+gives the log score `4y(x - reference) - 2x^2`.
+For nonnegative observations use the largest particle as the reference, and for
+negative observations use the smallest. The observation-dependent term is
+nonpositive and the reference score stays finite.
+Subtracting the maximum log score gives a weight of one to at least one particle.
+Negative scores that overflow contribute zero weight.
+For observations far from the particle cloud, small relative weights can round
+to zero and the estimate can concentrate on the particle at the corresponding
+end of the cloud.
 
 Separate purpose keys isolate initialization, propagation, and resampling.
 Continue the returned propagation and resampling states at each step, rather than recreating their keys.
@@ -99,7 +114,7 @@ exact = kalman_means(observations)
 maximum(abs.(result.estimates - exact))
 ```
 
-The particle estimate has Monte Carlo error. Increasing the particle count reduces that error, not floating-point differences between backends.
+Larger particle counts generally reduce Monte Carlo error. Floating-point differences between backends can remain.
 
 ## Run the array version on CUDA
 
@@ -137,8 +152,25 @@ It does not partition one large filter into separately resampled islands.
 The launch uses 256 particles per filter.
 The reduction requires a power-of-two particle count, with exactly that many threads per block.
 The shared arrays hold particles, a cumulative weight table, and weighted moments.
+Supply observations that convert to finite `Float64` values before launching.
 
 ```julia
+function filter_maximum!(scratch, value, lane, count)
+    scratch[lane] = value
+    CUDA.sync_threads()
+    stride = count ÷ 2
+    while stride > 0
+        if lane <= stride
+            scratch[lane] = max(scratch[lane], scratch[lane+stride])
+        end
+        CUDA.sync_threads()
+        stride ÷= 2
+    end
+    result = scratch[1]
+    CUDA.sync_threads() # Finish all reads before reusing the scratch space.
+    return result
+end
+
 function fused_particle_filters!(
     estimates,
     final_particles,
@@ -161,21 +193,13 @@ function fused_particle_filters!(
     for t in axes(observations, 1)
         address = (t - 1) * N + lane
         x = 0.9f0 * particles[lane] + 0.3f0 * randn_at(propagation_rng, Float32, address)
-        logweight = -0.5 * ((observations[t, filter] - x) / 0.5f0)^2
+        y = Float64(observations[t, filter])
         particles[lane] = x
-        cumulative[lane] = logweight
-        CUDA.sync_threads()
 
-        stride = N ÷ 2
-        while stride > 0
-            if lane <= stride
-                cumulative[lane] = max(cumulative[lane], cumulative[lane+stride])
-            end
-            CUDA.sync_threads()
-            stride ÷= 2
-        end
-        peak = cumulative[1]
-        CUDA.sync_threads() # All threads read the maximum before reusing its storage.
+        direction = y < 0 ? -1.0 : 1.0
+        extreme = filter_maximum!(cumulative, direction * x, lane, N)
+        logweight = relative_logweight(y, x, direction * extreme)
+        peak = filter_maximum!(cumulative, logweight, lane, N)
         weight = exp(logweight - peak)
         cumulative[lane] = weight
         moments[lane] = Float64(x) * weight
@@ -194,6 +218,18 @@ function fused_particle_filters!(
         total = cumulative[N]
         if lane == 1
             estimates[t, filter] = moments[N] / total
+        end
+        CUDA.sync_threads() # Every lane reads the total before repairing the CDF.
+
+        # A parallel sum can round successive prefixes out of order. Keep
+        # their running maximum, clipped to the original total.
+        offset = 1
+        while offset < N
+            left = lane > offset ? cumulative[lane-offset] : 0.0
+            CUDA.sync_threads()
+            cumulative[lane] = min(total, max(cumulative[lane], left))
+            CUDA.sync_threads()
+            offset *= 2
         end
 
         target = min(rand_at(resampling_rng, Float64, address) * total, prevfloat(total))
@@ -252,9 +288,9 @@ The mean across small filters is not equivalent to one filter with their combine
 Its Monte Carlo standard error does not measure finite-particle bias.
 For different series, put each series in a column of `device_observations` instead.
 
-This example owns its parallel cumulative scan and categorical lookup.
-It uses the same multinomial resampling law, but does not promise the exact stream mapping of `randsample_next!`.
-The tree scan, GPU arithmetic, and different particle counts also prevent bitwise comparison with the array version.
+The fused filter implements multinomial resampling through its own parallel CDF and categorical lookup.
+A prefix maximum clipped to the original total makes the rounded CDF nondecreasing for binary search.
+Rounding can still erase small intervals. The address mapping, arithmetic and different particle counts can produce different samples from the array version.
 Use the Kalman solution to check the statistical target.
 
 One block-sized filter does not occupy a whole GPU.
@@ -268,12 +304,13 @@ The same compiled kernel served 64, 256, and 1,024 observations on each GPU belo
 The loop does not unroll the observation sequence.
 A different `Val(N)` particle count, generator type, or GPU target can require a new specialization.
 
-First kernel requests took 1.38–3.15 seconds across these hosts.
+First requests for the earlier kernel took 1.38–3.15 seconds across these hosts.
 These single probes include host compiler work and GPU compilation after CUDA context creation.
 They exclude package loading and process startup.
 The first launch also has host compilation costs, so warm the complete call before timing.
 
-The following results use the full-loop kernel above with 256 separate filters, each with 256 particles.
+The following historical results use the earlier full-loop kernel with 256 separate filters, each with 256 particles.
+That version predates the centered likelihood and CDF repair shown above.
 They use `Threefry4x32(123456)`, Float32 particles, and Float64 weights and estimates.
 The observations repeat the six-value sequence above to the stated length.
 These are not results for one 65,536-particle filter or for raw RNG throughput.
@@ -289,6 +326,12 @@ Each cell spans the medians of two warmed 10-second BenchmarkTools trials, not a
 Each timed call initializes particles, runs all observations, and synchronizes once at the end.
 The calls reuse buffers and leave outputs on the GPU. Host transfers are not timed.
 CPU, driver, and CUDA runtime versions differ across hosts, so these are whole-host results, not isolated GPU comparisons.
+
+One warmed 10-second trial of the revised kernel on the GH200 gave a
+2.127 ms median and a 2.124 ms minimum at 256 observations. It used the same
+particle and filter counts, Julia 1.13.3, CUDA.jl 6.5.1, BenchmarkTools 1.8.0,
+one Julia thread, and the package source at `7429695`. The GPU was idle
+before the trial.
 
 After the CUDA example above, install BenchmarkTools in your working environment and time a longer sequence:
 

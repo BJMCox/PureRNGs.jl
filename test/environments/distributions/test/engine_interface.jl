@@ -52,6 +52,18 @@ engine_result_type(d) = partype(d)
     end
 end
 
+@testset "an external engine receives the whole MvNormal address" begin
+    rng = Philox4x32(0xd19, 5)
+    engine = WrappedEngine(rng)
+    distribution = MvNormal([0.5, -1.0], Diagonal([2.0, 0.5]))
+    @test rand_at(engine, distribution, 3) == rand_at(rng, distribution, 3)
+    @test LAST_ADDRESS[] == (2, 52, 3)
+
+    wide = UInt64(1) << 63
+    @test_throws OverflowError rand_at(engine, distribution, wide)
+    @test LAST_ADDRESS[] == (2, 52, wide)
+end
+
 @testset "an external engine serves Dirichlet columns and sees whole spans" begin
     d = Dirichlet([0.5, 1.5, 2.0])
     rng = Philox4x32(0xd17, 5)

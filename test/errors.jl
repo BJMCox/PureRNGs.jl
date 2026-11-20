@@ -7,6 +7,20 @@ function _thrown_message(call)
     return ""
 end
 
+@testset "threaded fills join failed writers" begin
+    destination = TaskWriteProbe(UInt32(1):UInt32(16384))
+    failures = try
+        rand_next!(Philox4x32(17), destination; threaded = true)
+    catch err
+        err
+    end
+    @test all(failure -> istaskfailed(failure.task), failures.exceptions)
+    @test Set(failure.task for failure in failures.exceptions) == Set(
+        destination.writers[i] for
+        i in eachindex(destination) if isassigned(destination.writers, i)
+    )
+end
+
 @testset "Fill device mismatch names both devices" begin
     rng = Philox4x32(0x6a4)
     message = _thrown_message(

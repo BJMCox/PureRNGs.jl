@@ -48,8 +48,8 @@ Keep arrays and the active device consistent.
 
 ## Know where scalar arithmetic runs
 
-A scalar or addressed call made on the host runs on the host, even when the generator has a GPU token.
-The same operation inside a GPU kernel runs on that GPU.
+Primitive scalar draws and scalar addressed draws made on the host run on the host, even when the generator has a GPU token.
+Supported scalar operations called inside a GPU kernel execute there.
 
 Use allocating draws, fills, or [GPU kernels](@ref) to generate values on the device.
 
@@ -59,19 +59,20 @@ Use allocating draws, fills, or [GPU kernels](@ref) to generate values on the de
 |:--|:--|:--|
 | CPU | Required release gate | Full eager API |
 | CUDA | Required local release gate | Primitive draws, ranges, sampling, supported distributions |
-| AMDGPU | Preview | Every operation CUDA serves, through the portable kernel path |
-| Metal | Experimental | Every operation without Float64 or 128-bit arithmetic |
+| AMDGPU | Preview | Portable paths for the documented CUDA operations |
+| Metal | Experimental | Primitive fills, ranges, unweighted sampling, permutations, supported eager distributions |
 
 AMDGPU is a backend extension, not a required release gate. It has no tuned
 fill plan, so fills run the portable kernel path. See [Sampling](@ref) for
 weighted preparation and device rules.
 
-CUDA and AMDGPU fills reject the 128-bit integer element types, which run on the CPU only.
+Use host scalar calls or CPU arrays for 128-bit integers. A host scalar call
+preserves the backend binding of a GPU-bound generator.
 
 Metal has no Float64 or 128-bit integer arithmetic.
-Its device execution serves every generator and every result type except `Float64`, `ComplexF64`, and the 128-bit integers, including ranges, unweighted sampling, permutations, and `Float32` distributions.
-Weighted sampling, `WeightTable`, and `Categorical` fold Float64 weights, so a Metal generator rejects them.
-Host scalar operations are not restricted by the Metal token.
+Use supported device result types, including `Float32` and `ComplexF32`.
+Device execution of weighted sampling, `WeightTable`, and `Categorical` requires Float64 weight arithmetic.
+See [Distributions](@ref) for result and parameter restrictions.
 Unsupported host-called operations throw even for empty outputs.
 
 `BitArray` fills are CPU-only.

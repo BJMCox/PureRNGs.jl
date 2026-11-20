@@ -64,6 +64,46 @@ end
     end
 end
 
+@testset "representable Student-t tails" begin
+    for (seed, ν) in ((42, 0.02f0), (0, 0.002))
+        rng = Philox4x32(seed)
+        T = typeof(ν)
+        z, second = randn_next(rng, T)
+        log_g = gamma_reference(second, ν / 2, one(T); logarithm = true, wide_log = true)
+        expected = T(z * sqrt(BigFloat(ν) / (2exp(log_g))))
+        value, after = rand_next(rng, TDist(ν))
+        @test isfinite(expected) && isfinite(value)
+        @test value ≈ expected rtol = 2eps(T) * abs(log(abs(expected)))
+        @test after == last(rand_next(second, Gamma(ν / 2)))
+    end
+end
+
+@testset "Beta tails retain representable interior values" begin
+    for (seed, a, b) in ((143, 0.03f0, 1.0f0), (76, 1.0f0, 0.05f0), (67, 1.0, 0.05))
+        rng = Threefry4x64(seed)
+        T = typeof(a)
+        _, second = rand_next(rng, Gamma(a))
+        log_x = gamma_reference(rng, a, one(T); logarithm = true, wide_log = true)
+        log_y = gamma_reference(second, b, one(T); logarithm = true, wide_log = true)
+        expected = T(inv(1 + exp(log_y - log_x)))
+        value, after = rand_next(rng, Beta(a, b))
+        @test zero(T) < expected < one(T)
+        @test value == expected
+        @test after == last(rand_next(second, Gamma(b)))
+    end
+end
+
+@testset "Float64 Beta host draws on a Metal-bound stream" begin
+    rng = IR.MLDataDevices.MetalDevice()(Threefry4x64(0))
+    d = Beta(0.01, 1.0)
+    x, second = rand_next(rng, Gamma(d.α))
+    y, expected_after = rand_next(second, Gamma(d.β))
+    value, after = rand_next(rng, d)
+    @test value ≈ x / (x + y) rtol = 256eps(Float64)
+    @test rand_at(rng, d, 1) == value
+    @test after == expected_after
+end
+
 @testset "tiny Beta and Dirichlet shapes normalize without log overflow" begin
     for T in (Float64, Float32),
         small in (nextfloat(zero(T)), T === Float64 ? T(1e-320) : T(1e-40), 32floatmin(T))
@@ -220,8 +260,8 @@ end
               T(1.5) / gamma_reference(rng, T(2.5), T(1))
         log_x = gamma_reference(rng, T(0.3), T(1); logarithm = true)
         log_y = gamma_reference(after(span), T(0.4), T(1); logarithm = true)
-        @test first(rand_next(rng, Beta(T(0.3), T(0.4)))) ===
-              inv(one(T) + exp(log_y - log_x))
+        @test first(rand_next(rng, Beta(T(0.3), T(0.4)))) ≈
+              T(inv(1 + exp(BigFloat(log_y) - BigFloat(log_x)))) rtol = 2eps(T)
         z = IR._normal_from_bits(
             rng.device,
             T,
@@ -314,6 +354,35 @@ end
     small = first(rand_next(Philox4x32(0xa07), Dirichlet([0.01, 0.02, 0.03]), 1000))
     @test all(isfinite, small)
     @test maximum(abs.(sum(small; dims = 1) .- 1)) < 1e-12
+end
+
+@testset "Dirichlet matches concentrations and destinations by position" begin
+    rng = Philox4x32(57)
+    alpha = [0.3, 2.0]
+    reference = Dirichlet(alpha)
+    distribution = Dirichlet(ZeroBasedVector(alpha))
+    expected, expected_next = rand_next(rng, reference)
+    @test rand_next(rng, distribution) == (expected, expected_next)
+    vector = ZeroBasedVector(zeros(2))
+    @test rand_next!(rng, distribution, vector) === (vector, expected_next)
+    @test vector.data == expected
+    columns, columns_next = rand_next(rng, reference, 3)
+    matrix = IdentityAxesMatrix(zeros(2, 3))
+    @test rand_next!(rng, distribution, matrix; threaded = true) === (matrix, columns_next)
+    @test matrix.data == columns
+    @test rand_at(rng, distribution, 3) == columns[:, 3]
+end
+
+@testset "Float32 Dirichlet mass with a dominant component" begin
+    rng = Threefry2x64(13)
+    alpha = Float32[3.0f7; ones(Float32, 65536)]
+    for shapes in (alpha, reverse(alpha))
+        d = Dirichlet(shapes)
+        x, after = rand_next(rng, d)
+        @test abs(sum(Float64, x) - 1) <= eps(Float32)
+        @test insupport(d, x)
+        @test rngposition(after) - rngposition(rng) == length(x) * 17 * 23
+    end
 end
 
 # A Dirichlet draw is one column-codec draw, so its address and a fill's span

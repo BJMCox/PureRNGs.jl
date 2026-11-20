@@ -149,7 +149,8 @@ faces, rng = rand_next(rng, 1:6, SVector{4})
 
 The `_next`, `_at`, and continuation-fill forms accept a static array type.
 Immutable bits-type scalar forms allocate nothing, so a GPU kernel can call them, and `rand_at(rng, SA, i)` gives each thread its own array without chaining.
-An array of bits-type static arrays fills as its `reinterpret` to `T`, on the same CPU and GPU fill paths.
+An array of bits-type static arrays fills as its `reinterpret` to `T` when its layout permits, on the same CPU and GPU fill paths.
+CPU fills use temporary scalar storage when a size-changing reinterpretation cannot represent the destination's axes.
 Mutable static-array batches run on the CPU. They use a temporary scalar fill and construct a separate mutable value for each element.
 `rand_next(rng, X, SA)` picks `N` times from a collection or distribution `X` and returns the next generator.
 The element type must be part of the static array type: use `SVector{3,Float64}`, not `SVector{3}`.

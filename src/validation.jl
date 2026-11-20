@@ -22,9 +22,18 @@ end
     _check_backend_serviceability(_engine_backend(rng), T)
 @inline _check_backend_serviceability(::_BackendToken, ::Type) = nothing
 
+@inline function _array_storage(a)
+    storage = parent(a)
+    return storage === a ? a : _array_storage(storage)
+end
+
+@inline _arrays_mightalias(a, b) =
+    _arrays_mightalias(a, b, _array_storage(a), _array_storage(b))
+@inline _arrays_mightalias(a, b, storage_a, storage_b) = Base.mightalias(a, b)
+
 @inline function _check_parameter_overlap(destination, parameter, name)
     parameter isa AbstractArray &&
-        Base.mightalias(destination, parameter) &&
+        _arrays_mightalias(destination, parameter) &&
         throw(
             ArgumentError("the destination shares memory with $name; use a separate array"),
         )
@@ -58,6 +67,12 @@ end
     agnostic = _check_sampling_device(rng, population, "population")
     (population isa AbstractArray || agnostic) || _sampling_device_mismatch("population")
     return agnostic
+end
+
+# Array storage is on the host regardless of the placement of its elements.
+@inline function _check_population_device(rng, ::Array)
+    rng.device isa _CPUBackend || _sampling_device_mismatch("population")
+    return false
 end
 
 # Weighted sampling folds Float64 weights; a backend without Float64 rejects it.

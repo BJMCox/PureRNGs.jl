@@ -1,5 +1,5 @@
 using LinearAlgebra
-using Distributions.PDMats: PDSparseMat
+using Distributions.PDMats: PDiagMat, PDSparseMat
 using Distributions.PDMats.SparseArrays: sparse, nonzeros
 
 @testset "distribution parameters cannot alias their destination" begin
@@ -11,6 +11,7 @@ using Distributions.PDMats.SparseArrays: sparse, nonzeros
     for (d, destination) in (
         (diagonal, diagonal.μ),
         (diagonal, diagonal.Σ.diag),
+        (dense, view(dense.Σ.mat, :, 1)),
         (dense, view(cholesky(dense.Σ).factors, :, 1)),
         (sparse_diagonal, nonzeros(sparse_diagonal.Σ.mat)),
         (dirichlet, dirichlet.alpha),
@@ -23,11 +24,71 @@ using Distributions.PDMats.SparseArrays: sparse, nonzeros
     end
 end
 
+@testset "MvNormal uses complete addressed spans" begin
+    rng = Philox4x64(9, 3)
+    distribution = MvNormal(zeros(2), 1.0I)
+    for index in (1 << 62, typemax(Int), UInt64(1) << 63, big(1) << 129)
+        start = (big(index) - 1) * length(distribution)
+        expected = [randn_at(rng, Float64, start + component) for component = 1:2]
+        @test rand_at(rng, distribution, index) == expected
+    end
+
+    narrow = Philox2x32(9)
+    near_end = Philox2x32(9, (UInt128(1) << 62) - 3 * 52)
+    exact_end = Philox2x32(9, (UInt128(1) << 62) - 4 * 52)
+    @test rand_at(exact_end, distribution, 2) ==
+          [randn_at(exact_end, Float64, component) for component = 3:4]
+
+    wide_count = 1 << 62
+    wide_distribution = MvNormal(Distributions.Zeros{Float64}(wide_count), 1.0I)
+    for (held, d, index, span) in (
+        (near_end, distribution, 2, UInt128(4 * 52)),
+        (narrow, wide_distribution, 1, UInt128(wide_count) * 52),
+    )
+        exhausted = try
+            rand_at(held, d, index)
+            nothing
+        catch error
+            error
+        end
+        @test exhausted isa StreamExhausted
+        @test exhausted.bits == span
+    end
+
+    @test isempty(rand_at(rng, MvNormal(Float64[], 1.0I), big(1) << 200))
+end
+
 @testset "sparse MvNormal fills match allocating draws" begin
     rng = Philox4x32(123)
     d = MvNormal([1.0, -2.0], PDSparseMat(sparse([2.0 0.3; 0.3 1.0])))
     @test rand_next!(rng, d, zeros(2)) == rand_next(rng, d)
     @test rand_next!(rng, d, zeros(2, 3)) == rand_next(rng, d, 3)
+end
+
+@testset "MvNormal applies parameters and writes destinations in row order" begin
+    rng = Philox4x32(57)
+    mean = [0.5, -1.0]
+    diagonal = [1.0, 3.0]
+    dense = MvNormal(mean, [2.0 0.3; 0.3 1.0]).Σ
+    sparse_covariance = PDSparseMat(sparse([2.0 0.3; 0.3 1.0]))
+    for (normal_covariance, offset_covariance) in (
+        (PDiagMat(diagonal), PDiagMat(ZeroBasedVector(diagonal))),
+        (dense, dense),
+        (sparse_covariance, sparse_covariance),
+    )
+        reference = MvNormal(mean, normal_covariance)
+        distribution = MvNormal(ZeroBasedVector(mean), offset_covariance)
+        expected, expected_next = rand_next(rng, reference)
+        @test rand_next(rng, distribution) == (expected, expected_next)
+        vector = ZeroBasedVector(zeros(2))
+        @test rand_next!(rng, distribution, vector) === (vector, expected_next)
+        @test vector.data ≈ expected
+        columns, columns_next = rand_next(rng, reference, 3)
+        matrix = IdentityAxesMatrix(zeros(2, 3))
+        @test rand_next!(rng, distribution, matrix; threaded = true) ===
+              (matrix, columns_next)
+        @test matrix.data ≈ columns
+    end
 end
 
 # A multivariate normal draw maps length(d) standard normal draws by `μ + L z`,

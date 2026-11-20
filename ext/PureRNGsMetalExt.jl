@@ -5,6 +5,10 @@ import Metal
 
 const IR = PureRNGs
 
+@inline IR._kernel_population(::Metal.MtlDeviceArray) = true
+@inline IR._pick_value(::IR._MetalBackend, population, ordinal) =
+    Metal.@allowscalar IR._population_value(population, ordinal)
+
 # Metal has no Float64 or 128-bit integer arithmetic. Every other draw runs on
 # the device; weighted sampling stays off it, since its cumulative sums are
 # Float64.

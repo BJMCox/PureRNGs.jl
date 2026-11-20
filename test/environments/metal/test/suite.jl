@@ -250,6 +250,19 @@ if Metal.functional()
             @test next_rng.position == expected_next.position
         end
     end
+    @testset "Metal accepts views of host Dirichlet concentrations" begin
+        rng = MetalDevice()(Philox4x32(57, 5))
+        alpha = view(Float32[0.3, 0, 2.0], 1:2:3)
+        for dims in ((), (3,))
+            actual, next_rng = rand_next(rng, Dirichlet(alpha), dims...)
+            expected, expected_next = rand_next(rng, Dirichlet(collect(alpha)), dims...)
+            @test actual isa Metal.MtlArray
+            @test Array(actual) == Array(expected)
+            @test next_rng == expected_next
+        end
+        @test Array(rand_at(rng, Dirichlet(alpha), 2)) ==
+              Array(rand_at(rng, Dirichlet(collect(alpha)), 2))
+    end
     @testset "Metal served primitive smoke" begin
         served = (
             Bool,
@@ -299,6 +312,10 @@ if Metal.functional()
             @test value ≈ expected rtol = 1.0f-4
             @test next_rng.position == after.position
         end
+        d = Gamma(ForwardDiff.Dual(0.006f0, 1.0f0), 1.0f30)
+        value = only(Array(first(rand_next(MetalDevice()(cpu_rng), d, 1))))
+        @test ForwardDiff.partials(value, 1) ≈
+              ForwardDiff.partials(first(rand_next(cpu_rng, d)), 1) rtol = 1.0f-4
         for seed in (1, 3)
             rng = Philox4x32(seed)
             d = Gamma(ForwardDiff.Dual(1.0f8, 1.0f0))

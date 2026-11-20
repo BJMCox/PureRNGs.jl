@@ -4,7 +4,75 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.0.3 - 2026-11-20
+
+### Breaking changes
+
+Downstream packages that support both releases can set
+`PureRNGs = "0.0.2, 0.0.3"` in `[compat]` after testing.
+
+- The same seed can give different `Beta`, `TDist`, `InverseGamma`, and
+  `Float32` `Dirichlet` samples. The fixes preserve representable tails and
+  small weights. Update exact-value fixtures for these distributions. The
+  primitive bits, child keys, and parent stream consumption stay the same.
+- Scalar `rand_next` and `rand_at` now reject an array population on the
+  wrong backend. Place the array on the generator's backend. Ranges and
+  inline `isbits` static arrays remain device-agnostic.
+- In-place `MvNormal` draws reject destinations that overlap the covariance
+  matrix. CUDA sampling also checks overlapping views and gather-index storage.
+  Use separate storage, or use the replacement returned by `randset!!`.
+- In-place ForwardDiff draws for fixed-map and Gamma-family distributions
+  require the exact dual element type, including tag, precision, and partial
+  count. Use `rand_next(rng, d, n)` to allocate a matching destination.
+- For exhausted addressed ranges, `StreamExhausted.bits` reports the span
+  through the last requested draw. Parallel CPU fills wait for all workers
+  and report their failures in a `CompositeException`.
+- Reactant rejects negative draw dimensions. Traced sampling rejects populations
+  larger than `typemax(UInt64)`. Supply an explicit sample count when the
+  population length fits `UInt64` but exceeds `typemax(Int)`.
+
+### Changed
+
+- Grouped CPU `Float32` normal fills decode native words across generator
+  families and match scalar draws bit for bit. For ChaCha, limiting inlining
+  trades some warm throughput for faster compilation of the grouped decoder.
+- `splitrng` and `subrng` use native wide multiplication on the CPU for
+  64-bit Philox and preserve the derived keys.
+- Benchmark reports identify the loaded package and the harness separately.
+  The regression script exits with code 2 for incomparable runs and code 1
+  for a measured regression.
+- The reproducibility guide clarifies the dense `MvNormal` guarantee. Batch
+  and scalar draws use the same standard normals and continuation. Applying
+  the covariance factor can round differently across batch sizes.
+
+### Fixed
+
+- Threaded fills protect packed Boolean storage. Uniform fills handle the
+  highest native indices.
+- Sampling without replacement, permutations, and multivariate draws honor
+  offset axes. CPU StaticArrays fills accept offset and zero-dimensional
+  destinations. Static batches also accept non-`Int` integer dimensions.
+- A host scalar pick from a matching GPU array transfers only the selected
+  element. Device kernels can index their resident populations directly.
+- Addressed `MvNormal` draws accept large valid indices and check the full
+  span, including for strides wider than 64 bits.
+- Device `Dirichlet` draws accept wrapped host concentration arrays. Metal
+  and Reactant preserve representable subnormal `Beta` draws.
+- Gamma-family shape and scale derivatives retain finite tail values.
+  Metal rescales `Float32` dual values and their partials in native precision.
+- The particle-filter tutorial handles extreme finite `Float64` observations
+  and keeps cumulative resampling weights nondecreasing. The sampling guide
+  documents the 64-, 128-, and 192-bit integer-range mappings.
+
 ## 0.0.2 - 2026-11-17
+
+### Breaking changes
+
+- For pure generators, replace `Random.randperm`, `randcycle`, `shuffle`,
+  and their in-place forms with the corresponding `_next` forms. Pass a
+  `StatefulRNG` to keep using the standard methods.
+- `subrng` rejects `Bool`, negative IDs, and IDs above `typemax(UInt64)`.
+  Use integer purpose IDs in `0:typemax(UInt64)`. Valid IDs keep their streams.
 
 ### Added
 
@@ -20,8 +88,6 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- `subrng` rejects `Bool`, negative IDs, and IDs above `typemax(UInt64)`. Valid
-  IDs produce the same child streams.
 - `Reactant.to_rarray` forwards placement keywords directly to the encoded RNG
   state.
 - Scalar uniform draws through `StatefulRNG` reduce overhead for large external
@@ -34,11 +100,6 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   saving one kernel launch and one device allocation.
 - The particle-filter tutorial covers GPU batching, kernel fusion, and
   compilation and runtime measurements.
-
-### Removed
-
-- Standard `Random.randperm`, `randcycle`, `shuffle`, and their in-place forms
-  require `StatefulRNG`. Use the corresponding `_next` forms with pure generators.
 
 ## 0.0.1 - 2026-10-01
 

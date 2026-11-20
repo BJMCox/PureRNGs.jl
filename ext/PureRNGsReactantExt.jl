@@ -681,11 +681,14 @@ function _fill_raw(rng::_ReactantRNG{R}, ::Val{W}, n::Int) where {R,W}
     return _extract(first, second, starts & UInt64(63), Val(W))
 end
 
-function _fill_next(rng::_ReactantRNG, ::Val{W}, dims::Dims, finish) where {W}
+function _fill_next(rng::_ReactantRNG, ::Type{T}, ::Val{W}, dimensions, finish) where {T,W}
+    IR._check_draw_dimensions(dimensions)
+    dims = Int.(dimensions)
     n = prod(dims)
+    # An empty draw consumes no bits, as in the eager fill.
+    iszero(n) && return Ops.constant(zeros(T, dims)), rng
     values = finish(_fill_raw(rng, Val(W), n)).data
-    array = length(dims) == 1 ? values : Ops.reshape(values, dims...)
-    return array, _advance(rng, _address_offset(n + 1, UInt64(W))...)
+    return _shaped(values, dims), _advance(rng, _address_offset(n + 1, UInt64(W))...)
 end
 
 for (draw_next, bits, finish, types) in (
@@ -724,9 +727,7 @@ for (draw_next, bits, finish, types) in (
     for T in types
         @eval begin
             @inline function $draw_next(rng::_ReactantRNG, ::Type{$T}, dims::Dims)
-                # An empty draw consumes no bits, as in the eager fill.
-                iszero(prod(dims)) && return Ops.constant(zeros($T, dims)), rng
-                return _fill_next(rng, Val($bits($T)), dims, $(finish(T)))
+                return _fill_next(rng, $T, Val($bits($T)), dims, $(finish(T)))
             end
             @inline function $draw_next(
                 rng::_ReactantRNG,
@@ -734,7 +735,7 @@ for (draw_next, bits, finish, types) in (
                 dim1::Integer,
                 dims::Integer...,
             )
-                return $draw_next(rng, $T, Int.((dim1, dims...)))
+                return _fill_next(rng, $T, Val($bits($T)), (dim1, dims...), $(finish(T)))
             end
 
         end
@@ -744,7 +745,7 @@ for (draw_next, bits, finish, types) in (
         @inline $draw_next(rng::_ReactantRNG) = $draw_next(rng, Float64)
 
         @inline $draw_next(rng::_ReactantRNG, dim1::Integer, dims::Integer...) =
-            $draw_next(rng, Float64, Int.((dim1, dims...)))
+            $draw_next(rng, Float64, dim1, dims...)
     end
     # Uniform tuple arguments name a population, not dimensions.
     if draw_next != :(IR.rand_next)
@@ -833,9 +834,11 @@ end
     return length(dims) == 1 ? values : Ops.reshape(values, dims...)
 end
 
-function _fill_range_next(rng::_ReactantRNG, range, dims::Dims)
+function _fill_range_next(rng::_ReactantRNG, range, dimensions)
     isempty(range) && throw(ArgumentError("range must be non-empty"))
     span = length(range) % UInt64
+    IR._check_draw_dimensions(dimensions)
+    dims = Int.(dimensions)
     n = prod(dims)
     iszero(n) && return Ops.constant(zeros(eltype(range), dims)), rng
     values = _range_element(range, _fill_offsets(rng, span, n)).data
@@ -852,7 +855,7 @@ for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
             dim1::Integer,
             dims::Integer...,
         )
-            return _fill_range_next(rng, range, Int.((dim1, dims...)))
+            return _fill_range_next(rng, range, (dim1, dims...))
         end
 
         @inline IR.rand_next(
@@ -976,9 +979,9 @@ end
 end
 
 function _sample_next(rng::_ReactantRNG, population, requested_count)
-    cardinality = length(population) % UInt64
-    count =
-        requested_count === nothing ? Int(cardinality) : IR._sampling_count(requested_count)
+    count = requested_count === nothing ? nothing : IR._sampling_count(requested_count)
+    cardinality = IR._sampling_cardinality(population)
+    count === nothing && (count = IR._sampling_count(cardinality, nothing))
     count > 0 && iszero(cardinality) && IR._empty_sampling_population(count)
     iszero(count) && return Ops.constant(Vector{eltype(population)}()), rng
     width = UInt64(IR._range_bits(cardinality))

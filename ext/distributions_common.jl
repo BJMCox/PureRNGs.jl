@@ -1,4 +1,11 @@
 const _FloatType = Union{Float32,Float64}
+
+@inline _mvnormal_covariance(covariance) = covariance
+@inline function _mvnormal_covariance(covariance::Distributions.PDMats.PDiagMat)
+    Base.has_offset_axes(covariance.diag) || return covariance
+    return Distributions.PDMats.PDiagMat(IR._one_based_view(covariance.diag))
+end
+
 # The parameter ties a distribution to its destination element type, so a
 # mismatched destination finds no method rather than a validation error.
 const _FloatMapped{T} = Union{

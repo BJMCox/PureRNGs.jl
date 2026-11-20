@@ -10,10 +10,11 @@ end
     rng::_ScalarUniformGenerators,
     width::_AddressWidth,
     i::_AddressIndex64,
+    last_index::_AddressIndex64,
 )
     i < 1 && _invalid_address_index()
     index = UInt64(i)
-    end_lo, end_hi = _bit_span(index, width)
+    end_lo, end_hi = _bit_span(UInt64(last_index), width)
     _, ok = _try_advance(rng, end_lo, end_hi)
     ok || _stream_exhausted(typeof(rng), end_lo, end_hi)
     start_lo, start_hi = _bit_span(index - UInt64(1), width)
@@ -22,17 +23,26 @@ end
     return _rebuild(rng, position, rng.device)
 end
 
-@inline _addressed_rng(rng::AbstractPureRNG, width::_AddressWidth, i::_AddressIndex64) =
-    _addressed_rng_device(rng, width, i)
+@inline _addressed_rng(
+    rng::AbstractPureRNG,
+    width::_AddressWidth,
+    i::_AddressIndex64,
+    last_index::_AddressIndex64 = i,
+) = _addressed_rng_device(rng, width, i, last_index)
 
-# An index too wide for UInt64 needs BigInt arithmetic, so this body stays out
-# of the fast path. Both position widths are the same walk over stream bits:
+# An index or stride too wide for UInt64 needs BigInt arithmetic, so this
+# body stays out of the fast path. Both position widths walk over stream bits:
 # `rngposition` reads the current bit count and `_position_from_bits` writes it
 # back, and both report the terminal state as the full capacity.
-@noinline function _addressed_rng(rng::AbstractPureRNG, width::_AddressWidth, i::Integer)
+@noinline function _addressed_rng(
+    rng::AbstractPureRNG,
+    width::Integer,
+    i::Integer,
+    last_index::Integer = i,
+)
     i < 1 && _invalid_address_index()
     offset = (BigInt(i) - 1) * BigInt(width)
-    span = offset + BigInt(width)
+    span = last_index == i ? offset + width : BigInt(last_index) * width
     _, valid = _try_advance(rng, UInt64(0), UInt64(0))
     valid || _stream_exhausted(typeof(rng), span)
     current = BigInt(rngposition(rng))
@@ -56,7 +66,7 @@ end
 ) where {T}
     _check_serviceability(rng, T)
     isempty(indices) && return _allocate_draw_array(rng.device, T, (0,))
-    addressed = _addressed_rng(rng, width, first(indices))
+    addressed = _addressed_rng(rng, width, first(indices), last(indices))
     return first(fill_next(addressed, T, length(indices); threaded))
 end
 

@@ -94,11 +94,13 @@ end
 @inline _block_words_at(rng::AbstractPureRNG, block) =
     block == _position_block(rng.position) ? rng.block_words : _block_words(rng, block)
 
-@inline _next_stream_block_unchecked(block::UInt64) = block + UInt64(1)
-@inline function _next_stream_block_unchecked(block::NTuple{2,UInt64})
-    lo = block[1] + UInt64(1)
-    return lo, block[2] + UInt64(iszero(lo))
+@inline _advance_stream_block_unchecked(block::UInt64, count::UInt64) = block + count
+@inline function _advance_stream_block_unchecked(block::NTuple{2,UInt64}, count::UInt64)
+    lo = block[1] + count
+    return lo, block[2] + UInt64(lo < block[1])
 end
+@inline _next_stream_block_unchecked(block) =
+    _advance_stream_block_unchecked(block, UInt64(1))
 
 @inline function _select_tuple_value(values::Tuple{T,Vararg{T}}, lane::UInt16) where {T}
     value = values[1]

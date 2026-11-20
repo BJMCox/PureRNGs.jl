@@ -1,9 +1,9 @@
 const _RangeInteger64 = Union{Int8,UInt8,Int16,UInt16,Int32,UInt32,Int64,UInt64}
 const _RangeInteger = Union{_RangeInteger64,_WideInteger}
 
-# The candidate is 64 bits wider than the span it reduces, so every outcome's
-# probability is off by at most 2^-64 relative (2^-32 for spans through 2^32).
-# A span that fills its type wraps to zero and takes the raw candidate.
+# The candidate has at least 32 more bits than needed to index the span, or
+# at least 64 more bits above 2^32. Full-width spans are encoded as zero and
+# use the leading bits of the candidate.
 @inline _range_bits(span::UInt64) =
     span != zero(UInt64) && span <= UInt64(1) << 32 ? UInt16(64) : UInt16(128)
 @inline _range_bits(span::UInt128) =

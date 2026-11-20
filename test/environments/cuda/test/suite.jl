@@ -1941,6 +1941,32 @@ end
     @test_throws ArgumentError randsample!(rng, aliased_population, aliased_population)
     @test Array(aliased_population) == before
 
+    backing = CUDA.CuArray(Int32.(1:64))
+    odd = view(backing, 1:2:31)
+    overlapping = view(backing, 10:25)
+    @test_throws ArgumentError randsample_next!(rng, odd, overlapping)
+    @test_throws ArgumentError randsample_next!(rng, overlapping, odd)
+    replacement, _ = randset!!(rng, odd, overlapping)
+    @test replacement !== overlapping
+    @test Array(backing) == Int32.(1:64)
+    for disjoint in (view(backing, 2:2:32), view(backing, 33:48))
+        output, _ = randset!!(rng, odd, disjoint)
+        @test output === disjoint
+        @test Array(output) == randsample(Philox4x32(0x9767), Int32.(1:2:31), 16)
+    end
+
+    indices = CUDA.CuArray(Int32.(1:64))
+    gathered = view(backing, view(indices, 10:40))
+    index_overlap = view(indices, 11:15)
+    index_disjoint = view(indices, 42:46)
+    @test_throws ArgumentError randsample_next!(rng, gathered, index_overlap)
+    output, _ = randset!!(rng, gathered, index_overlap)
+    @test output !== index_overlap
+    @test Array(indices) == Int32.(1:64)
+    reused, _ = randset!!(rng, gathered, index_disjoint)
+    @test reused === index_disjoint
+    @test Array(reused) == Array(output)
+
     weighted_population = CUDA.CuArray(Float64.(1:33))
     weights = CUDA.CuArray(Float64.(1:33))
     weighted_expected, weighted_after =

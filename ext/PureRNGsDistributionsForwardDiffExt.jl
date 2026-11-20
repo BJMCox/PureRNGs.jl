@@ -14,10 +14,26 @@ include("distributions_gamma.jl")
 
 const _DualMapped = _FloatMapped{<:ForwardDiff.Dual}
 const _DualGammaFamily = _GammaFamily{<:ForwardDiff.Dual}
-const _DualDistribution = Union{_DualMapped,_DualGammaFamily}
+const _DualDistribution{T<:ForwardDiff.Dual} = Union{_FloatMapped{T},_GammaFamily{T}}
 
 IR._primal_float(::Type{<:ForwardDiff.Dual{<:Any,V}}) where {V} = IR._primal_float(V)
 IR._primal_value(value::ForwardDiff.Dual) = IR._primal_value(ForwardDiff.value(value))
+
+# Shift the primal and each partial in their own precision on every backend.
+@inline function IR._gamma_ldexp(value::ForwardDiff.Dual{Tag}, power::Int) where {Tag}
+    partials = map(p -> IR._gamma_ldexp(p, power), ForwardDiff.partials(value).values)
+    return ForwardDiff.Dual{Tag}(
+        IR._gamma_ldexp(ForwardDiff.value(value), power),
+        ForwardDiff.Partials(partials),
+    )
+end
+
+@inline function IR._beta_from_units(units::ForwardDiff.Dual{Tag,Float32}) where {Tag}
+    value = IR._beta_from_units(ForwardDiff.value(units))
+    iszero(reinterpret(UInt32, value)) && return zero(units)
+    partials = map(IR._beta_from_units, ForwardDiff.partials(units).values)
+    return ForwardDiff.Dual{Tag}(value, ForwardDiff.Partials(partials))
+end
 
 # A dual shape draws the primal Gamma and carries the implicit shape derivative
 # into the partials; the family maps carry every other parameter. Nested duals
@@ -95,10 +111,10 @@ IR._engine_rand_at(rng, d::_DualDistribution, index::Integer) =
 # A dual is a plain bits type, so a device fill runs the generic kernel.
 function IR._engine_rand_next!(
     rng,
-    d::_DualDistribution,
-    destination::AbstractArray{<:ForwardDiff.Dual};
+    d::_DualDistribution{T},
+    destination::AbstractArray{T};
     threaded::Bool = false,
-)
+) where {T<:ForwardDiff.Dual}
     IR._check_serviceability(rng, IR._primal_float(Distributions.partype(d)))
     IR._check_fill_device(rng, destination)
     return IR._engine_fill!(rng, destination, threaded, _dual_codec(rng, d))
@@ -126,10 +142,10 @@ IR.rand_at(rng::IR._ScalarUniformGenerators, d::_DualDistribution, index::Intege
     IR._engine_rand_at(rng, d, index)
 IR.rand_next!(
     rng::IR._ScalarUniformGenerators,
-    d::_DualDistribution,
-    destination::AbstractArray{<:ForwardDiff.Dual};
+    d::_DualDistribution{T},
+    destination::AbstractArray{T};
     threaded::Bool = false,
-) = IR._engine_rand_next!(rng, d, destination; threaded)
+) where {T<:ForwardDiff.Dual} = IR._engine_rand_next!(rng, d, destination; threaded)
 
 IR.rand_next(
     rng::IR._ScalarUniformGenerators,
@@ -185,12 +201,14 @@ _device_unwhitened(device, Σ::_PDMats.PDMat, values) =
     IR._transfer_array(device, Matrix(_PDMats.chol_lower(_LinearAlgebra.cholesky(Σ)))) *
     values
 _device_unwhitened(device, Σ::_PDMats.PDiagMat, values) =
-    sqrt.(IR._transfer_array(device, collect(Σ.diag))) .* values
+    sqrt.(IR._transfer_array(device, collect(IR._one_based_view(Σ.diag)))) .* values
 _device_unwhitened(device, Σ::_PDMats.ScalMat, values) = sqrt(Σ.value) .* values
 
-_whitened_to_mvnormal(::IR._CPUBackend, d, values) = d.μ .+ _PDMats.unwhiten(d.Σ, values)
+_whitened_to_mvnormal(::IR._CPUBackend, d, values) =
+    IR._one_based_view(d.μ) .+ _PDMats.unwhiten(_mvnormal_covariance(d.Σ), values)
 _whitened_to_mvnormal(device, d, values) =
-    IR._transfer_array(device, collect(d.μ)) .+ _device_unwhitened(device, d.Σ, values)
+    IR._transfer_array(device, collect(IR._one_based_view(d.μ))) .+
+    _device_unwhitened(device, d.Σ, values)
 
 function IR._engine_rand_next(rng, d::_DualMvNormal)
     values, next_rng = IR._engine_randn_next(rng, _primal_type(eltype(d)), length(d))

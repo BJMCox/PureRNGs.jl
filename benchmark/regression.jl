@@ -135,14 +135,28 @@ function distribution_cases(; elements = 2^18)
     return cases
 end
 
+function checkout_metadata(directory, tracked_file)
+    git = Sys.which("git")
+    git === nothing && return nothing
+    tracked = `$git -C $directory ls-files --error-unmatch -- $tracked_file`
+    success(pipeline(tracked; stdout = devnull, stderr = devnull)) || return nothing
+    head = ignorestatus(`$git -C $directory rev-parse --verify HEAD`)
+    sha = readchomp(pipeline(head; stderr = devnull))
+    isempty(sha) && return nothing
+    return (; sha, dirty = !isempty(read(`$git -C $directory status --porcelain`, String)))
+end
+
 function benchmark_metadata(device)
-    root = dirname(@__DIR__)
+    source_path = realpath(pkgdir(PureRNGs))
+    harness_path = realpath(@__FILE__)
+    source = checkout_metadata(source_path, "Project.toml")
+    harness = checkout_metadata(dirname(harness_path), basename(harness_path))
     modules = (PureRNGs, BenchmarkTools, Distributions, KernelAbstractions, MLDataDevices)
     packages = Dict(string(nameof(m)) => string(Base.pkgversion(m)) for m in modules)
     data = Dict{String,Any}(
-        "source_sha" => strip(read(`git -C $root rev-parse HEAD`, String)),
+        "source_path" => source_path,
+        "harness_path" => harness_path,
         "timestamp_unix" => time(),
-        "dirty" => !isempty(read(`git -C $root status --porcelain`, String)),
         "julia" => string(VERSION),
         "host" => gethostname(),
         "device" => device,
@@ -152,6 +166,14 @@ function benchmark_metadata(device)
         "load_average" => Sys.loadavg(),
         "packages" => packages,
     )
+    if source !== nothing
+        data["source_sha"] = source.sha
+        data["dirty"] = source.dirty
+    end
+    if harness !== nothing
+        data["harness_sha"] = harness.sha
+        data["harness_dirty"] = harness.dirty
+    end
     if device == "cuda"
         data["gpu"] = CUDA.name(CUDA.device())
         device = CUDA.NVML.Device(CUDA.uuid(CUDA.device()))
@@ -162,6 +184,28 @@ function benchmark_metadata(device)
     return data
 end
 
+function comparison_issues(pin, run)
+    issues = String[]
+    haskey(pin, "source_sha") || push!(issues, "pin has no source revision")
+    haskey(run, "source_sha") || push!(issues, "loaded package has no source revision")
+    get(pin, "dirty", false) && push!(issues, "pin was measured from a dirty checkout")
+    get(pin, "seconds", 0.0) >= 10 ||
+        push!(issues, "pin was measured for less than 10 seconds")
+    for key in ("host", "device", "julia", "threads", "cpu", "gpu", "blas_threads")
+        if haskey(pin, key) && pin[key] != get(run, key, nothing)
+            push!(issues, "$key differs from the pin")
+        end
+    end
+    packages = get(pin, "packages", Dict())
+    for (package, version) in sort!(collect(packages); by = first)
+        package == "PureRNGs" && continue
+        if version != get(run["packages"], package, nothing)
+            push!(issues, "$package version differs from the pin")
+        end
+    end
+    return issues
+end
+
 function run_regression(name; update = false, extra_cases = [], report_path = nothing)
     baseline_path = joinpath(@__DIR__, "baselines", name * ".toml")
     baseline = TOML.parsefile(baseline_path)
@@ -169,21 +213,38 @@ function run_regression(name; update = false, extra_cases = [], report_path = no
     cuda && !isdefined(@__MODULE__, :CUDA) && error("import CUDA before the CUDA benchmark")
     target = cuda ? MLDataDevices.CUDADevice() : MLDataDevices.CPUDevice()
     metadata = benchmark_metadata(baseline["device"])
+    if update && get(metadata, "dirty", true)
+        throw(
+            ArgumentError(
+                "updating a pin requires a clean Git checkout of the loaded package",
+            ),
+        )
+    end
+    seconds = max(10.0, get(baseline, "seconds", 10.0))
+    issues = comparison_issues(baseline, metadata)
+    metadata["seconds"] = seconds
     TOML.print(stdout, metadata; sorted = true)
-    get(baseline, "threads", Threads.nthreads()) == Threads.nthreads() ||
-        @warn "thread count differs from the pin" pinned = baseline["threads"]
+    isempty(issues) || @warn "benchmark comparison is inconclusive" reasons = issues
     rows, regressions = [], String[]
     for case in vcat(baseline["case"], extra_cases)
         load_before = Sys.loadavg()
-        result = measure(case, target; seconds = max(10.0, get(baseline, "seconds", 10.0)))
-        ratio = result["minimum_ms"] / get(case, "minimum_ms", NaN)
-        ratio > 1 + baseline["tolerance"] && push!(regressions, case_name(case))
+        result = measure(case, target; seconds)
+        pin_minimum = get(case, "minimum_ms", NaN)
+        ratio = result["minimum_ms"] / pin_minimum
+        isempty(issues) &&
+            ratio > 1 + baseline["tolerance"] &&
+            push!(regressions, case_name(case))
         push!(
             rows,
             merge(
                 copy(case),
                 result,
-                Dict("load_before" => load_before, "load_after" => Sys.loadavg()),
+                Dict(
+                    "pin_minimum_ms" => pin_minimum,
+                    "minimum_ratio" => ratio,
+                    "load_before" => load_before,
+                    "load_after" => Sys.loadavg(),
+                ),
             ),
         )
         @printf(
@@ -197,12 +258,23 @@ function run_regression(name; update = false, extra_cases = [], report_path = no
         )
         update && merge!(case, result)
     end
-    report = Dict("metadata" => metadata, "case" => rows, "regressions" => regressions)
+    report = Dict(
+        "metadata" => metadata,
+        "case" => rows,
+        "regressions" => regressions,
+        "comparison_issues" => issues,
+        "comparison_statistic" => "minimum_ms",
+    )
     report_path === nothing ||
         open(io -> TOML.print(io, report; sorted = true), report_path, "w")
     if update
-        merge!(baseline, metadata)
-        baseline["seconds"] = 10.0
+        # Local paths identify the report's checkouts and do not belong in a pin.
+        for key in ("source_path", "harness_path", "harness_sha", "harness_dirty")
+            delete!(baseline, key)
+        end
+        for (key, value) in metadata
+            key in ("source_path", "harness_path") || (baseline[key] = value)
+        end
         open(io -> TOML.print(io, baseline; sorted = true), baseline_path, "w")
     end
     return report
@@ -212,6 +284,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
     isempty(ARGS) && error("usage: regression.jl <baseline> [--update]")
     path = joinpath(@__DIR__, "baselines", ARGS[1] * ".toml")
     TOML.parsefile(path)["device"] == "cuda" && @eval import CUDA
-    report = run_regression(ARGS[1]; update = "--update" in ARGS)
-    isempty(report["regressions"]) || "--update" in ARGS || exit(1)
+    update = "--update" in ARGS
+    report = run_regression(ARGS[1]; update)
+    isempty(report["comparison_issues"]) || update || exit(2)
+    isempty(report["regressions"]) || update || exit(1)
 end
