@@ -13,17 +13,23 @@ evens
 ```
 
 Ranges support signed and unsigned integer element types from 8 through 128 bits.
-A range with more than 2^64 values reduces a 192-bit candidate; the 128-bit element types run on the CPU only.
+The 128-bit element types run on the CPU only.
 
-Range sampling uses a fixed-width multiply-high mapping, not rejection sampling.
-Arbitrary range lengths can have a small finite mapping bias. Preimage counts differ by at most one.
+Each range draw consumes a fixed number of bits based on its cardinality.
 
-The candidate uses 64 bits for spans up to 2^32 and 128 bits for larger spans.
-For a span `s` and a candidate width `K`, the relative probability imbalance
-between two values is exactly `1/floor(2^K / s)`. It is zero when `s` divides
-`2^K`, so powers of two are unbiased. It is largest just below each width
-change: about 2.33e-10 at `s = 2^32 - 1`, and about 5.42e-20 at
-`s = 2^64 - 1`.
+| Range length `s`      | Candidate width `K` |
+|----------------------|---------------------|
+| `1 ≤ s ≤ 2^32`       | 64 bits             |
+| `2^32 < s ≤ 2^64`    | 128 bits            |
+| `2^64 < s ≤ 2^128`   | 192 bits            |
+
+Multiply-high maps the candidate `x` to the zero-based ordinal
+`floor(x * s / 2^K)`. Write `2^K = q * s + r`. Then `r` ordinals have
+`q + 1` preimages, and every other ordinal has `q`.
+Power-of-two spans have `r = 0` and are exactly uniform on this grid.
+When `r > 0`, the largest ordinal probability divided by the smallest, minus
+one, is `1/q`. This relative difference is at most `2^-32` in the 64-bit tier
+and `2^-64` in the 128- and 192-bit tiers.
 
 ```@example sampling
 dice = Vector{Int}(undef, 16)
