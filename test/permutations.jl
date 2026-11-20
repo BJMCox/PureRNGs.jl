@@ -63,6 +63,22 @@ end
     @test _chi_square(values(counts), 2000) < 20.5
 end
 
+@testset "permutations and cycles fill offset destinations in linear order" begin
+    rng = Philox4x32(42)
+    for (draw, draw!) in
+        ((randperm_next, randperm_next!), (randcycle_next, randcycle_next!))
+        for destination in (
+            ZeroBasedVector(fill(-1, 7)),
+            IdentityAxesMatrix(fill(-1, 2, 3)),
+            ZeroBasedVector(Int[]),
+        )
+            expected, expected_next = draw(rng, length(destination))
+            @test draw!(rng, destination) === (destination, expected_next)
+            @test vec(destination.data) == expected
+        end
+    end
+end
+
 @testset "the key order is the stable sort order" begin
     for n in (0, 1, 2, 3, 100, 70_000)
         keys = first(rand_next(Philox4x32(n), UInt64, n))

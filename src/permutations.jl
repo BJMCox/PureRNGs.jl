@@ -122,6 +122,14 @@ _resolve_key_ties!(permutation::AbstractVector, keys::AbstractVector, rng) =
         rng,
     )
 
+# Reshaping a vector can keep its offset axis. A view with a plain range
+# exposes the same storage through one-based slots for sorting and scattering.
+function _permutation_slots(destination)
+    slots = reshape(destination, :)
+    isone(firstindex(slots)) && return slots
+    return view(slots, firstindex(slots):lastindex(slots))
+end
+
 # `destination` receives the permutation of `1:length(destination)`.
 function _randperm_next!(rng::AbstractPureRNG, destination::AbstractArray, threaded::Bool)
     _check_fill_device(rng, destination)
@@ -129,7 +137,7 @@ function _randperm_next!(rng::AbstractPureRNG, destination::AbstractArray, threa
     # The largest index must fit before sorting can write any destination slot.
     isempty(destination) || convert(eltype(destination), length(destination))
     keys, next_rng = _permutation_keys(rng, length(destination), threaded)
-    permutation = reshape(destination, :)
+    permutation = _permutation_slots(destination)
     _order_keys!(rng, permutation, keys)
     _resolve_key_ties!(permutation, keys, rng)
     return destination, next_rng
@@ -149,7 +157,7 @@ function _randcycle_next!(rng::AbstractPureRNG, destination::AbstractArray, thre
     _check_fill_device(rng, destination)
     order = similar(destination, length(destination))
     _, next_rng = _randperm_next!(rng, order, threaded)
-    cycle = reshape(destination, :)
+    cycle = _permutation_slots(destination)
     isempty(order) ||
         _scatter!(_fill_backend(rng.device, order), cycle, order, circshift(order, -1))
     return destination, next_rng
