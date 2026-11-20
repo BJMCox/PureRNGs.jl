@@ -214,6 +214,13 @@ end
     @test rngposition(next_rng) == position + 128 * 23
 end
 
+@testset "Grouped Threefry Float32 normals follow the scalar stream" begin
+    rng = Threefry4x32(4211, 17)
+    values, next_rng = randn_next(rng, Float32, 259)
+    @test isequal(values, [randn_at(rng, Float32, i) for i in eachindex(values)])
+    @test rngposition(next_rng) == rngposition(rng) + 23 * length(values)
+end
+
 @testset "normal generator and mixed positions" begin
     # A normal draw leaves the stream where a uniform draw can carry on.
     for F in GENERATOR_TYPES, T in NORMAL_TYPES

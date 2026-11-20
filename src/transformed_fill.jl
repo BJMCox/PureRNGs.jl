@@ -97,10 +97,9 @@ end
     return cursor
 end
 
-# A Philox4x32 block is 128 bits, so `128 ÷ gcd(width, 128)` draws already cover
-# a whole number of blocks and every shift inside the group becomes a constant.
-# Four blocks at a time is what keeps the generator vectorized, so take four
-# times that many draws when it also buys whole four-block chunks and stays small.
+# A group of `128 ÷ gcd(width, 128)` draws ends at a block boundary, so every
+# shift inside the group is constant. Round up to four-block chunks for
+# Philox when the group stays small.
 @inline function _transformed_group_draws(width::Int)
     draws = 128 ÷ gcd(width, 128)
     return iszero((draws * width ÷ 128) % 4) || 4draws > 128 ? draws : 4draws
@@ -116,18 +115,17 @@ end
     return ((modulus - offset ÷ step) * invmod(W ÷ step, modulus)) % modulus
 end
 
-# Decode one aligned group of `W`-bit draws out of consecutive Philox4x32
-# blocks. Blocks arrive four at a time so the counter-based generator keeps its
-# vector width, and every shift is a constant.
+# Decode one aligned group of `W`-bit draws from consecutive 128-bit blocks.
+# Philox generates four blocks at a time to keep its vector width.
 @generated function _decode_transformed_group(
-    rng::Philox4x32,
+    rng::R,
     block::UInt64,
     ::Val{W},
     ::Type{U},
-) where {W,U<:Union{UInt32,UInt64}}
+) where {R<:Union{Philox4x32,Threefry4x32},W,U<:Union{UInt32,UInt64}}
     draws = _transformed_group_draws(W)
     blocks = draws * W ÷ 128
-    chunks = blocks ÷ 4
+    chunks = R <: Philox4x32 ? blocks ÷ 4 : 0
     word_bits = 8sizeof(U)
     words_per_block = 128 ÷ word_bits
     words_per_group = 4words_per_block
@@ -150,7 +148,7 @@ end
     group_blocks = U === UInt32 ? :_blocks4 : :_blocks4_words
     single_block = U === UInt32 ? :_block : :_block_words
     body = Expr[:(mask = _low_mask(UInt16($W)) % $U)]
-    for source = 0:(chunks+blocks%4-1)
+    for source = 0:(blocks-3chunks-1)
         words =
             source < chunks ? :($group_blocks(rng, block + UInt64($(4source)))) :
             :($single_block(rng, block + UInt64($(3chunks + source))))
@@ -173,7 +171,7 @@ end
 @inline function _store_transformed_group!(
     destination,
     index::Int,
-    rng::Philox4x32,
+    rng::Union{Philox4x32,Threefry4x32},
     block::UInt64,
     codec,
     ::Type{T},
@@ -196,7 +194,7 @@ end
 @inline function _store_transformed_group!(
     destination,
     index::Int,
-    rng::Philox4x32,
+    rng::Union{Philox4x32,Threefry4x32},
     block::UInt64,
     ::_NormalCodec{_CPUBackend},
     ::Type{Float32},
@@ -225,7 +223,7 @@ end
 
 @inline function _fill_transformed_blocks_cpu!(
     ::IndexLinear,
-    rng::Philox4x32,
+    rng::Union{Philox4x32,Threefry4x32},
     position::_Position64,
     destination::AbstractArray{T},
     ::Type{T},
@@ -302,6 +300,23 @@ end
     position,
     destination,
     T,
+    indices,
+    codec,
+)
+
+@inline _fill_transformed_cpu!(
+    rng::Threefry4x32,
+    position::_Position64,
+    destination::AbstractArray{Float32},
+    ::Type{Float32},
+    indices::AbstractUnitRange,
+    codec::_NormalCodec{_CPUBackend},
+) = _fill_transformed_blocks_cpu!(
+    IndexStyle(destination),
+    rng,
+    position,
+    destination,
+    Float32,
     indices,
     codec,
 )
