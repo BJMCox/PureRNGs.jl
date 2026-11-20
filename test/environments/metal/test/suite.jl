@@ -250,6 +250,19 @@ if Metal.functional()
             @test next_rng.position == expected_next.position
         end
     end
+    @testset "Metal accepts views of host Dirichlet concentrations" begin
+        rng = MetalDevice()(Philox4x32(57, 5))
+        alpha = view(Float32[0.3, 0, 2.0], 1:2:3)
+        for dims in ((), (3,))
+            actual, next_rng = rand_next(rng, Dirichlet(alpha), dims...)
+            expected, expected_next = rand_next(rng, Dirichlet(collect(alpha)), dims...)
+            @test actual isa Metal.MtlArray
+            @test Array(actual) == Array(expected)
+            @test next_rng == expected_next
+        end
+        @test Array(rand_at(rng, Dirichlet(alpha), 2)) ==
+              Array(rand_at(rng, Dirichlet(collect(alpha)), 2))
+    end
     @testset "Metal served primitive smoke" begin
         served = (
             Bool,
