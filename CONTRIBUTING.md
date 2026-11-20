@@ -202,7 +202,7 @@ Compare the same workload and hardware against the exact base revision.
 Separate allocation, fills, kernel-local draws, and device transfers.
 Preserve benchmark results outside Git, except the regression pins below.
 
-`benchmark/regression.jl` compares each minimum with its pin in
+`benchmark/regression.jl` compares each case's minimum time with its pin in
 `benchmark/baselines/<name>.toml`. Use it from the benchmark REPL:
 
 ```julia
@@ -215,14 +215,20 @@ Load CUDA first. Select `"a100"` for large fills or `"gh200"` for small and
 medium fills, unaligned normal draws, and a fused normal consumer on the
 corresponding GPU. Use one Julia thread for the CUDA pins and `--threads=auto`
 for the Mac pins.
-The command-line form `regression.jl <name> [--update]` remains
-available and exits unsuccessfully for regressions beyond the pin's tolerance.
-Update pins only after explaining and accepting the measured change.
+For a regression decision, the pin needs a source revision, a trial of at least
+ten seconds, and matching recorded controls such as the host, device, Julia and
+dependency versions, and thread counts. Inconclusive runs still report timings
+and list the differences in `report["comparison_issues"]`.
+The command-line form `regression.jl <name> [--update]` exits with 1 for a regression
+beyond tolerance and 2 for an inconclusive comparison. Update pins from a clean
+package checkout after explaining and accepting the measured change.
 
-Reports record the source SHA and dirty state, Julia/package versions, device,
-threads, host load, minima, medians, and host allocations. GPU timings include
-synchronization but exclude copying results back to the host. GPU memory allocation is not the
-reported host allocation count. Check competing CPU/GPU usage before each run.
+Reports identify the loaded PureRNGs checkout and benchmark script separately,
+with their paths, Git revisions and dirty states when available. They record
+Julia/package versions, device, threads, host load, minima, medians, and host
+allocations. GPU timings include synchronization but exclude copying results
+back to the host. The allocation counts cover host memory. Check competing
+CPU/GPU usage before each run.
 Alternate exact base and candidate revisions, and repeat close results.
 
 The optional distribution sweep covers Gamma shapes below, at, and above one,
