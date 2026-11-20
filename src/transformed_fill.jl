@@ -77,14 +77,21 @@ end
 
 # The uniform codec keeps its own dense CPU path: it owns block-aligned stores
 # that no mapping codec can use, and `_from_bits` needs no per-draw arithmetic.
-@inline _fill_transformed_cpu!(
+@inline function _fill_transformed_cpu!(
     rng,
     position,
     destination,
     ::Type{T},
     indices,
     ::Val{:uniform},
-) where {T} = _fill_uniform_cpu!(rng, position, destination, T, indices)
+) where {T}
+    # The widest dense loop tests a 512-Bool group, including one last test
+    # after the final store. Near typemax(Int), iterate the valid indices directly.
+    if indices isa AbstractUnitRange && last(indices) > typemax(Int) - 512
+        return _fill_uniform_position_cpu!(rng, position, destination, T, indices)
+    end
+    return _fill_uniform_cpu!(rng, position, destination, T, indices)
+end
 
 @inline function _fill_cursor!(
     rng,

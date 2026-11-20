@@ -18,6 +18,35 @@
     end
 end
 
+struct HighIndexVector{T} <: AbstractVector{T}
+    data::Vector{T}
+    stop::Int
+end
+Base.size(x::HighIndexVector) = size(x.data)
+Base.axes(x::HighIndexVector) = (Base.IdentityUnitRange((x.stop-(length(x)-1)):x.stop),)
+Base.IndexStyle(::Type{<:HighIndexVector}) = IndexLinear()
+MLD.get_device_type(::HighIndexVector) = MLD.CPUDevice
+function Base.setindex!(x::HighIndexVector, value, index::Int)
+    firstindex(x) <= index <= x.stop || throw(BoundsError(x, index))
+    return x.data[index-firstindex(x)+1] = value
+end
+
+@testset "uniform fills at the upper native index" begin
+    for (rng, T, n, stop) in (
+        (ChaCha(17), UInt64, 1, typemax(Int)),
+        (Philox4x32(17), Bool, 513, typemax(Int)-1),
+        (Philox4x32(17), Float64, 129, typemax(Int)),
+    )
+        expected, after = rand_next(rng, T, n)
+        for threaded in (false, true)
+            destination = HighIndexVector(Vector{T}(undef, n), stop)
+            _, next = rand_next!(rng, destination; threaded)
+            @test destination.data == expected
+            @test next == after
+        end
+    end
+end
+
 @testset "threaded fills into packed Boolean storage" begin
     rng = Philox4x32(1729)
     population = Bool[false, true]
