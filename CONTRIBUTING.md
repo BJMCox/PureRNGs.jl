@@ -277,9 +277,10 @@ Coverage measures executed lines, not statistical quality. No percentage target 
 
 ### Changelog
 
-Every user-visible change gets one entry in `CHANGELOG.md`, under the single
-`## Unreleased` heading, in the `### Added`, `### Changed`, `### Removed`, or `### Fixed`
-subsection that fits. Do not add a version heading or a date before a release.
+Record user-visible changes once under `## Unreleased` in `CHANGELOG.md`.
+Put incompatible behavior and migration steps under `### Breaking changes`.
+Use `### Added`, `### Changed`, `### Removed`, or `### Fixed` for the rest.
+Add the version heading and date at release time.
 
 ## Automation
 
@@ -308,9 +309,9 @@ Dependabot checks GitHub Actions weekly and groups updates into one pull request
 
 ## Release checklist
 
-- Match the changelog's version and release date to the release and make sure
-  `Project.toml` has the same version. Confirm repository visibility and the
-  documentation deployment.
+- Match the version in `Project.toml`, `CITATION.cff`, and the changelog.
+  Use the same release date in the citation and changelog. Confirm repository
+  visibility and the documentation deployment.
 - Check every required gate on the exact release revision.
 - Review the exported interface and backend support levels.
 - Check the [statistical release gate](docs/src/manual/reproducibility.md#statistical-release-gate)
@@ -318,9 +319,13 @@ Dependabot checks GitHub Actions weekly and groups updates into one pull request
   unchanged streams, recording the tested revisions and why the results apply.
   Publish and link the evidence for changed streams. Missing or failed cases
   block release.
-- With maintainer approval, register the validated revision. Once the registry
-  accepts it, [TagBot](.github/workflows/TagBot.yml) creates the version tag and
-  GitHub release.
+- With maintainer approval, invoke Registrator on the validated release commit.
+  Include the release's changelog section after the literal `Release notes:` line.
+  Each `0.0.x` increment crosses a Julia compatibility boundary. Explain its
+  breaking changes in the trigger and check that they appear in the General PR.
+  [RegistryCI release notes](https://juliaregistries.github.io/RegistryCI.jl/stable/guidelines/#Providing-and-updating-release-notes)
+- After General accepts the version, [TagBot](.github/workflows/TagBot.yml)
+  creates the version tag and GitHub release.
   Dispatch the workflow manually if the registration notification is missed.
   If the default token cannot tag a workflow-changing commit, a maintainer
   creates the tag and release at the registered revision. See
