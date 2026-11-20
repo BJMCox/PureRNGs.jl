@@ -325,7 +325,7 @@ const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
 end
 
 function _launch_cpu!(rng, destination::AbstractArray{T}, ::Type{T}, codec) where {T}
-    chunk_elements = _fill_chunk_elements(codec, T)
+    chunk_elements = _storage_chunk_elements(destination, _fill_chunk_elements(codec, T))
     indices = eachindex(destination)
     _run_chunks(length(destination), chunk_elements) do first, last
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), _fill_width(codec, T))
@@ -333,20 +333,6 @@ function _launch_cpu!(rng, destination::AbstractArray{T}, ::Type{T}, codec) wher
         chunk = _chunk_indices(indices, first, last)
         _fill_transformed_cpu!(rng, position, destination, T, chunk, codec)
     end
-    return destination
-end
-
-# A BitArray chunk holds 64 elements, so a mapping codec whose chunk is not a
-# multiple of 64 would have two work items write the same chunk.
-function _launch_cpu!(rng, destination::BitArray, ::Type{Bool}, codec::_MappedFillCodec)
-    _fill_transformed_cpu!(
-        rng,
-        rng.position,
-        destination,
-        Bool,
-        eachindex(destination),
-        codec,
-    )
     return destination
 end
 

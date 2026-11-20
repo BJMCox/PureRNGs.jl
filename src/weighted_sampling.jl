@@ -216,6 +216,7 @@ end
     # Lane-aligned chunks keep every workitem on the vectorized lookup path.
     chunk_elements = Int(_CPU_FILL_CHUNK_BITS ÷ UInt64(_WEIGHT_BITS))
     chunk_elements -= chunk_elements % _WEIGHTED_LOOKUP_LANES
+    chunk_elements = _storage_chunk_elements(destination, chunk_elements)
     _run_chunks(length(destination), chunk_elements) do first, last
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), _WEIGHT_BITS)
         position = _advance_position_unchecked(rng, bits_lo, bits_hi)

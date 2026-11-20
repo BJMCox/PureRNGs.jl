@@ -17,3 +17,23 @@
         @test threaded_matrix.data == serial_matrix.data
     end
 end
+
+@testset "threaded fills into packed Boolean storage" begin
+    rng = Philox4x32(1729)
+    population = Bool[false, true]
+    n = 32_769
+    order = vcat((i:4:n for i = 1:4)...)
+    for weights in ((), ([1.0, 2.0],))
+        expected, after = randsample_next(rng, population, weights..., n; threaded = false)
+        for dest in (falses(n), view(falses(n), order))
+            _, next = randsample_next!(rng, population, weights..., dest; threaded = true)
+            @test dest == expected
+            @test next == after
+        end
+    end
+    dest = PermutedDimsArray(falses(8, 65536), (2, 1))
+    expected, after = rand_next(rng, Bool, size(dest); threaded = false)
+    _, next = rand_next!(rng, dest; threaded = true)
+    @test dest == expected
+    @test next == after
+end

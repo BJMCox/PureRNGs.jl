@@ -149,7 +149,9 @@ function _engine_fill!(rng, destination::AbstractArray{T}, threaded::Bool, codec
     cursor = _fill_cursor(rng, count, width, UInt64(0))
     indices = eachindex(destination)
     if threaded
-        _run_chunks(length(destination), _fill_chunk_elements(codec, T)) do first, last
+        chunk_elements =
+            _storage_chunk_elements(destination, _fill_chunk_elements(codec, T))
+        _run_chunks(length(destination), chunk_elements) do first, last
             chunk = _fill_cursor(rng, count, width, UInt64(first - 1))
             for ordinal = first:last
                 value, chunk = _codec_take(codec, rng, chunk, T)
