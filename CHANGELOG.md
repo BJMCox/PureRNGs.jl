@@ -4,6 +4,29 @@ All notable changes to this project are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- Grouped CPU `Float32` normal fills decode native generator words across
+  generator families.
+
+### Known issues
+
+- Threaded fills into views backed by packed booleans can lose writes. A
+  failed threaded fill can return while other workers still write. Uniform
+  fills can also overrun legal offset axes near `typemax(Int)`.
+- Sampling without replacement can select the wrong element from an array
+  with offset indices. Some permutation, multivariate and StaticArrays fills
+  also mishandle destination axes.
+- `MvNormal` fills can overwrite covariance storage shared with the
+  destination. Large addressed draws can also fail for valid machine integers.
+- Some `Float32` Dirichlet draws fall outside the simplex. Student-t draws
+  can overflow for representable results, and Beta draws can round to an
+  endpoint too early. Some Gamma-family shape derivatives lose finite results.
+- Key derivation for the 64-bit Philox families misses the native CPU
+  multiply in `splitrng` and `subrng`.
+
 ## 0.0.2 - 2026-11-17
 
 ### Added
