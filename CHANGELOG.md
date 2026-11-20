@@ -8,24 +8,36 @@ and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
-- Grouped CPU `Float32` normal fills decode native generator words across
-  generator families.
+- Grouped CPU `Float32` normal fills decode native words across generator
+  families. Limiting ChaCha inlining cuts first-call compilation time, with a
+  small throughput cost in warm fills.
+- `splitrng` and `subrng` use native wide multiplication on the CPU for
+  64-bit Philox and preserve the derived keys.
+- Benchmark reports identify the loaded package and the harness separately.
+  Regression verdicts require comparable measurements.
 
-### Known issues
+### Fixed
 
-- Threaded fills into views backed by packed booleans can lose writes. A
-  failed threaded fill can return while other workers still write. Uniform
-  fills can also overrun legal offset axes near `typemax(Int)`.
-- Sampling without replacement can select the wrong element from an array
-  with offset indices. Some permutation, multivariate and StaticArrays fills
-  also mishandle destination axes.
-- `MvNormal` fills can overwrite covariance storage shared with the
-  destination. Large addressed draws can also fail for valid machine integers.
-- Some `Float32` Dirichlet draws fall outside the simplex. Student-t draws
-  can overflow for representable results, and Beta draws can round to an
-  endpoint too early. Some Gamma-family shape derivatives lose finite results.
-- Key derivation for the 64-bit Philox families misses the native CPU
-  multiply in `splitrng` and `subrng`.
+- Threaded fills protect packed Boolean storage and wait for every worker
+  before returning an error. Uniform fills handle the highest native indices.
+- Sampling without replacement, permutations, multivariate draws, and
+  StaticArrays batches honor offset axes. Static batches also accept
+  zero-dimensional arrays and integer dimensions.
+- Scalar collection picks check array placement and support both host and
+  kernel calls on device arrays. CUDA sampling detects overlap with data and
+  gather indices on older CUDA.jl versions. Reactant validates sample counts
+  and dimensions before tracing.
+- Multivariate normal fills protect covariance storage and accept large
+  valid draw indices. Addressed exhaustion errors report the full span.
+- Dirichlet normalization retains small weights and accepts wrapped host
+  concentrations on device draws. Student-t and Beta retain representable
+  tails, including subnormal Beta draws on Metal and Reactant.
+- Gamma-family shape and scale derivatives retain finite tail values.
+  Metal computes Float32 dual rescaling in native precision. Distribution
+  fills check the destination's dual type before writing.
+- The particle-filter tutorial handles extreme finite observations and keeps
+  the cumulative resampling weights nondecreasing. The guides spell out dense
+  normal rounding and the bit widths used for integer ranges.
 
 ## 0.0.2 - 2026-11-17
 
