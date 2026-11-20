@@ -316,6 +316,18 @@ end
     @test maximum(abs.(sum(small; dims = 1) .- 1)) < 1e-12
 end
 
+@testset "Float32 Dirichlet mass with a dominant component" begin
+    rng = Threefry2x64(13)
+    alpha = Float32[3.0f7; ones(Float32, 65536)]
+    for shapes in (alpha, reverse(alpha))
+        d = Dirichlet(shapes)
+        x, after = rand_next(rng, d)
+        @test abs(sum(Float64, x) - 1) <= eps(Float32)
+        @test insupport(d, x)
+        @test rngposition(after) - rngposition(rng) == length(x) * 17 * 23
+    end
+end
+
 # A Dirichlet draw is one column-codec draw, so its address and a fill's span
 # reach the stream check whole. A 128-bit position holds spans past 2^64 takes.
 @testset "Dirichlet spans past UInt64 stay exact" begin

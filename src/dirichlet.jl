@@ -65,16 +65,24 @@ end
 @inline _normalize_column!(destination, column) =
     _normalize_column!(destination, column, _column_maximum(destination, column)...)
 
+# Compensate Float32 sums in their native precision, including duals and Metal.
+@inline function _add_dirichlet_weight(total::T, error, value) where {T}
+    _primal_float(T) === Float32 || return total + value, error
+    adjusted = value - error
+    updated = total + adjusted
+    return updated, (updated - total) - adjusted
+end
+
 @inline function _normalize_column!(destination, column, largest, best)
     T = eltype(destination)
     components = axes(destination, 1)
-    total = zero(T)
+    total, error = zero(T), zero(T)
     for component in components
         value = component == best ? one(T) : exp(destination[component, column] - largest)
         # A rounded zero has zero tangent even when the log derivative overflows.
         iszero(_primal_value(value)) && (value = zero(T))
         destination[component, column] = value
-        total += value
+        total, error = _add_dirichlet_weight(total, error, value)
     end
     for component in components
         destination[component, column] /= total
@@ -111,7 +119,7 @@ end
         cursor = _skip_takes(rng, cursor, count, width)
     end
     cursor = first_cursor
-    total = zero(T)
+    total, error = zero(T), zero(T)
     for component in eachindex(codec.alpha)
         delta = _tiny_gamma_log_difference(
             gamma(component),
@@ -122,7 +130,7 @@ end
         )
         value = component == best ? one(T) : isinf(delta) ? zero(T) : exp(delta)
         destination[component, column] = value
-        total += value
+        total, error = _add_dirichlet_weight(total, error, value)
         cursor = _skip_takes(rng, cursor, count, width)
     end
     for component in eachindex(codec.alpha)
