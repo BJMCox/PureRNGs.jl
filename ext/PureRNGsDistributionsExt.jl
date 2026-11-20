@@ -224,11 +224,8 @@ include("distributions_unified.jl")
 const _FloatMvNormal = Distributions.MvNormal{<:_FloatType}
 const _PDMats = Distributions.PDMats
 const _LinearAlgebra = Distributions.LinearAlgebra
-
-_covariance_storage(Σ::_PDMats.PDMat) = _LinearAlgebra.cholesky(Σ).factors
-_covariance_storage(Σ::_PDMats.PDSparseMat) = Σ.mat
-_covariance_storage(Σ::_PDMats.PDiagMat) = Σ.diag
-_covariance_storage(Σ::_PDMats.ScalMat) = nothing
+const _MvNormalFillCovariance =
+    Union{_PDMats.PDMat,_PDMats.PDSparseMat,_PDMats.PDiagMat,_PDMats.ScalMat}
 
 _device_factor(device, Σ::_PDMats.PDMat) =
     IR._transfer_array(device, Matrix(_PDMats.chol_lower(_LinearAlgebra.cholesky(Σ))))
@@ -271,7 +268,7 @@ function IR._engine_rand_next(rng, d::_FloatMvNormal, n::Integer; threaded::Bool
 end
 function IR._engine_rand_next!(
     rng,
-    d::Distributions.MvNormal{T},
+    d::Distributions.MvNormal{T,<:_MvNormalFillCovariance},
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,
 ) where {T<:_FloatType}
@@ -280,11 +277,10 @@ function IR._engine_rand_next!(
             "destination has $(size(destination, 1)) rows for a $(length(d))-dimensional MvNormal",
         ),
     )
-    IR._check_parameter_overlap(destination, d.μ, "the mean")
-    IR._check_parameter_overlap(
-        destination,
-        _covariance_storage(d.Σ),
-        "the covariance factor",
+    IR._randset_aliases(destination, d) && throw(
+        ArgumentError(
+            "the destination shares memory with the distribution parameters. Use a separate array.",
+        ),
     )
     _, next_rng = IR._engine_randn_next!(rng, destination; threaded)
     return _whitened_to_mvnormal!(IR._engine_backend(rng), d, destination), next_rng

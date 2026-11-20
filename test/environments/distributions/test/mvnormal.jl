@@ -11,6 +11,7 @@ using Distributions.PDMats.SparseArrays: sparse, nonzeros
     for (d, destination) in (
         (diagonal, diagonal.μ),
         (diagonal, diagonal.Σ.diag),
+        (dense, view(dense.Σ.mat, :, 1)),
         (dense, view(cholesky(dense.Σ).factors, :, 1)),
         (sparse_diagonal, nonzeros(sparse_diagonal.Σ.mat)),
         (dirichlet, dirichlet.alpha),
