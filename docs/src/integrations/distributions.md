@@ -86,13 +86,12 @@ retries a draw. The exact random bits, order, and continuation agree within an
 execution site, while transcendental transforms may differ between CPU, CUDA,
 and compiled execution.
 
-CUDA supports these direct methods.
-AMDGPU serves the same direct methods as CUDA.
-Reactant supports scalar, continuation, and addressed forms for these
-continuous distributions, using its native compiled arithmetic. This does not
-add parameter-gradient support or a general distribution AD guarantee.
-Metal serves every distribution with `Float32` parameters; `Float64`
-parameters need Float64 arithmetic, which Metal lacks.
+CUDA supports these eager methods. AMDGPU provides preview paths for them.
+For device execution on Metal, use the `Float32` parameter forms or
+`DiscreteUniform`. See [Devices](@ref) for device-wide constraints.
+Reactant supports scalar `rand_next` and `rand_at` for the fixed forms listed
+here, using native compiled arithmetic. See [Differentiation and compilation](@ref)
+for the compiled and parameter-gradient scopes.
 
 ## Categorical
 
@@ -125,10 +124,12 @@ device-executing allocation and fills, since the cumulative table is Float64.
 
 ## MvNormal
 
-Fill destinations must not share storage with the mean or covariance factor.
+Fill destinations must not share storage with the mean, covariance, or its factor.
+Destination rows, mean entries, and diagonal covariance entries match by position.
 
 An `MvNormal` draw applies Distributions' own map, `μ + L z`, to the next `length(d)` standard normal draws, where `L` is the covariance's lower factor.
-`n` draws are one normal fill, a column per draw, so a matrix of draws equals the chained single draws.
+A batch fills one column per draw. On a given backend, a batch and chained single draws use the same standard normal sequence and reach the same continuation.
+For a dense covariance, the matrix and vector kernels can round `μ + L z` differently.
 
 ```julia
 rng = Philox4x32(123456)
@@ -138,7 +139,8 @@ cloud, rng = rand_next(rng, distribution, 1000)
 seventh = rand_at(rng, distribution, 7)
 ```
 
-`PDMat`, diagonal, and scalar covariances work on every backend.
+`PDMat`, diagonal, and scalar covariances support eager draws on CPU, CUDA, and Metal, subject to the backend's element-type limits.
+AMDGPU is a [preview backend](@ref "Devices").
 Sparse `PDSparseMat` covariances support allocating and in-place CPU draws.
 A device draw moves the covariance's factor to the device once per call and applies it there.
 Gradients with respect to `μ` and the covariance are pathwise with Enzyme, Mooncake, and ForwardDiff.
@@ -166,6 +168,7 @@ When tiny positive shapes overflow those logs, a scaled comparison reuses the sa
 Results can round to zero or one. Dirichlet columns remain normalized, and the parent span stays unchanged.
 
 A Dirichlet fill destination must not share storage with its concentration vector.
+Concentrations and destination rows match by position, including on offset axes.
 Host concentration arrays transfer to the generator's backend when needed.
 Concentrations already on that backend stay there, including device views.
 Concentrations on another backend are rejected rather than copied through the CPU.

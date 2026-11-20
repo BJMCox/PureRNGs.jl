@@ -14,11 +14,11 @@ Required CI and documentation checks still apply.
 
 ## Architecture
 
-Two fill scaffolds cover every array-producing draw. The generic scaffold is
-keyed by a codec and serves uniform, normal, exponential, range, unweighted
-sampling and mapped extension distributions. The weighted scaffold is separate,
-because it folds a cumulative table first and runs two device kernels over an
-intermediate threshold array.
+The generic fill scaffold is keyed by a codec and serves uniform, normal,
+exponential, range, unweighted sampling and mapped extension distributions.
+Weighted sampling prepares a cumulative table. Its device path uses two
+kernels over an intermediate threshold array. Multivariate methods fill
+columns or apply a distribution transform to a primitive fill.
 
 The generic path has five steps:
 
@@ -43,9 +43,10 @@ The generic path has five steps:
    and returns a plan, which selects a tuned kernel through
    `_launch_device_fill!`.
 
-Normal and exponential scalars use `_draw_next`; addressed primitives use
-`_draw_at`. Public pure forms discard the returned state. Their user-facing
-contracts live in the [API reference](docs/src/api.md).
+Normal and exponential scalars use `_draw_next`. Addressed primitives use
+`_draw_at`. Continuation calls return the next generator. Addressed calls and
+`randsample` return only values. `StatefulRNG` retains the continuation for
+standard `Random` calls. See the [API reference](docs/src/api.md).
 
 A codec says how wide a draw is and what the draw means. It is `Val{:uniform}`,
 a `_NormalCodec`, an `_ExponentialCodec`, a `_RangeCodec`, a `_PopulationCodec`,
@@ -57,8 +58,7 @@ or an extension subtype of `_MappedFillCodec`. Its protocol is five hooks:
   the advanced cursor. The default is one fixed-width draw through
   `_cooperative_value`, which is all a distribution needs, so that is the seam
   an extension uses to add one without a new scaffold. `_RangeCodec` and
-  `_PopulationCodec` override it because their draw is 64 or 128 bits wide and
-  their value is a reduced ordinal rather than a converted raw.
+  `_PopulationCodec` override it to reduce a candidate to an ordinal.
 - `_transformed_draw_unchecked(codec, rng, position, T)` — one draw at a given
   position, which the addressed entry and the generic device kernel use.
 - `_fill_chunk_elements(codec, T)` — the CPU chunk size, with a default from the
@@ -77,39 +77,24 @@ compiles. An overlay added later in a REPL need not reach package internals.
 The `_mulhilo64` override uses the device high product without introducing
 128-bit integers into device code; host arithmetic remains unchanged.
 
-All position arithmetic funnels through `_split_bit_advance` in `generators.jl`,
-which is the single place a bit offset becomes a block and bit pair. Device and
-keyword validation funnels through `validation.jl`.
+`_split_bit_advance` in `generators.jl` splits a bit offset into a block and bit
+pair. Device and keyword validation live in `validation.jl`.
 
-One line per file in `src/`, in include order:
+Start at [the module entry point](src/PureRNGs.jl) for exports and include order.
 
-- `PureRNGs.jl` — module: exports, the `_ReactantRNG` declaration both Reactant extensions dispatch on, and the include list.
-- `core_words.jl` — word arithmetic over `_CoreWord`, so one block function serves host words and device words.
-- `philox.jl` — Philox round function, multipliers, and Weyl constants.
-- `threefry.jl` — Threefry round function, rotation tables, and parity constants.
-- `chacha.jl` — ChaCha quarter round, block function, and constants.
-- `generators.jl` — `AbstractPureRNG`, the nine generator types, backend tokens, the two position types, reservation, and `StreamExhausted`.
-- `allocation.jl` — `_allocate_draw_array` and the per-backend `_allocate_array`.
-- `bits.jl` — block evaluation and the scalar bit extractors.
-- `derive.jl` — `splitrng`, `subrng`, and the tagged key derivation behind them.
-- `uniform_scalar.jl` — the generator and result-type unions, `_draw_bits`, `_from_bits`, and scalar `rand`.
-- `validation.jl` — device, keyword, and serviceability checks for fills and sampling.
-- `uniform_fill.jl` — `_DenseBitCursor`, the uniform CPU fill, and the uniform grouped stores.
-- `fill_hooks.jl` — the uniform codec accessors, `_fill_backend`, and the `_launch_device_fill!` declaration the KernelAbstractions extension fills in.
-- `cpu_scheduler.jl` — the CPU chunk constants and the `_run_chunks` work loop.
-- `transformed_fill.jl` — the codec protocol, the CPU fill bodies, `_launch_cpu!`, `_fill_prevalidated!`, and the four internal entries the public methods forward to.
-- `uniform.jl` — the public uniform array entries over the transformed scaffold.
-- `addressed.jl` — `rand_at` and the addressed-position arithmetic it shares with `randn_at` and `randexp_at`.
-- `normal.jl` — the two inverse normal CDFs the backend token selects between,
-  AS241 and Giles' erfinv, `_open_midpoint`, and the public normal entries.
-- `exponential.jl` — the exponential transform and the public exponential entries.
-- `integers.jl` — range span, range bits, and the multiply-shift range reduction.
-- `range_fill.jl` — `_RangeCodec`, the shared candidate reduction, and the public range fill entries.
-- `sampling.jl` — population preparation, `_PopulationCodec`, and the public unweighted sampling entries.
-- `weighted_sampling.jl` — `WeightTable`, weight folding, and the weighted sampling scaffold.
-- `stateful.jl` — `StatefulRNG`, the mutable `Random.AbstractRNG` bridge.
-- `docstrings.jl` — docstrings for the extended `Random` names, bound by signature; keep it after every file it documents.
-- `precompile.jl` — the PrecompileTools workload; keep it last.
+- `generators.jl`, `bits.jl`, and `derive.jl` define generator state, the packed
+  stream and key derivation. The Philox, Threefry, ChaCha and PCG4D cores each
+  have their own file.
+- `uniform_scalar.jl`, `uniform_fill.jl`, `transformed_fill.jl`, and
+  `addressed.jl` implement primitive draws and their shared fill and addressing
+  paths. `engine.jl` defines the hooks used by external engines.
+- `normal.jl`, `exponential.jl`, `gamma.jl`, and `dirichlet.jl` provide
+  transform and codec implementations. Optional distribution entry points
+  live in `ext/`.
+- `integers.jl`, `collections.jl`, `sampling.jl`, `weighted_sampling.jl`,
+  and `permutations.jl` implement ranges, picks, resampling and permutations.
+- `stateful.jl` implements the mutable bridge. `unified.jl` implements the
+  `!!` adapters for pure and mutable generators.
 
 ## Dependencies
 
@@ -143,6 +128,8 @@ Prefer small public-behavior tests and independent mathematical oracles.
 
 ## Documentation
 
+The docs environment requires Julia 1.11 or later. The package supports Julia 1.10.
+
 From the repository root:
 
 ```julia
@@ -158,7 +145,8 @@ The docs project points at this checkout through a `[sources]` entry, so no
 `Pkg.develop` call is needed and nothing is written back into `docs/Project.toml`.
 
 Open `docs/build/index.html`.
-The strict Documenter build runs CPU examples and checks exported docstrings and links.
+Documenter runs CPU examples and checks exported docstrings and internal links.
+It reports external link failures as warnings.
 Optional GPU and integration examples need their corresponding environments.
 
 ## Extensions and GPU checks
@@ -202,7 +190,7 @@ Compare the same workload and hardware against the exact base revision.
 Separate allocation, fills, kernel-local draws, and device transfers.
 Preserve benchmark results outside Git, except the regression pins below.
 
-`benchmark/regression.jl` compares each minimum with its pin in
+`benchmark/regression.jl` compares each case's minimum time with its pin in
 `benchmark/baselines/<name>.toml`. Use it from the benchmark REPL:
 
 ```julia
@@ -215,14 +203,20 @@ Load CUDA first. Select `"a100"` for large fills or `"gh200"` for small and
 medium fills, unaligned normal draws, and a fused normal consumer on the
 corresponding GPU. Use one Julia thread for the CUDA pins and `--threads=auto`
 for the Mac pins.
-The command-line form `regression.jl <name> [--update]` remains
-available and exits unsuccessfully for regressions beyond the pin's tolerance.
-Update pins only after explaining and accepting the measured change.
+For a regression decision, the pin needs a source revision, a trial of at least
+ten seconds, and matching recorded controls such as the host, device, Julia and
+dependency versions, and thread counts. Inconclusive runs still report timings
+and list the differences in `report["comparison_issues"]`.
+The command-line form `regression.jl <name> [--update]` exits with 1 for a regression
+beyond tolerance and 2 for an inconclusive comparison. Update pins from a clean
+package checkout after explaining and accepting the measured change.
 
-Reports record the source SHA and dirty state, Julia/package versions, device,
-threads, host load, minima, medians, and host allocations. GPU timings include
-synchronization but exclude copying results back to the host. GPU memory allocation is not the
-reported host allocation count. Check competing CPU/GPU usage before each run.
+Reports identify the loaded PureRNGs checkout and benchmark script separately,
+with their paths, Git revisions and dirty states when available. They record
+Julia/package versions, device, threads, host load, minima, medians, and host
+allocations. GPU timings include synchronization but exclude copying results
+back to the host. The allocation counts cover host memory. Check competing
+CPU/GPU usage before each run.
 Alternate exact base and candidate revisions, and repeat close results.
 
 The optional distribution sweep covers Gamma shapes below, at, and above one,
@@ -297,32 +291,37 @@ A separate downgrade job installs Julia 1.10, downgrades every non-stdlib depend
 declared `[compat]` floor, and runs the test suite. This checks the floors in `[compat]`,
 not only the latest releases.
 
-The current Julia/Linux core job and five independent CPU extension jobs (Distributions, Enzyme,
-Reactant, MeasureBase, Turing) each upload source and extension coverage to Codecov, which merges
-their reports.
-Each job retains its `lcov.info` in a separate `coverage-*` artifact.
-Extension suites run on current stable Julia only. The core job also covers the 1.10 LTS floor,
-and the downgrade job covers the compat floors of the package's own dependencies.
-The conformance environments in `test/environments` declare and require current stable Julia,
-because they use `[sources]`, which 1.10 does not support. The package itself still supports 1.10.
-The Reactant job tests Philox4x32, Threefry4x64, Threefry4x32, and ChaCha.
+The current Julia/Linux core job and the CPU extension jobs retain their
+`lcov.info` files as separate `coverage-*` artifacts. Codecov publication uses
+GitHub OIDC and is best-effort.
+See the [CI matrix](.github/workflows/CI.yml) for the nine CPU extension
+environments, both KernelAbstractions series, the Enzyme Julia pin, and the
+Reactant generator selection. The conformance projects in `test/environments`
+use `[sources]` and declare their own Julia versions.
 Full-family Reactant and GPU validation remain separate release gates.
-Every successful coverage run uploads to Codecov using GitHub OIDC, without an opt-in input.
-The first upload must confirm that Codecov accepts the repository's OIDC identity.
-Coverage measures executed lines, not statistical quality. No percentage target is set.
 
 CI runs on pushes to `main` and `dev` and on pull requests.
-Documentation runs on pushes to `main` and on pull requests.
+Documentation runs on pushes to `main` and on pull requests. Builds on `main`
+deploy the unversioned site to GitHub Pages.
 Both workflows also support manual dispatch.
 Dependabot checks GitHub Actions weekly and groups updates into one pull request.
-Version tags and GitHub releases are managed manually.
 
-## Before the first release
+## Release checklist
 
+- Match the changelog's version and release date to the release and make sure
+  `Project.toml` has the same version. Confirm repository visibility and the
+  documentation deployment.
 - Check every required gate on the exact release revision.
 - Review the exported interface and backend support levels.
-- Complete the [statistical release gate](docs/src/manual/reproducibility.md#statistical-release-gate) for every named configuration, then upload and link the evidence. Missing or failed cases block release.
-- Update the changelog with the chosen version and date.
-- Match the version in `Project.toml`.
-- Confirm repository visibility and documentation hosting before registration.
-- Obtain maintainer approval before tagging, publishing, or registering.
+- Check the [statistical release gate](docs/src/manual/reproducibility.md#statistical-release-gate)
+  for every named configuration. Carry earlier evidence forward only for
+  unchanged streams, recording the tested revisions and why the results apply.
+  Publish and link the evidence for changed streams. Missing or failed cases
+  block release.
+- With maintainer approval, register the validated revision. Once the registry
+  accepts it, [TagBot](.github/workflows/TagBot.yml) creates the version tag and
+  GitHub release.
+  Dispatch the workflow manually if the registration notification is missed.
+  If the default token cannot tag a workflow-changing commit, a maintainer
+  creates the tag and release at the registered revision. See
+  [TagBot's manual fallback](https://github.com/JuliaRegistries/TagBot#commits-that-modify-workflow-files).

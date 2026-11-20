@@ -13,17 +13,23 @@ evens
 ```
 
 Ranges support signed and unsigned integer element types from 8 through 128 bits.
-A range with more than 2^64 values reduces a 192-bit candidate; the 128-bit element types run on the CPU only.
+Use host arithmetic for 128-bit elements. See [Devices](@ref).
 
-Range sampling uses a fixed-width multiply-high mapping, not rejection sampling.
-Arbitrary range lengths can have a small finite mapping bias. Preimage counts differ by at most one.
+Each range draw consumes a fixed number of bits based on its cardinality.
 
-The candidate uses 64 bits for spans up to 2^32 and 128 bits for larger spans.
-For a span `s` and a candidate width `K`, the relative probability imbalance
-between two values is exactly `1/floor(2^K / s)`. It is zero when `s` divides
-`2^K`, so powers of two are unbiased. It is largest just below each width
-change: about 2.33e-10 at `s = 2^32 - 1`, and about 5.42e-20 at
-`s = 2^64 - 1`.
+| Range length `s`      | Candidate width `K` |
+|----------------------|---------------------|
+| `1 ≤ s ≤ 2^32`       | 64 bits             |
+| `2^32 < s ≤ 2^64`    | 128 bits            |
+| `2^64 < s ≤ 2^128`   | 192 bits            |
+
+Multiply-high maps the candidate `x` to the zero-based ordinal
+`floor(x * s / 2^K)`. Write `2^K = q * s + r`. Then `r` ordinals have
+`q + 1` preimages, and every other ordinal has `q`.
+Power-of-two spans have `r = 0` and are exactly uniform on this grid.
+When `r > 0`, the largest ordinal probability divided by the smallest, minus
+one, is `1/q`. This relative difference is at most `2^-32` in the 64-bit tier
+and `2^-64` in the 128- and 192-bit tiers.
 
 ```@example sampling
 dice = Vector{Int}(undef, 16)
@@ -46,6 +52,7 @@ letters
 
 A pick accepts any array or range, a tuple, a string, a dict, or a set, as `rand` does in `Random`.
 It consumes and returns exactly what `randsample_next(rng, collection, 1)` does, and the array forms equal `randsample_next`.
+Array populations follow the same placement rules as sampling. A scalar pick from a matching GPU array on the host transfers only the selected element.
 Strings, dicts, and sets reach the drawn position by iteration, so one pick costs time linear in their length.
 A lone tuple is a collection, including a tuple of integers. Use an explicit type for tuple dimensions:
 
@@ -56,7 +63,7 @@ matrix, rng = rand_next(rng, Float64, (2, 3))
 @assert size(matrix) == (2, 3)
 ```
 
-`rand_next(rng, Char)` is uniform over the 1,112,064 Unicode scalar values, as in `Random`.
+`rand_next(rng, Char)` uses the 64-bit finite-grid range mapping over the 1,112,064 Unicode scalar values.
 It draws the offset `k` from `0:0x10f7ff` and skips the surrogates: `k < 0xd800 ? Char(k) : Char(k + 0x800)`.
 
 ## Sample a population
@@ -198,7 +205,7 @@ A destination must not alias a `WeightTable`'s prepared storage.
 An array population must match the generator's backend. The same rule applies to array weights.
 A host array with a CUDA-bound generator throws instead of silently copying.
 
-Device-agnostic inputs, such as integer ranges, can serve a device-bound generator.
+Device-agnostic inputs, such as integer ranges and inline `isbits` static arrays, can serve a device-bound generator.
 GPU populations must also support device indexing and storage.
 
 Results stay on the generator's backend. Weighted validation can require a small host result.

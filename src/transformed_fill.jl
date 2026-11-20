@@ -77,14 +77,21 @@ end
 
 # The uniform codec keeps its own dense CPU path: it owns block-aligned stores
 # that no mapping codec can use, and `_from_bits` needs no per-draw arithmetic.
-@inline _fill_transformed_cpu!(
+@inline function _fill_transformed_cpu!(
     rng,
     position,
     destination,
     ::Type{T},
     indices,
     ::Val{:uniform},
-) where {T} = _fill_uniform_cpu!(rng, position, destination, T, indices)
+) where {T}
+    # The widest dense loop tests a 512-Bool group, including one last test
+    # after the final store. Near typemax(Int), iterate the valid indices directly.
+    if indices isa AbstractUnitRange && last(indices) > typemax(Int) - 512
+        return _fill_uniform_position_cpu!(rng, position, destination, T, indices)
+    end
+    return _fill_uniform_cpu!(rng, position, destination, T, indices)
+end
 
 @inline function _fill_cursor!(
     rng,
@@ -164,6 +171,9 @@ end
                 rng,
                 _advance_stream_block_unchecked(block, UInt64($(3chunks + source))),
             ))
+        # A ChaCha normal group reads 23 blocks. Keep the first eight cores
+        # inline and share the rest to bound the generated code size.
+        R <: ChaCha && source >= 8 && (words = :(Base.@noinline $words))
         push!(body, :($(Symbol(:group_, source)) = $words))
     end
     raws = map(0:(draws-1)) do draw
@@ -325,7 +335,7 @@ const _CPU_TRANSFORMED_FILL_CHUNK_BITS = UInt64(8192 * 32)
 end
 
 function _launch_cpu!(rng, destination::AbstractArray{T}, ::Type{T}, codec) where {T}
-    chunk_elements = _fill_chunk_elements(codec, T)
+    chunk_elements = _storage_chunk_elements(destination, _fill_chunk_elements(codec, T))
     indices = eachindex(destination)
     _run_chunks(length(destination), chunk_elements) do first, last
         bits_lo, bits_hi = _bit_span(UInt64(first - 1), _fill_width(codec, T))
@@ -333,20 +343,6 @@ function _launch_cpu!(rng, destination::AbstractArray{T}, ::Type{T}, codec) wher
         chunk = _chunk_indices(indices, first, last)
         _fill_transformed_cpu!(rng, position, destination, T, chunk, codec)
     end
-    return destination
-end
-
-# A BitArray chunk holds 64 elements, so a mapping codec whose chunk is not a
-# multiple of 64 would have two work items write the same chunk.
-function _launch_cpu!(rng, destination::BitArray, ::Type{Bool}, codec::_MappedFillCodec)
-    _fill_transformed_cpu!(
-        rng,
-        rng.position,
-        destination,
-        Bool,
-        eachindex(destination),
-        codec,
-    )
     return destination
 end
 

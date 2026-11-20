@@ -16,7 +16,7 @@ end
 
 @inline function _check_sampling_population_overlap(destination, population)
     population isa AbstractArray &&
-        Base.mightalias(destination, population) &&
+        _arrays_mightalias(destination, population) &&
         _sampling_population_overlap()
     return nothing
 end
@@ -220,7 +220,7 @@ end
 function _unique_sample(rng, indexed, cardinality::UInt64, count::Int, threaded::Bool)
     count <= cardinality || _unique_count_error(count, cardinality)
     order, next_rng = _randperm_next(rng, Int(cardinality), threaded)
-    return _gather(_fill_backend(rng.device, order), vec(indexed), order[1:count]), next_rng
+    return _gather(_fill_backend(rng.device, order), indexed, order[1:count]), next_rng
 end
 
 @noinline function _empty_sampling_population(count)

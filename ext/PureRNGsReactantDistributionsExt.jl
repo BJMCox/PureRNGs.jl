@@ -193,6 +193,21 @@ end
         return exp(log(d.θ) - _traced_log_gamma(rng, d.invd.α))
     return d.θ / _traced_gamma(rng, d.invd.α)
 end
+
+# XLA can flush subnormal arithmetic to zero. In this tail the denominator
+# rounds to one, so round exp(-delta) in units of the smallest subnormal and
+# return its IEEE bits directly.
+@inline function _traced_beta_fraction(delta, ::Type{T}) where {T}
+    U = T === Float32 ? UInt32 : UInt64
+    Reactant.@trace if delta >= -log(floatmin(T))
+        units = IR._beta_subnormal_units(delta, T)
+        value = Reactant.Ops.bitcast_convert(T, round(U, units))
+    else
+        value = IR._beta_from_log_difference(delta)
+    end
+    return value
+end
+
 @inline function _gamma_family_value(rng, d::Distributions.Beta{T}) where {T}
     width = IR._gamma_span(T, IR._GAMMA_CANDIDATES)
     second = IR._addressed_rng(rng, width, 2)
@@ -203,15 +218,19 @@ end
         delta = IR._scaled_boost_difference(d.β, d.α, boost_y, boost_x)
         base =
             _traced_log_gamma(second, d.β + one(T)) - _traced_log_gamma(rng, d.α + one(T))
-        return inv(one(T) + exp(delta + base))
+        return _traced_beta_fraction(delta + base, T)
     end
     log_x = _traced_log_gamma(rng, d.α)
     log_y = _traced_log_gamma(second, d.β)
-    return inv(one(T) + exp(log_y - log_x))
+    return _traced_beta_fraction(log_y - log_x, T)
 end
 @inline function _gamma_family_value(rng, d::Distributions.TDist{T}) where {T}
     z = first(PureRNGs.randn_next(rng, T))
-    g = _traced_gamma(IR._addressed_rng(rng, IR._normal_bits(T), 2), d.ν / 2)
+    second = IR._addressed_rng(rng, IR._normal_bits(T), 2)
+    shape = d.ν / 2
+    IR._gamma_log_scaling(shape) &&
+        return IR._tdist_from_log(z, d.ν, _traced_log_gamma(second, shape))
+    g = _traced_gamma(second, shape)
     return z * sqrt(d.ν / (2 * g))
 end
 

@@ -6,6 +6,7 @@ Record the package version, generator type, seed or key, purpose IDs, and draw s
 
 Pure calls repeat their result. Continuation calls advance explicit state.
 Bulk calls follow chained scalar consumption, so changing chunk sizes does not change the underlying stream.
+The [dense multivariate normal transform](@ref "MvNormal") can round differently with different batch sizes.
 
 Randomness belongs to logical work, not thread IDs or scheduling order.
 See [Parallel jobs](@ref).
@@ -59,8 +60,8 @@ Statistical stream tests do not validate distribution transforms or GPU performa
 
 ### Statistical release gate
 
-Before the first package release, complete both batteries for all 17 named
-configurations above. `ChaCha` and `ChaCha12` denote the same configuration.
+The archived campaign completed both batteries for all 17 named configurations
+above. `ChaCha` and `ChaCha12` denote the same configuration.
 BigCrush requires both `UInt32` and `Float64` lanes. PractRand requires a 1 TiB
 root stream and 256 GiB each of split-eight and `subrng`-eight streams, with
 one native word per child in round-robin order. Every stream starts from

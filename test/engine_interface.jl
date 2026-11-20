@@ -32,6 +32,13 @@ const ENGINE_GENERATORS = (
     end
 end
 
+@testset "the external engine checks the final address before allocation" begin
+    engine = WrappedEngine(Philox4x32(7))
+    hi = big(1) << 130
+    @test_throws OverflowError randn_at(engine, Float32, 1:hi)
+    @test LAST_ADDRESS[] == (1, 23, hi)
+end
+
 @testset "an external engine uses the stateful bridge" begin
     root = Philox4x32(0xe20, 37)
     bridge = StatefulRNG(WrappedEngine(root))

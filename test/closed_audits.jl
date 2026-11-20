@@ -203,3 +203,16 @@ end
 
     @test_throws ArgumentError Philox4x32(rngkey(near_end), rngposition(near_end) + 11)
 end
+
+@testset "addressed ranges report their complete span" begin
+    for (at, T, width) in ((rand_at, Bool, 1), (randn_at, ComplexF32, 2 * 23))
+        for remaining in (0, 3width)
+            rng = Philox2x32(11, (big(1) << 62) - remaining)
+            @test _audit_error(() -> at(rng, T, 3:4)).bits == 4width
+        end
+    end
+    @test_throws ArgumentError rand_at(Philox2x32(11, big(1) << 62), Bool, 0:4)
+    hi = big(1) << 128
+    rng = Philox4x64(1, (big(256) << 128) - hi + 1)
+    @test _audit_error(() -> rand_at(rng, Bool, (hi-1):hi)).bits == typemax(UInt128)
+end

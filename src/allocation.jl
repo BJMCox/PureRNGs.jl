@@ -10,10 +10,15 @@ _transfer_array(device, values::Array{T}) where {T} =
 
 @noinline _invalid_dimensions() = throw(ArgumentError("dimensions must be non-negative"))
 
-@inline function _allocate_draw_array(device, ::Type{T}, dims::Tuple) where {T}
+@inline function _check_draw_dimensions(dims::Tuple)
     for dim in dims
         dim < 0 && _invalid_dimensions()
     end
+    return nothing
+end
+
+@inline function _allocate_draw_array(device, ::Type{T}, dims::Tuple) where {T}
+    _check_draw_dimensions(dims)
     return _allocate_array(device, T, dims)
 end
 
@@ -21,3 +26,9 @@ end
 # whose axes do not start at one.
 Base.@propagate_inbounds _destination_index(indices, ordinal::Integer) =
     indices[firstindex(indices)+ordinal-1]
+
+# Plain ranges make view axes one-based without copying the storage.
+@inline function _one_based_view(array::AbstractArray)
+    Base.has_offset_axes(array) || return array
+    return view(array, map(axis -> first(axis):last(axis), axes(array))...)
+end

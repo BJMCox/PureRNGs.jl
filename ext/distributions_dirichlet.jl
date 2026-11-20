@@ -19,8 +19,15 @@ end
 
 _dirichlet_storage(rng, alpha::Array) = IR._transfer_array(IR._engine_backend(rng), alpha)
 function _dirichlet_storage(rng, alpha)
-    IR._check_fill_device(rng, alpha)
-    return alpha
+    backend = IR._engine_backend(rng)
+    generator_device = IR.MLDataDevices.get_device_type(backend)
+    parameter_device = IR.MLDataDevices.get_device_type(alpha)
+    if generator_device <: parameter_device
+        return IR._one_based_view(alpha)
+    elseif parameter_device <: IR.MLDataDevices.CPUDevice
+        return IR._transfer_array(backend, collect(IR._one_based_view(alpha)))
+    end
+    return IR._fill_device_mismatch(generator_device, parameter_device)
 end
 
 _dirichlet_codec(rng, d, recover = _validate_dirichlet(d)) =
@@ -41,7 +48,7 @@ function IR._engine_rand_next!(
             "destination has $(size(destination, 1)) rows for a $(length(d))-component Dirichlet",
         ),
     )
-    columns = reshape(destination, length(d), :)
+    columns = reshape(IR._one_based_view(destination), length(d), :)
     _, next_rng =
         IR._engine_fill_columns!(rng, columns, threaded, _dirichlet_codec(rng, d, recover))
     return destination, next_rng

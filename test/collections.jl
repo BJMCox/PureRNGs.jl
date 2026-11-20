@@ -60,6 +60,26 @@ end
     @test rand_next(rng, (2, 3)) == rand_next(rng, [2, 3])
 end
 
+@testset "scalar picks respect array placement" begin
+    cpu_rng = Threefry2x32(42)
+    device_rng = MLD.CUDADevice(:named)(cpu_rng)
+    population = [11, 22, 33]
+    @test_throws ArgumentError rand_next(device_rng, population)
+    @test_throws ArgumentError rand_at(device_rng, population, 2)
+
+    references = Any[:first, :second, :third]
+    @test_throws ArgumentError rand_next(device_rng, references)
+    @test_throws ArgumentError randsample_next(device_rng, references, 1)
+
+    for agnostic in (Tuple(population), 11.0:11.0:33.0)
+        value, next_rng = rand_next(device_rng, agnostic)
+        expected, expected_next = rand_next(cpu_rng, agnostic)
+        @test value == expected
+        @test next_rng.position == expected_next.position
+        @test rand_at(device_rng, agnostic, 2) == rand_at(cpu_rng, agnostic, 2)
+    end
+end
+
 @testset "an empty collection is an error" begin
     rng = Philox4x32(0x7d4)
     for empty in (Int[], (), "", Dict{Int,Int}(), Set{Int}())

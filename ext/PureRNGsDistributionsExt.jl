@@ -224,11 +224,8 @@ include("distributions_unified.jl")
 const _FloatMvNormal = Distributions.MvNormal{<:_FloatType}
 const _PDMats = Distributions.PDMats
 const _LinearAlgebra = Distributions.LinearAlgebra
-
-_covariance_storage(Σ::_PDMats.PDMat) = _LinearAlgebra.cholesky(Σ).factors
-_covariance_storage(Σ::_PDMats.PDSparseMat) = Σ.mat
-_covariance_storage(Σ::_PDMats.PDiagMat) = Σ.diag
-_covariance_storage(Σ::_PDMats.ScalMat) = nothing
+const _MvNormalFillCovariance =
+    Union{_PDMats.PDMat,_PDMats.PDSparseMat,_PDMats.PDiagMat,_PDMats.ScalMat}
 
 _device_factor(device, Σ::_PDMats.PDMat) =
     IR._transfer_array(device, Matrix(_PDMats.chol_lower(_LinearAlgebra.cholesky(Σ))))
@@ -240,18 +237,18 @@ _device_unwhiten!(device, Σ::_PDMats.PDMat, values) =
 _device_unwhiten!(device::IR._MetalBackend, Σ::_PDMats.PDMat, values) =
     copyto!(values, _device_factor(device, Σ) * values)
 _device_unwhiten!(device, Σ::_PDMats.PDiagMat, values) =
-    values .*= sqrt.(IR._transfer_array(device, collect(Σ.diag)))
+    values .*= sqrt.(IR._transfer_array(device, collect(IR._one_based_view(Σ.diag))))
 _device_unwhiten!(device, Σ::_PDMats.ScalMat, values) = _PDMats.unwhiten!(Σ, values)
 
 @inline function _whitened_to_mvnormal!(::IR._CPUBackend, d, values)
-    _PDMats.unwhiten!(d.Σ, values)
-    values .+= d.μ
+    _PDMats.unwhiten!(_mvnormal_covariance(d.Σ), values)
+    values .+= IR._one_based_view(d.μ)
     return values
 end
 
 @inline function _whitened_to_mvnormal!(device, d, values)
     _device_unwhiten!(device, d.Σ, values)
-    values .+= IR._transfer_array(device, collect(d.μ))
+    values .+= IR._transfer_array(device, collect(IR._one_based_view(d.μ)))
     return values
 end
 
@@ -261,9 +258,13 @@ function IR._engine_rand_next(rng, d::_FloatMvNormal)
 end
 function IR._engine_rand_at(rng, d::_FloatMvNormal, index::Integer)
     index < 1 && IR._invalid_address_index()
-    start = Base.Checked.checked_mul(index - one(index), length(d)) + 1
-    values = IR._engine_randn_at(rng, eltype(d), start:(start+length(d)-1))
-    return _whitened_to_mvnormal!(IR._engine_backend(rng), d, values)
+    T = eltype(d)
+    IR._check_serviceability(rng, T)
+    count = length(d)
+    iszero(count) && return first(IR._engine_rand_next(rng, d))
+    width = Val(Int(IR._normal_bits(T)))
+    addressed = IR._addressed_state(rng, count, width, index)
+    return first(IR._engine_rand_next(addressed, d))
 end
 function IR._engine_rand_next(rng, d::_FloatMvNormal, n::Integer; threaded::Bool = false)
     values, next_rng = IR._engine_randn_next(rng, eltype(d), length(d), n; threaded)
@@ -271,7 +272,7 @@ function IR._engine_rand_next(rng, d::_FloatMvNormal, n::Integer; threaded::Bool
 end
 function IR._engine_rand_next!(
     rng,
-    d::Distributions.MvNormal{T},
+    d::Distributions.MvNormal{T,<:_MvNormalFillCovariance},
     destination::AbstractVecOrMat{T};
     threaded::Bool = false,
 ) where {T<:_FloatType}
@@ -280,14 +281,15 @@ function IR._engine_rand_next!(
             "destination has $(size(destination, 1)) rows for a $(length(d))-dimensional MvNormal",
         ),
     )
-    IR._check_parameter_overlap(destination, d.μ, "the mean")
-    IR._check_parameter_overlap(
-        destination,
-        _covariance_storage(d.Σ),
-        "the covariance factor",
+    IR._randset_aliases(destination, d) && throw(
+        ArgumentError(
+            "the destination shares memory with the distribution parameters. Use a separate array.",
+        ),
     )
-    _, next_rng = IR._engine_randn_next!(rng, destination; threaded)
-    return _whitened_to_mvnormal!(IR._engine_backend(rng), d, destination), next_rng
+    values = IR._one_based_view(destination)
+    _, next_rng = IR._engine_randn_next!(rng, values; threaded)
+    _whitened_to_mvnormal!(IR._engine_backend(rng), d, values)
+    return destination, next_rng
 end
 
 IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal) =

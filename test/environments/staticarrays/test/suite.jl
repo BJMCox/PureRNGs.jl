@@ -3,6 +3,8 @@ using Random
 using StaticArrays
 using Test
 
+include(joinpath(@__DIR__, "..", "..", "..", "fixtures.jl"))
+
 @testset "unified setters replace static values and fill their batches" begin
     for F in (Philox4x32, Xoshiro),
         (set, fill!, next!) in (
@@ -106,6 +108,13 @@ end
     @test rand_at(last_rng, SVector{1,UInt32}, 1) ==
           SVector(first(rand_next(last_rng, UInt32)))
     @test_throws StreamExhausted rand_at(last_rng, SVector{2,UInt32}, 1)
+    near = Philox4x64(1, capacity - 160)
+    err = try
+        rand_at(near, SVector{2,UInt32}, 2:3)
+    catch e
+        e
+    end
+    @test err isa StreamExhausted && err.bits == 3 * 2 * 32
 end
 
 @testset "mutable static batches contain independent chained draws" begin
@@ -134,6 +143,25 @@ end
     terminal = Philox4x64(1, (big(256) << 128) - 64)
     @test_throws StreamExhausted rand_next!(terminal, destination)
     @test destination == saved
+end
+
+@testset "static batches support offset axes and zero-dimensional arrays" begin
+    rng = Philox4x32(7)
+    SA = SVector{2,Float64}
+    scalar, next_rng = rand_next(rng, SA, ())
+    @test size(scalar) == ()
+    @test (scalar[], next_rng) == rand_next(rng, SA)
+
+    destination = ZeroBasedVector(fill(zero(SA), 3))
+    filled, next_rng = randn_next!(rng, destination)
+    @test filled === destination
+    @test (collect(filled), next_rng) == randn_next(rng, SA, 3)
+end
+
+@testset "static batches accept integer dimensions" begin
+    rng = Philox4x32(7)
+    SA = SVector{2,Float64}
+    @test randexp_next(rng, SA, Int32(3), UInt(2)) == randexp_next(rng, SA, 3, 2)
 end
 
 @testset "a static pick is N chained picks" begin

@@ -12,6 +12,8 @@
             (Normal(2.0, 3.0), (2, 3)),
             (MvNormal([1.0, 2.0], [1.0, 0.5]), (2,)),
             (MvNormal([1.0, 2.0], [1.0, 0.5]), (2, 3)),
+            (MvNormal([1.0, 2.0], [2.0 0.5; 0.5 1.0]), (2,)),
+            (MvNormal([1.0, 2.0], PDSparseMat(sparse(Diagonal([1.0, 4.0])))), (2,)),
         )
 
         rng, reference = F(21), F(21)
@@ -56,26 +58,31 @@ end
 end
 
 @testset "unified fills preserve aliased distribution parameters" begin
-    for F in (Philox4x32, Random.Xoshiro), kind in (:mean, :factor, :alpha)
-        distribution =
-            kind === :alpha ? Dirichlet([1.0, 2.0]) :
-            MvNormal([1.0, 2.0], [2.0 0.5; 0.5 1.0])
-        destination =
-            kind === :mean ? distribution.μ :
-            kind === :factor ? view(distribution.Σ.chol.factors, :, 1) : distribution.alpha
-        saved = copy(destination)
-        rng, reference = F(22), F(22)
-        expected = similar(destination)
-        expected_rng = if reference isa AbstractPureRNG
-            last(rand_next!(reference, distribution, expected))
-        else
-            rand!(reference, distribution, expected)
-            reference
+    for F in (Philox4x32, Random.Xoshiro)
+        dense = MvNormal([1.0, 2.0], [2.0 0.5; 0.5 1.0])
+        sparse_diagonal = MvNormal([1.0, 2.0], PDSparseMat(sparse(Diagonal([1.0, 4.0]))))
+        dirichlet = Dirichlet([1.0, 2.0])
+        for (distribution, destination) in (
+            (dense, dense.μ),
+            (dense, view(dense.Σ.mat, :, 1)),
+            (dense, view(dense.Σ.chol.factors, :, 1)),
+            (sparse_diagonal, nonzeros(sparse_diagonal.Σ.mat)),
+            (dirichlet, dirichlet.alpha),
+        )
+            saved = copy(destination)
+            rng, reference = F(22), F(22)
+            expected = similar(destination)
+            expected_rng = if reference isa AbstractPureRNG
+                last(rand_next!(reference, distribution, expected))
+            else
+                rand!(reference, distribution, expected)
+                reference
+            end
+            value, after = randset!!(rng, distribution, destination)
+            @test value == expected
+            @test destination == saved
+            @test !Base.mightalias(value, destination)
+            @test first(randgen!!(after, UInt64)) == first(randgen!!(expected_rng, UInt64))
         end
-        value, after = randset!!(rng, distribution, destination)
-        @test value == expected
-        @test destination == saved
-        @test !Base.mightalias(value, destination)
-        @test first(randgen!!(after, UInt64)) == first(randgen!!(expected_rng, UInt64))
     end
 end

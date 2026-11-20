@@ -114,6 +114,14 @@ end
     @test order == host
 end
 
+@testset "device gather uses ordinals for offset populations" begin
+    population = ZeroBasedVector([11, 22, 33])
+    backend = KernelAbstractions.CPU()
+    selected = IR._gather(backend, population, [3, 1])
+    KernelAbstractions.synchronize(backend)
+    @test selected == [33, 11]
+end
+
 # Exercise the shortlist itself with a partial tile and tied maximum keys.
 # The public dispatch keeps full sorting for populations this small.
 @testset "race shortlist preserves stable key order" begin

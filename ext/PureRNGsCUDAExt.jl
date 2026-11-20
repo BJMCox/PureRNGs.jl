@@ -7,7 +7,52 @@ using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
 
+# Older CUDA versions identify a CuArray by its first byte, so an offset dense
+# view can appear disjoint from a SubArray of the same allocation.
+function IR._arrays_mightalias(a, b, ra::CUDA.CuArray, rb::CUDA.CuArray)
+    (isempty(a) || isempty(b)) && return false
+    a === ra && b === rb && return Base.mightalias(ra, rb)
+    if a isa CUDA.StridedCuVector &&
+       b isa CUDA.StridedCuVector &&
+       eltype(a) === eltype(b) &&
+       isbitstype(eltype(a))
+        Base.mightalias(ra, rb) || return false
+        width = Base.elsize(ra)
+        iszero(width) && return false
+        delta = Int128(UInt(pointer(a))) - Int128(UInt(pointer(b)))
+        offset, unaligned = divrem(delta, width)
+        iszero(unaligned) || return true
+        ia = range(offset; step = Int128(stride(a, 1)), length = length(a))
+        ib = range(Int128(0); step = Int128(stride(b, 1)), length = length(b))
+        return !isempty(intersect(ia, ib))
+    end
+    if !Base.mightalias(ra, rb)
+        return _gather_indices_alias(a, rb) || _gather_indices_alias(b, ra)
+    end
+    # Base can inspect an index vector element when comparing two SubArrays.
+    if ra === rb && a isa CUDA.StridedCuArray && b isa CUDA.StridedCuArray
+        return Base.mightalias(a, b)
+    end
+    return true
+end
+
+function _gather_indices_alias(a, other_storage)
+    a isa CUDA.CuArray && return false
+    if a isa SubArray
+        for index in parentindices(a)
+            if index isa AbstractArray && !(index isa AbstractRange)
+                IR._arrays_mightalias(index, other_storage) && return true
+            end
+        end
+    end
+    return _gather_indices_alias(parent(a), other_storage)
+end
+
 IR._backend_device(::IR._CUDABackend) = IR.MLDataDevices.CUDADevice(CUDA.device())
+
+@inline IR._kernel_population(::CUDA.CuDeviceArray) = true
+@inline IR._pick_value(::IR._CUDABackend, population, ordinal) =
+    CUDA.@allowscalar IR._population_value(population, ordinal)
 
 const _HAS_WEIGHT_GROUP_SCAN = isdefined(KernelAbstractions, Symbol("@groupscan"))
 

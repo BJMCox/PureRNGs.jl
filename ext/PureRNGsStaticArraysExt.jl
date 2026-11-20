@@ -9,6 +9,12 @@ using StaticArrays: StaticArrays, StaticArray
 
 const IR = PureRNGs
 
+# An inline SArray carries its values into a kernel, like a tuple.
+@inline function IR._check_population_device(rng, population::StaticArrays.SArray)
+    isbitstype(typeof(population)) && return true
+    return invoke(IR._check_population_device, Tuple{Any,Any}, rng, population)
+end
+
 # A static type with a static template denotes one sample, not an array of them.
 @inline IR.randset!!(
     rng,
@@ -56,11 +62,11 @@ end
     fill_next!,
     rng,
     ::Type{SA},
-    dims::Dims,
+    dims::Tuple{Vararg{Integer}},
     threaded,
 ) where {SA}
     isbitstype(SA) || rng.device isa IR._CPUBackend || IR._host_only_type(SA)
-    destination = IR._allocate_array(rng.device, SA, dims)
+    destination = IR._allocate_draw_array(rng.device, SA, dims)
     return destination, last(fill_next!(rng, destination; threaded))
 end
 
@@ -108,7 +114,7 @@ for (next, next!, at, width) in (
         ) where {SA<:StaticArray}
             isempty(indices) && return IR._allocate_array(rng.device, SA, (0,))
             width = IR.$width(_element(SA))
-            addressed = _static_address(rng, width, length(SA), first(indices))
+            addressed = IR._addressed_range_start(rng, length(SA), Val(Int(width)), indices)
             return first(IR.$next(addressed, SA, length(indices); threaded))
         end
 
@@ -117,16 +123,21 @@ for (next, next!, at, width) in (
             destination::AbstractArray{SA};
             threaded::Bool = false,
         ) where {SA<:StaticArray}
-            if isbitstype(SA)
-                elements = reinterpret(_element(SA), destination)
+            T = _element(SA)
+            # Size-changing reinterpret needs a nonempty tuple of axes and
+            # a one-based first axis.
+            if isbitstype(SA) && (
+                sizeof(SA) == sizeof(T) ||
+                (ndims(destination) > 0 && first(axes(destination, 1)) == 1)
+            )
+                elements = reinterpret(T, destination)
                 return destination, last(IR.$next!(rng, elements; threaded))
             end
             IR._check_sampling_fill_device(rng, destination)
             rng.device isa IR._CPUBackend || IR._host_only_type(SA)
-            # Reference-valued cells cannot be reinterpreted. One scalar fill
-            # preflights the whole span and retains the threaded bulk path.
-            elements, next_rng =
-                IR.$next(rng, _element(SA), length(SA), length(destination); threaded)
+            # One scalar fill preflights the whole span and keeps the threaded
+            # bulk path when the destination cannot be reinterpreted.
+            elements, next_rng = IR.$next(rng, T, length(SA), length(destination); threaded)
             for (index, column) in zip(eachindex(destination), eachcol(elements))
                 destination[index] = SA(column)
             end

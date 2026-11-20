@@ -36,7 +36,10 @@
     Distributions.params(source),
 )
 @inline IR._randset_aliases(destination, source::Distributions.PDMats.PDMat) =
-    Base.mightalias(destination, source.mat) ||
-    Base.mightalias(destination, source.chol.factors)
+    IR._arrays_mightalias(destination, source.mat) ||
+    IR._arrays_mightalias(destination, source.chol.factors)
+@inline IR._randset_aliases(destination, source::Distributions.PDMats.PDSparseMat) =
+    IR._arrays_mightalias(destination, source.mat)
 @inline IR._randset_aliases(destination, source::Distributions.PDMats.PDiagMat) =
-    Base.mightalias(destination, source.diag)
+    IR._arrays_mightalias(destination, source.diag)
+@inline IR._randset_aliases(destination, source::Distributions.PDMats.ScalMat) = false

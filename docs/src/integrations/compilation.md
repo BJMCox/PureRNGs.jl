@@ -63,9 +63,10 @@ gradient(x -> sum(first(rand_next(rng, Exponential(x[1]), 8))), AutoMooncake(), 
 ForwardDiff differentiates typed draws and fills without help, because their values do not depend on the input.
 Loading ForwardDiff with Distributions also accepts fixed distributions with `Dual` parameters, such as `Normal(μ, σ)` with a dual `μ`.
 A dual draw decodes the base variates of the primal distribution and maps them with the dual parameters, so its value equals the primal draw and its partials are the pathwise derivatives.
-The scalar, continuation, and addressed forms run anywhere.
+Use eager scalar continuations and addressed draws for these distributions.
 Allocating and in-place dual fills also run on supported GPU backends, subject to their element-type limits.
 Gamma, `Chisq`, `InverseGamma`, `Beta`, and `TDist` accept dual parameters too: a dual shape carries the implicit shape derivative of its Gamma draws. Nested duals, as in second derivatives, find no method.
+For dual `MvNormal`, use allocating `rand_next` for a single draw or a batch.
 
 ```julia
 using PureRNGs, Distributions, ForwardDiff
@@ -125,19 +126,22 @@ Compiled draws need a few hundred megabytes. Set `XLA_REACTANT_GPU_PREALLOCATE=f
 
 ## Compiled scope and limits
 
-Carriers support scalar primitive, range, and supported distribution draws, scalar continuations, addressed draws, static key derivation, and array draws with static sizes: uniform, normal, exponential, integer range, and unweighted `randsample`.
-Destination fills into traced arrays replace the destination's value.
-These forms trace but are outside the release conformance gate.
+Carrier uniform draws support `Bool`, signed and unsigned integers through 64 bits,
+and `Float16`, `Float32`, and `Float64`. The three float types also support normal
+and exponential draws. These primitive methods trace scalar continuations,
+addressed draws, static array sizes, and fills that replace a traced destination's value.
+Integer ordinal ranges and integer `LinRange` with elements through 64 bits
+support continued scalar and static array draws. Array populations support
+unweighted sampling with replacement and static output counts.
+The hosted CPU job tests a subset of generator families.
 
 A zero-length array draw consumes no bits and continues the generator unchanged.
 XLA cannot return a zero-size array from a compiled function, so consume an empty draw inside the function rather than returning it.
 
-Scalar, continuation, and addressed Reactant forms cover every fixed
-distribution listed in [Distributions](@ref), using native compiled math.
-`Categorical` is not a carrier operation. These additions do not extend
-differentiation support.
-
-Weighted `randsample` is not a carrier API.
+Scalar `rand_next` and `rand_at` trace the [fixed univariate distributions](@ref "Direct immutable methods")
+and scalar Gamma-family distributions using native compiled math.
+Use the eager distribution methods for `Categorical`, `MvNormal`, and `Dirichlet`
+and the eager sampling methods for weighted populations.
 
 A carrier holds no output block, so each chained scalar draw evaluates the core again and compiles to its own kernels.
 For more than a few draws in one compiled function, draw an array once and index it.

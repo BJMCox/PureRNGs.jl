@@ -608,6 +608,16 @@ end
     end
 end
 
+include(joinpath(@__DIR__, "..", "..", "..", "gamma_tail_derivatives.jl"))
+@testset "Gamma-family tail derivatives" begin
+    for (draw, p, expected) in gamma_tail_derivatives()
+        @test only(only(autodiff(Reverse, draw, Active, Active(p)))) ≈ expected rtol =
+            64eps(Float32)
+        @test only(autodiff(Forward, draw, Duplicated(p, one(p)))) ≈ expected rtol =
+            64eps(Float32)
+    end
+end
+
 # A Gamma draw moves with its shape along the inverse CDF at the draw's
 # probability, so Enzyme's rule gives -dF/dshape / f instead of differentiating
 # the rejection test; Beta composes it through its two Gamma draws.

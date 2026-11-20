@@ -672,11 +672,17 @@ end
     end
 end
 
-@testset "CUDA resident Dirichlet parameters" begin
-    rng = device(Philox4x32(0x795, 1))
+@testset "CUDA Dirichlet parameter placement" begin
+    cpu_rng = Philox4x32(0x795, 1)
+    rng = device(cpu_rng)
     storage = CuArray([0.3, 0.0, 2.0, 0.0, 5.0])
-    for alpha in
-        (CuArray([0.3, 2.0, 5.0]), view(storage, 1:2:5), CuArray([1e-320, 2e-320, 3e-320]))
+    host_view = view([0.3, 0.0, 2.0, 0.0, 5.0], 1:2:5)
+    for alpha in (
+        CuArray([0.3, 2.0, 5.0]),
+        view(storage, 1:2:5),
+        CuArray([1e-320, 2e-320, 3e-320]),
+        host_view,
+    )
         distribution = Dirichlet(alpha)
         expected, after = rand_next(rng, Dirichlet(Array(alpha)), 5)
         actual, next = rand_next(rng, distribution, 5)
@@ -689,7 +695,8 @@ end
         @test Array(actual) == Array(expected)
     end
 
-    distribution = Dirichlet(CuArray([0.3, 2.0, 5.0]))
+    distribution = Dirichlet(view(storage, 1:2:5))
+    @test_throws ArgumentError rand_next(cpu_rng, distribution, 5)
     destination = CUDA.zeros(Float64, 3, 5)
     rand_next!(rng, distribution, destination)
     profile = CUDA.Profile.profile_internally(; concurrent = false, trace = true) do

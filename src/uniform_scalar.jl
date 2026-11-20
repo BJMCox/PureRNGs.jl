@@ -122,12 +122,13 @@ end
     rand_next(rng, collection, dims...) -> (values, next_rng)
 
 Draw from `rng` and return the advanced immutable generator with the result.
-Omitting `T` selects `Float64`. Supported scalar types are `Bool`, the 8- to 128-bit signed and unsigned integers,
-`Float16`, `Float32`, `Float64`, `Complex` values of those three, and `Char`, which is
-uniform over the Unicode scalar values as in `Random`.
+Omitting `T` selects `Float64`. Supported scalar types are `Bool`, the 8- to
+128-bit signed and unsigned integers, `Float16`, `Float32`, `Float64`, their
+`Complex` types, and `Char`. A `Char` draw uses the 64-bit finite-grid range
+mapping over the Unicode scalar values.
 Integer ranges support signed and unsigned integer element types through 128
-bits. Dimensions may also be one tuple, as in `Random`. The 128-bit types run on
-the CPU only.
+bits. Dimensions may also be one tuple, as in `Random`. Use host arithmetic
+for 128-bit integers, including scalar draws from GPU-bound generators.
 
 A collection is an integer range, any other array or range, a tuple, a string, a
 dict, or a set. A pick from it consumes and returns what one

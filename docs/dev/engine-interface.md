@@ -11,7 +11,10 @@ The interface serves:
 - `randn_next`, `randn_next!`, `randn_at` and the `randexp_*` counterparts.
 - `rand_next`, `rand_next!`, and `rand_at` with the fixed-map distributions,
   DiscreteUniform, the Gamma family (Gamma, Chisq, InverseGamma, Beta, TDist),
-  Dirichlet, MvNormal, and their ForwardDiff dual forms.
+  Dirichlet and MvNormal. The supported ForwardDiff variants use these entry
+  points for fixed-map distributions, the Gamma family and Dirichlet.
+- Allocating `rand_next` for a single draw or a batch of ForwardDiff dual
+  MvNormal draws.
 
 It does not serve uniform draws, ranges, collections, sampling, permutations,
 Categorical, StaticArrays, StatsBase, or Reactant. An engine keeps its own
@@ -32,9 +35,11 @@ count, width = PureRNGs._codec_takes(codec, T)   # width isa Val{W}
 value, cursor = PureRNGs._codec_take(codec, rng, cursor, T)
 ```
 
-`_codec_take` reads exactly the draw's `count` takes from `cursor` and returns
-the cursor past them, including takes a rejection sampler leaves unread. Codecs
-are isbits values, so they run inside device kernels.
+`_codec_take` advances through the draw's `count` takes and returns the cursor
+past them. A rejection sampler can skip the takes it leaves unread.
+A codec passed by value to a device kernel needs an isbits device representation.
+For example, adapting a Dirichlet codec converts its parameter storage for use
+in a kernel.
 
 ## Hooks an engine defines
 
@@ -46,7 +51,7 @@ chooses. Methods dispatch on the engine's own types.
 | `_engine_backend(rng)` | a `PureRNGs._BackendToken` | Selects the normal and exponential transforms, allocation, residence checks, and serviceability checks. |
 | `_take_bits(rng, cursor, Val(W))` | `(raw::UInt64, cursor)` | The engine's next W-bit field, in the low bits of `raw`. |
 | `_skip_takes(rng, cursor, count, Val(W))` | `cursor` | The cursor `count` takes later, without reading them. |
-| `_cursor_ordinal(rng, cursor)` | `UInt64` | The stream index of the cursor's next take. It keys the Gamma fallback's child stream. |
+| `_cursor_ordinal(rng, cursor)` | `UInt64` | Stable identifier for the cursor's next stream position, used to key the Gamma fallback. Built-in engines use the absolute bit position modulo 2^64. |
 | `_child_cursor(rng, purpose::UInt64)` | `(child_rng, cursor)` | The child stream for `purpose`, as the engine's `subrng` derives it, and a cursor at its start. The Gamma fallback reads it through `_take_bits` alone, without a length bound. |
 | `_draw_cursor(rng, count, Val(W))` | `(cursor, next_rng)` | Reserves `count` takes at the held position: the cursor of the first take and the generator past the last. The engine applies its alignment and exhaustion rules here. |
 | `_addressed_state(rng, count, Val(W), i)` | generator | The generator at the start of draw `i`, counting from one, of `count`-take draws. `rng` does not change. Throws `ArgumentError` for `i < 1` and the engine's exhaustion error when draw `i` ends past the stream end. `i` can be any `Integer`, including `BigInt`. |
@@ -164,7 +169,8 @@ arguments unchanged:
 |:--|:--|
 | `randn_next`, `randn_next!`, `randn_at` | `_engine_randn_next`, `_engine_randn_next!`, `_engine_randn_at` |
 | `randexp_next`, `randexp_next!`, `randexp_at` | `_engine_randexp_next`, `_engine_randexp_next!`, `_engine_randexp_at` |
-| `rand_next`, `rand_next!`, `rand_at` with a distribution | `_engine_rand_next`, `_engine_rand_next!`, `_engine_rand_at` |
+| `rand_next`, `rand_next!`, `rand_at` with a distribution in scope | `_engine_rand_next`, `_engine_rand_next!`, `_engine_rand_at` |
+| `rand_next` for ForwardDiff dual MvNormal | `_engine_rand_next` |
 
 For example:
 
@@ -225,8 +231,9 @@ The engine need not implement unsupported pure collection or permutation forms.
 
 - A draw's span is fixed by its take signature. Rejection never changes how far
   the generator advances.
-- A fill equals a loop of scalar draws, and addressed draw `i` equals element
-  `i` of the fill from the same generator.
+- A fill uses the stream and continuation of a loop of scalar draws. Addressed
+  draw `i` uses the stream span of element `i` in the fill. Some transforms,
+  such as dense MvNormal whitening, can round differently across draw shapes.
 - `_cursor_ordinal` must not depend on how the engine represents positions.
   Two cursors at the same stream position give the same ordinal.
 - Draws whose destination sits on another device throw before any work. Checks

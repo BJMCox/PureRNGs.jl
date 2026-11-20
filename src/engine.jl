@@ -21,12 +21,6 @@
     return child, _dense_cursor(child, _position_block(child.position), child.position.bit)
 end
 
-@inline _advance_block_unchecked(block::UInt64, count::UInt64) = block + count
-@inline function _advance_block_unchecked(block::NTuple{2,UInt64}, count::UInt64)
-    lo = block[1] + count
-    return lo, block[2] + UInt64(lo < block[1])
-end
-
 # The dense stream packs takes with no gaps, so a skip is a bit offset. A skip
 # that stays in the cursor's block keeps its decoded words.
 @inline function _skip_takes(
@@ -41,7 +35,7 @@ end
     bit = UInt16(offset & ((UInt64(1) << shift) - UInt64(1)))
     iszero(blocks) &&
         return _DenseBitCursor(cursor.block, cursor.block_words, bit >> 6, bit & UInt16(63))
-    return _dense_cursor(rng, _advance_block_unchecked(cursor.block, blocks), bit)
+    return _dense_cursor(rng, _advance_stream_block_unchecked(cursor.block, blocks), bit)
 end
 
 @inline _first_block_word(block::UInt64) = block
@@ -115,10 +109,15 @@ end
     count::Integer,
     ::Val{W},
     i::Integer,
+    last_index::Integer = i,
 ) where {W}
-    stride = UInt64(count) * UInt64(W)
-    stride <= typemax(UInt16) && return _addressed_rng(rng, UInt16(stride), i)
-    return _addressed_rng(rng, stride, i)
+    stride_hi, stride = _mulhilo64(UInt64(count), UInt64(W))
+    if !iszero(stride_hi)
+        wide_stride = (UInt128(stride_hi) << 64) | UInt128(stride)
+        return _addressed_rng(rng, wide_stride, i, last_index)
+    end
+    stride <= typemax(UInt16) && return _addressed_rng(rng, UInt16(stride), i, last_index)
+    return _addressed_rng(rng, stride, i, last_index)
 end
 
 # The draws an engine gets from its hooks alone. A built-in generator overrides
@@ -149,7 +148,9 @@ function _engine_fill!(rng, destination::AbstractArray{T}, threaded::Bool, codec
     cursor = _fill_cursor(rng, count, width, UInt64(0))
     indices = eachindex(destination)
     if threaded
-        _run_chunks(length(destination), _fill_chunk_elements(codec, T)) do first, last
+        chunk_elements =
+            _storage_chunk_elements(destination, _fill_chunk_elements(codec, T))
+        _run_chunks(length(destination), chunk_elements) do first, last
             chunk = _fill_cursor(rng, count, width, UInt64(first - 1))
             for ordinal = first:last
                 value, chunk = _codec_take(codec, rng, chunk, T)
@@ -203,6 +204,17 @@ function _engine_rand_next! end
 function _engine_rand_at end
 
 # Addressed draws `indices` are the fill that starts at the first of them.
+@inline _addressed_range_start(rng::AbstractPureRNG, count, width, indices) =
+    _addressed_state(rng, count, width, first(indices), last(indices))
+
+@inline function _addressed_range_start(rng, count, width, indices)
+    lo, hi = first(indices), last(indices)
+    lo < 1 && _invalid_address_index()
+    # Check the final draw against the caller's cursor before starting the fill.
+    final = _addressed_state(rng, count, width, hi)
+    return lo == hi ? final : _addressed_state(rng, count, width, lo)
+end
+
 @inline function _engine_addressed_array(
     rng,
     codec,
@@ -213,7 +225,7 @@ function _engine_rand_at end
     _check_serviceability(rng, T)
     isempty(indices) && return _allocate_draw_array(_engine_backend(rng), T, (0,))
     count, width = _codec_takes(codec, T)
-    addressed = _addressed_state(rng, count, width, first(indices))
+    addressed = _addressed_range_start(rng, count, width, indices)
     destination = _allocate_draw_array(_engine_backend(rng), T, (length(indices),))
     return first(_engine_fill!(addressed, destination, threaded, codec))
 end
