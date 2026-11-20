@@ -201,12 +201,14 @@ _device_unwhitened(device, Σ::_PDMats.PDMat, values) =
     IR._transfer_array(device, Matrix(_PDMats.chol_lower(_LinearAlgebra.cholesky(Σ)))) *
     values
 _device_unwhitened(device, Σ::_PDMats.PDiagMat, values) =
-    sqrt.(IR._transfer_array(device, collect(Σ.diag))) .* values
+    sqrt.(IR._transfer_array(device, collect(IR._one_based_view(Σ.diag)))) .* values
 _device_unwhitened(device, Σ::_PDMats.ScalMat, values) = sqrt(Σ.value) .* values
 
-_whitened_to_mvnormal(::IR._CPUBackend, d, values) = d.μ .+ _PDMats.unwhiten(d.Σ, values)
+_whitened_to_mvnormal(::IR._CPUBackend, d, values) =
+    IR._one_based_view(d.μ) .+ _PDMats.unwhiten(_mvnormal_covariance(d.Σ), values)
 _whitened_to_mvnormal(device, d, values) =
-    IR._transfer_array(device, collect(d.μ)) .+ _device_unwhitened(device, d.Σ, values)
+    IR._transfer_array(device, collect(IR._one_based_view(d.μ))) .+
+    _device_unwhitened(device, d.Σ, values)
 
 function IR._engine_rand_next(rng, d::_DualMvNormal)
     values, next_rng = IR._engine_randn_next(rng, _primal_type(eltype(d)), length(d))

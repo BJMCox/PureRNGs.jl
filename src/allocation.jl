@@ -26,3 +26,9 @@ end
 # whose axes do not start at one.
 Base.@propagate_inbounds _destination_index(indices, ordinal::Integer) =
     indices[firstindex(indices)+ordinal-1]
+
+# Plain ranges make view axes one-based without copying the storage.
+@inline function _one_based_view(array::AbstractArray)
+    Base.has_offset_axes(array) || return array
+    return view(array, map(axis -> first(axis):last(axis), axes(array))...)
+end

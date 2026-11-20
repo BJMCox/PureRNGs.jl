@@ -125,7 +125,8 @@ device-executing allocation and fills, since the cumulative table is Float64.
 
 ## MvNormal
 
-Fill destinations must not share storage with the mean or covariance factor.
+Fill destinations must not share storage with the mean, covariance, or its factor.
+Destination rows, mean entries, and diagonal covariance entries match by position.
 
 An `MvNormal` draw applies Distributions' own map, `μ + L z`, to the next `length(d)` standard normal draws, where `L` is the covariance's lower factor.
 A batch fills one column per draw. On a given backend, a batch and chained single draws use the same standard normal sequence and reach the same continuation.
@@ -168,6 +169,7 @@ When tiny positive shapes overflow those logs, a scaled comparison reuses the sa
 Results can round to zero or one. Dirichlet columns remain normalized, and the parent span stays unchanged.
 
 A Dirichlet fill destination must not share storage with its concentration vector.
+Concentrations and destination rows match by position, including on offset axes.
 Host concentration arrays transfer to the generator's backend when needed.
 Concentrations already on that backend stay there, including device views.
 Concentrations on another backend are rejected rather than copied through the CPU.

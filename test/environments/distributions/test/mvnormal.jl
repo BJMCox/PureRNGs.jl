@@ -1,5 +1,5 @@
 using LinearAlgebra
-using Distributions.PDMats: PDSparseMat
+using Distributions.PDMats: PDiagMat, PDSparseMat
 using Distributions.PDMats.SparseArrays: sparse, nonzeros
 
 @testset "distribution parameters cannot alias their destination" begin
@@ -29,6 +29,32 @@ end
     d = MvNormal([1.0, -2.0], PDSparseMat(sparse([2.0 0.3; 0.3 1.0])))
     @test rand_next!(rng, d, zeros(2)) == rand_next(rng, d)
     @test rand_next!(rng, d, zeros(2, 3)) == rand_next(rng, d, 3)
+end
+
+@testset "MvNormal applies parameters and writes destinations in row order" begin
+    rng = Philox4x32(57)
+    mean = [0.5, -1.0]
+    diagonal = [1.0, 3.0]
+    dense = MvNormal(mean, [2.0 0.3; 0.3 1.0]).Σ
+    sparse_covariance = PDSparseMat(sparse([2.0 0.3; 0.3 1.0]))
+    for (normal_covariance, offset_covariance) in (
+        (PDiagMat(diagonal), PDiagMat(ZeroBasedVector(diagonal))),
+        (dense, dense),
+        (sparse_covariance, sparse_covariance),
+    )
+        reference = MvNormal(mean, normal_covariance)
+        distribution = MvNormal(ZeroBasedVector(mean), offset_covariance)
+        expected, expected_next = rand_next(rng, reference)
+        @test rand_next(rng, distribution) == (expected, expected_next)
+        vector = ZeroBasedVector(zeros(2))
+        @test rand_next!(rng, distribution, vector) === (vector, expected_next)
+        @test vector.data ≈ expected
+        columns, columns_next = rand_next(rng, reference, 3)
+        matrix = IdentityAxesMatrix(zeros(2, 3))
+        @test rand_next!(rng, distribution, matrix; threaded = true) ===
+              (matrix, columns_next)
+        @test matrix.data ≈ columns
+    end
 end
 
 # A multivariate normal draw maps length(d) standard normal draws by `μ + L z`,

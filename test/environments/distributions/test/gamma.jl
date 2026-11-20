@@ -356,6 +356,23 @@ end
     @test maximum(abs.(sum(small; dims = 1) .- 1)) < 1e-12
 end
 
+@testset "Dirichlet matches concentrations and destinations by position" begin
+    rng = Philox4x32(57)
+    alpha = [0.3, 2.0]
+    reference = Dirichlet(alpha)
+    distribution = Dirichlet(ZeroBasedVector(alpha))
+    expected, expected_next = rand_next(rng, reference)
+    @test rand_next(rng, distribution) == (expected, expected_next)
+    vector = ZeroBasedVector(zeros(2))
+    @test rand_next!(rng, distribution, vector) === (vector, expected_next)
+    @test vector.data == expected
+    columns, columns_next = rand_next(rng, reference, 3)
+    matrix = IdentityAxesMatrix(zeros(2, 3))
+    @test rand_next!(rng, distribution, matrix; threaded = true) === (matrix, columns_next)
+    @test matrix.data == columns
+    @test rand_at(rng, distribution, 3) == columns[:, 3]
+end
+
 @testset "Float32 Dirichlet mass with a dominant component" begin
     rng = Threefry2x64(13)
     alpha = Float32[3.0f7; ones(Float32, 65536)]

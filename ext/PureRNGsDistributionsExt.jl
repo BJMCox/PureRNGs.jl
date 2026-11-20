@@ -237,18 +237,18 @@ _device_unwhiten!(device, Σ::_PDMats.PDMat, values) =
 _device_unwhiten!(device::IR._MetalBackend, Σ::_PDMats.PDMat, values) =
     copyto!(values, _device_factor(device, Σ) * values)
 _device_unwhiten!(device, Σ::_PDMats.PDiagMat, values) =
-    values .*= sqrt.(IR._transfer_array(device, collect(Σ.diag)))
+    values .*= sqrt.(IR._transfer_array(device, collect(IR._one_based_view(Σ.diag))))
 _device_unwhiten!(device, Σ::_PDMats.ScalMat, values) = _PDMats.unwhiten!(Σ, values)
 
 @inline function _whitened_to_mvnormal!(::IR._CPUBackend, d, values)
-    _PDMats.unwhiten!(d.Σ, values)
-    values .+= d.μ
+    _PDMats.unwhiten!(_mvnormal_covariance(d.Σ), values)
+    values .+= IR._one_based_view(d.μ)
     return values
 end
 
 @inline function _whitened_to_mvnormal!(device, d, values)
     _device_unwhiten!(device, d.Σ, values)
-    values .+= IR._transfer_array(device, collect(d.μ))
+    values .+= IR._transfer_array(device, collect(IR._one_based_view(d.μ)))
     return values
 end
 
@@ -282,8 +282,10 @@ function IR._engine_rand_next!(
             "the destination shares memory with the distribution parameters. Use a separate array.",
         ),
     )
-    _, next_rng = IR._engine_randn_next!(rng, destination; threaded)
-    return _whitened_to_mvnormal!(IR._engine_backend(rng), d, destination), next_rng
+    values = IR._one_based_view(destination)
+    _, next_rng = IR._engine_randn_next!(rng, values; threaded)
+    _whitened_to_mvnormal!(IR._engine_backend(rng), d, values)
+    return destination, next_rng
 end
 
 IR.rand_next(rng::IR._ScalarUniformGenerators, d::_FloatMvNormal) =
