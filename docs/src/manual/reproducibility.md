@@ -6,6 +6,7 @@ Record the package version, generator type, seed or key, purpose IDs, and draw s
 
 Pure calls repeat their result. Continuation calls advance explicit state.
 Bulk calls follow chained scalar consumption, so changing chunk sizes does not change the underlying stream.
+The [dense multivariate normal transform](@ref "MvNormal") can round differently with different batch sizes.
 
 Randomness belongs to logical work, not thread IDs or scheduling order.
 See [Parallel jobs](@ref).

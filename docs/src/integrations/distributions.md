@@ -128,7 +128,8 @@ device-executing allocation and fills, since the cumulative table is Float64.
 Fill destinations must not share storage with the mean or covariance factor.
 
 An `MvNormal` draw applies Distributions' own map, `μ + L z`, to the next `length(d)` standard normal draws, where `L` is the covariance's lower factor.
-`n` draws are one normal fill, a column per draw, so a matrix of draws equals the chained single draws.
+A batch fills one column per draw. On a given backend, a batch and chained single draws use the same standard normal sequence and reach the same continuation.
+For a dense covariance, the matrix and vector kernels can round `μ + L z` differently.
 
 ```julia
 rng = Philox4x32(123456)
@@ -138,7 +139,8 @@ cloud, rng = rand_next(rng, distribution, 1000)
 seventh = rand_at(rng, distribution, 7)
 ```
 
-`PDMat`, diagonal, and scalar covariances work on every backend.
+`PDMat`, diagonal, and scalar covariances support eager draws on CPU, CUDA, and Metal, subject to the backend's element-type limits.
+AMDGPU is a [preview backend](@ref "Devices").
 Sparse `PDSparseMat` covariances support allocating and in-place CPU draws.
 A device draw moves the covariance's factor to the device once per call and applies it there.
 Gradients with respect to `μ` and the covariance are pathwise with Enzyme, Mooncake, and ForwardDiff.
