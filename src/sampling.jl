@@ -16,7 +16,7 @@ end
 
 @inline function _check_sampling_population_overlap(destination, population)
     population isa AbstractArray &&
-        Base.mightalias(destination, population) &&
+        _arrays_mightalias(destination, population) &&
         _sampling_population_overlap()
     return nothing
 end

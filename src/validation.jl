@@ -22,9 +22,18 @@ end
     _check_backend_serviceability(_engine_backend(rng), T)
 @inline _check_backend_serviceability(::_BackendToken, ::Type) = nothing
 
+@inline function _array_storage(a)
+    storage = parent(a)
+    return storage === a ? a : _array_storage(storage)
+end
+
+@inline _arrays_mightalias(a, b) =
+    _arrays_mightalias(a, b, _array_storage(a), _array_storage(b))
+@inline _arrays_mightalias(a, b, storage_a, storage_b) = Base.mightalias(a, b)
+
 @inline function _check_parameter_overlap(destination, parameter, name)
     parameter isa AbstractArray &&
-        Base.mightalias(destination, parameter) &&
+        _arrays_mightalias(destination, parameter) &&
         throw(
             ArgumentError("the destination shares memory with $name; use a separate array"),
         )

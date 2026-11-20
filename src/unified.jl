@@ -80,7 +80,7 @@ The result type defaults to `Float64`. See [`randgen!!`](@ref) for ownership.
 @inline _randset_aliases(destination, source) = !isbitstype(typeof(source))
 @inline _randset_aliases(destination, ::Type) = false
 @inline _randset_aliases(destination, source::AbstractArray) =
-    Base.mightalias(destination, source)
+    _arrays_mightalias(destination, source)
 
 @inline _randset_fill!!(
     rng::Union{AbstractPureRNG,_ReactantRNG},

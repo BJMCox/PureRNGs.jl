@@ -7,6 +7,28 @@ using KernelAbstractions: @index, @localmem, @synchronize
 
 const IR = PureRNGs
 
+# Older CUDA versions identify a CuArray by its first byte, so an offset dense
+# view can appear disjoint from a SubArray of the same allocation.
+function IR._arrays_mightalias(a, b, ra::CUDA.CuArray, rb::CUDA.CuArray)
+    (isempty(a) || isempty(b)) && return false
+    a === ra && b === rb && return Base.mightalias(ra, rb)
+    if a isa CUDA.StridedCuVector &&
+       b isa CUDA.StridedCuVector &&
+       eltype(a) === eltype(b) &&
+       isbitstype(eltype(a))
+        Base.mightalias(ra, rb) || return false
+        width = Base.elsize(ra)
+        iszero(width) && return false
+        delta = Int128(UInt(pointer(a))) - Int128(UInt(pointer(b)))
+        offset, unaligned = divrem(delta, width)
+        iszero(unaligned) || return true
+        ia = range(offset; step = Int128(stride(a, 1)), length = length(a))
+        ib = range(Int128(0); step = Int128(stride(b, 1)), length = length(b))
+        return !isempty(intersect(ia, ib))
+    end
+    return Base.mightalias(a, b) || (ra !== rb && Base.mightalias(ra, rb))
+end
+
 IR._backend_device(::IR._CUDABackend) = IR.MLDataDevices.CUDADevice(CUDA.device())
 
 @inline IR._kernel_population(::CUDA.CuDeviceArray) = true
