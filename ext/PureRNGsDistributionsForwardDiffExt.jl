@@ -19,6 +19,13 @@ const _DualDistribution = Union{_DualMapped,_DualGammaFamily}
 IR._primal_float(::Type{<:ForwardDiff.Dual{<:Any,V}}) where {V} = IR._primal_float(V)
 IR._primal_value(value::ForwardDiff.Dual) = IR._primal_value(ForwardDiff.value(value))
 
+@inline function IR._beta_from_units(units::ForwardDiff.Dual{Tag,Float32}) where {Tag}
+    value = IR._beta_from_units(ForwardDiff.value(units))
+    iszero(reinterpret(UInt32, value)) && return zero(units)
+    partials = map(IR._beta_from_units, ForwardDiff.partials(units).values)
+    return ForwardDiff.Dual{Tag}(value, ForwardDiff.Partials(partials))
+end
+
 # A dual shape draws the primal Gamma and carries the implicit shape derivative
 # into the partials; the family maps carry every other parameter. Nested duals
 # find no method rather than a wrong second derivative.

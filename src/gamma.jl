@@ -353,7 +353,7 @@ end
     delta = _tiny_gamma_log_difference(codec.b, codec.a, rng, cursor_b, cursor_a)
     # The rounded endpoint has zero pathwise tangent. Avoid 0 * Inf in AD.
     isinf(delta) && return delta > zero(delta) ? zero(codec.a.shape) : one(codec.a.shape)
-    return inv(one(delta) + exp(delta))
+    return _beta_fraction(codec.a.device, delta)
 end
 
 @inline function _tiny_beta_shapes(codec::_BetaCodec)
@@ -441,10 +441,41 @@ end
         return _gamma_log_family_value(codec, rng, cursor)
     return codec.gamma.scale / _gamma_draw(codec.gamma, rng, cursor)
 end
-@inline function _beta_value(log_x, log_y)
+# Compute the smaller fraction first, so neither exp overflow nor rounding
+# 1 + a small weight to one can erase a representable tail.
+@inline function _beta_from_log_difference(delta)
+    lower = delta > zero(delta)
+    ratio = exp(ifelse(lower, -delta, delta))
+    tail = ratio / (one(ratio) + ratio)
+    return ifelse(lower, tail, one(tail) - tail)
+end
+
+# exp(-delta) in units of the smallest subnormal, for backends that flush it.
+@inline function _beta_subnormal_units(delta, ::Type{T}) where {T}
+    shift = precision(T) - 1 - exponent(floatmin(T))
+    # The high part of log(2) times either shift is exact in both precisions.
+    high, low = T(0.693145751953125), T(1.4286068203094172e-6)
+    return exp((T(shift) * high - delta) + T(shift) * low)
+end
+
+@inline _beta_fraction(device, delta) = _beta_from_log_difference(delta)
+@inline function _beta_fraction(::_MetalBackend, delta)
+    _primal_value(delta) < -log(floatmin(Float32)) &&
+        return _beta_from_log_difference(delta)
+    return _beta_from_units(_beta_subnormal_units(delta, Float32))
+end
+
+# A subnormal Float32's fraction bits count units of 2^-149. A dual partial
+# in those units may be large enough for ordinary normalized arithmetic.
+@inline function _beta_from_units(units::Float32)
+    abs(units) >= Float32(1 << 23) && return ldexp(units, -149)
+    return copysign(reinterpret(Float32, round(UInt32, abs(units))), units)
+end
+
+@inline function _beta_value(device, log_x, log_y)
     delta = log_y - log_x
     isinf(delta) && return delta > zero(delta) ? zero(log_x) : one(log_x)
-    return inv(one(log_x) + exp(delta))
+    return _beta_fraction(device, delta)
 end
 @inline function _family_value(codec::_BetaCodec, rng, cursor)
     _tiny_beta_shapes(codec) && return _tiny_beta_value(
@@ -456,7 +487,7 @@ end
     log_x = _gamma_log_draw(codec.a, rng, cursor)
     second = _second_gamma_cursor(codec, rng, cursor)
     log_y = _gamma_log_draw(codec.b, rng, second)
-    return _beta_value(log_x, log_y)
+    return _beta_value(codec.a.device, log_x, log_y)
 end
 # Split the inverse square root into two factors. Multiplying the normal and
 # scale first retains finite tails even when the inverse square root overflows.
@@ -511,7 +542,7 @@ end
     bits = UInt64(count) * UInt64(_val_count(width))
     second = _advance_position_unchecked(position, bits, UInt64(0), _block_shift(rng))
     log_y = _gamma_log_draw(codec.b, rng, _gamma_cursor(rng, second))
-    return _beta_value(log_x, log_y)
+    return _beta_value(codec.a.device, log_x, log_y)
 end
 
 # The tangent of a family draw along a codec tangent, with every Gamma draw
@@ -562,7 +593,7 @@ end
     log_y = _gamma_log_draw(codec.b, rng, second)
     value =
         _tiny_beta_shapes(codec) ? _tiny_beta_value(codec, rng, cursor, second) :
-        _beta_value(log_x, log_y)
+        _beta_value(codec.a.device, log_x, log_y)
     (iszero(value) || value == one(value)) && return zero(value)
     slope =
         _gamma_log_tangent(codec.b, dcodec.b, log_y) -

@@ -78,6 +78,21 @@ end
     end
 end
 
+@testset "Beta tails retain representable interior values" begin
+    for (seed, a, b) in ((143, 0.03f0, 1.0f0), (76, 1.0f0, 0.05f0), (67, 1.0, 0.05))
+        rng = Threefry4x64(seed)
+        T = typeof(a)
+        _, second = rand_next(rng, Gamma(a))
+        log_x = gamma_reference(rng, a, one(T); logarithm = true, wide_log = true)
+        log_y = gamma_reference(second, b, one(T); logarithm = true, wide_log = true)
+        expected = T(inv(1 + exp(log_y - log_x)))
+        value, after = rand_next(rng, Beta(a, b))
+        @test zero(T) < expected < one(T)
+        @test value == expected
+        @test after == last(rand_next(second, Gamma(b)))
+    end
+end
+
 @testset "tiny Beta and Dirichlet shapes normalize without log overflow" begin
     for T in (Float64, Float32),
         small in (nextfloat(zero(T)), T === Float64 ? T(1e-320) : T(1e-40), 32floatmin(T))
@@ -234,8 +249,8 @@ end
               T(1.5) / gamma_reference(rng, T(2.5), T(1))
         log_x = gamma_reference(rng, T(0.3), T(1); logarithm = true)
         log_y = gamma_reference(after(span), T(0.4), T(1); logarithm = true)
-        @test first(rand_next(rng, Beta(T(0.3), T(0.4)))) ===
-              inv(one(T) + exp(log_y - log_x))
+        @test first(rand_next(rng, Beta(T(0.3), T(0.4)))) ≈
+              T(inv(1 + exp(BigFloat(log_y) - BigFloat(log_x)))) rtol = 2eps(T)
         z = IR._normal_from_bits(
             rng.device,
             T,

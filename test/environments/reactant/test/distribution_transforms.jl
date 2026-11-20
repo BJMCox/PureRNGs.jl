@@ -112,6 +112,17 @@ end
     end
 end
 
+@testset "compiled Beta retains subnormal samples" begin
+    rng = Threefry4x64(143)
+    d = Beta(0.03f0, 1.0f0)
+    carrier = Reactant.to_rarray(rng)
+    compiled = Reactant.@compile sync = true rand_next(carrier, d)
+    value, after = compiled(carrier, d)
+    expected, next = rand_next(rng, d)
+    @test issubnormal(expected) && Float32(value) == expected
+    @test _same_value(after, next)
+end
+
 # One candidate sends about 5% of shape-one draws through the traced loop on
 # the child stream, which must reach the eager fallback's value.
 _forced_gamma(rng, shape) = PureRNGs._traced_gamma(rng, shape, Val(false), 1)
