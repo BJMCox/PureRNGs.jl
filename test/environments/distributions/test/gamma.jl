@@ -64,6 +64,20 @@ end
     end
 end
 
+@testset "representable Student-t tails" begin
+    for (seed, ν) in ((42, 0.02f0), (0, 0.002))
+        rng = Philox4x32(seed)
+        T = typeof(ν)
+        z, second = randn_next(rng, T)
+        log_g = gamma_reference(second, ν / 2, one(T); logarithm = true, wide_log = true)
+        expected = T(z * sqrt(BigFloat(ν) / (2exp(log_g))))
+        value, after = rand_next(rng, TDist(ν))
+        @test isfinite(expected) && isfinite(value)
+        @test value ≈ expected rtol = 2eps(T) * abs(log(abs(expected)))
+        @test after == last(rand_next(second, Gamma(ν / 2)))
+    end
+end
+
 @testset "tiny Beta and Dirichlet shapes normalize without log overflow" begin
     for T in (Float64, Float32),
         small in (nextfloat(zero(T)), T === Float64 ? T(1e-320) : T(1e-40), 32floatmin(T))

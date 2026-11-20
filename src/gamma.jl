@@ -458,8 +458,17 @@ end
     log_y = _gamma_log_draw(codec.b, rng, second)
     return _beta_value(log_x, log_y)
 end
+# Split the inverse square root into two factors. Multiplying the normal and
+# scale first retains finite tails even when the inverse square root overflows.
+@inline function _tdist_from_log(z, ν, log_g)
+    factor = exp(-log_g / 4)
+    return ((z * sqrt(ν) * sqrt(oftype(ν, 0.5))) * factor) * factor
+end
+
 @inline function _family_value(codec::_TDistCodec, rng, cursor)
     z, cursor = _tdist_normal(codec, rng, cursor)
+    _gamma_log_scaling(codec.gamma.shape) &&
+        return _tdist_from_log(z, codec.ν, _gamma_log_draw(codec.gamma, rng, cursor))
     g = _gamma_draw(codec.gamma, rng, cursor)
     return z * sqrt(codec.ν / (2 * g))
 end
@@ -562,6 +571,12 @@ end
 end
 @inline function _family_tangent(codec::_TDistCodec, dcodec, rng, cursor)
     z, cursor = _tdist_normal(codec, rng, cursor)
+    if _gamma_log_scaling(codec.gamma.shape)
+        log_g = _gamma_log_draw(codec.gamma, rng, cursor)
+        value = _tdist_from_log(z, codec.ν, log_g)
+        dlog_g = _gamma_log_tangent(codec.gamma, dcodec.gamma, log_g)
+        return _scale_tangent((dcodec.ν / codec.ν - dlog_g) / 2, value)
+    end
     g = _gamma_draw(codec.gamma, rng, cursor)
     ratio = codec.ν / (2 * g)
     slope = dcodec.ν / (2 * g) - ratio / g * _gamma_tangent(codec.gamma, dcodec.gamma, g)

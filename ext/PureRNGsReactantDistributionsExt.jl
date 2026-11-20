@@ -211,7 +211,11 @@ end
 end
 @inline function _gamma_family_value(rng, d::Distributions.TDist{T}) where {T}
     z = first(PureRNGs.randn_next(rng, T))
-    g = _traced_gamma(IR._addressed_rng(rng, IR._normal_bits(T), 2), d.ν / 2)
+    second = IR._addressed_rng(rng, IR._normal_bits(T), 2)
+    shape = d.ν / 2
+    IR._gamma_log_scaling(shape) &&
+        return IR._tdist_from_log(z, d.ν, _traced_log_gamma(second, shape))
+    g = _traced_gamma(second, shape)
     return z * sqrt(d.ν / (2 * g))
 end
 
