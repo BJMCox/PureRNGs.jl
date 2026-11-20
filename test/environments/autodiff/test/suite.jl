@@ -167,6 +167,15 @@ end
     end
 end
 
+include(joinpath(@__DIR__, "..", "..", "..", "gamma_tail_derivatives.jl"))
+@testset "Gamma-family tail derivatives" begin
+    for backend in (AutoForwardDiff(), AutoMooncakeForward(), AutoMooncake()),
+        (draw, p, expected) in gamma_tail_derivatives()
+
+        @test derivative(draw, backend, p) ≈ expected rtol = 64eps(Float32)
+    end
+end
+
 @testset "large Gamma gradients match independent density integrals" begin
     # -dF/da / density, integrated at 256-bit precision after a logarithmic
     # change of variables. These values use neither the production recurrence

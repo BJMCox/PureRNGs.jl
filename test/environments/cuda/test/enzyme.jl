@@ -299,13 +299,15 @@ end
 end
 
 @testset "CUDA Enzyme extreme Gamma gradients" begin
-    cpu_rng = Philox4x32(2)
-    rng = device(cpu_rng)
-    for (make, shape, scale) in (
-        ((a, s) -> Gamma(a, s), 0.001, 1e300),
-        ((a, s) -> InverseGamma(a, s), 0.001, 1e-300),
-        ((a, s) -> Gamma(a, s), 1.0f8, 1.0f0),
+    for (seed, make, shape, scale, tolerance) in (
+        (2, (a, s) -> Gamma(a, s), 0.001, 1e300, 1e-10),
+        (2, (a, s) -> InverseGamma(a, s), 0.001, 1e-300, 1e-10),
+        (2, (a, s) -> Gamma(a, s), 1.0f8, 1.0f0, 2eps(Float32)),
+        (12, (a, s) -> InverseGamma(a, s), 0.1f0, 1.0f0, 64eps(Float32)),
+        (12, (a, b) -> Beta(a, b), 0.1f0, 1.0f0, 64eps(Float32)),
     )
+        cpu_rng = Philox4x32(seed)
+        rng = device(cpu_rng)
         T = typeof(shape)
         tangent = CUDA.zeros(T, 1)
         autodiff(
@@ -320,6 +322,6 @@ end
         )
         expected =
             ForwardDiff.derivative(a -> first(rand_next(cpu_rng, make(a, scale))), shape)
-        @test only(Array(tangent)) ≈ expected rtol = T === Float32 ? 2eps(T) : 1e-10
+        @test only(Array(tangent)) ≈ expected rtol = tolerance
     end
 end
