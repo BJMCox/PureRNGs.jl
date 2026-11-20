@@ -26,7 +26,26 @@ function IR._arrays_mightalias(a, b, ra::CUDA.CuArray, rb::CUDA.CuArray)
         ib = range(Int128(0); step = Int128(stride(b, 1)), length = length(b))
         return !isempty(intersect(ia, ib))
     end
-    return Base.mightalias(a, b) || (ra !== rb && Base.mightalias(ra, rb))
+    if !Base.mightalias(ra, rb)
+        return _gather_indices_alias(a, rb) || _gather_indices_alias(b, ra)
+    end
+    # Base can inspect an index vector element when comparing two SubArrays.
+    if ra === rb && a isa CUDA.StridedCuArray && b isa CUDA.StridedCuArray
+        return Base.mightalias(a, b)
+    end
+    return true
+end
+
+function _gather_indices_alias(a, other_storage)
+    a isa CUDA.CuArray && return false
+    if a isa SubArray
+        for index in parentindices(a)
+            if index isa AbstractArray && !(index isa AbstractRange)
+                IR._arrays_mightalias(index, other_storage) && return true
+            end
+        end
+    end
+    return _gather_indices_alias(parent(a), other_storage)
 end
 
 IR._backend_device(::IR._CUDABackend) = IR.MLDataDevices.CUDADevice(CUDA.device())
