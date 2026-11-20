@@ -23,7 +23,7 @@ const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 @inline _derive_core(
     ::Type{F},
     counter::NTuple{2,UInt64},
-    key::NTuple{2,UInt64},
+    key::NTuple{1,UInt64},
 ) where {F<:Philox2x64{_CPUBackend}} = _unwrap_words(
     _philox2x64(_host_words(counter, Val(2)), _host_words(key, Val(2)), Val(_rounds(F))),
 )
@@ -32,7 +32,7 @@ const _FOLD_TAG64 = (UInt64(_DERIVE_TAG) << 32) | UInt64(_FOLD_SUBTAG)
 @inline _derive_core(
     ::Type{F},
     counter::NTuple{4,UInt64},
-    key::NTuple{4,UInt64},
+    key::NTuple{2,UInt64},
 ) where {F<:Philox4x64{_CPUBackend}} = _unwrap_words(
     _philox4x64(_host_words(counter, Val(4)), _host_words(key, Val(4)), Val(_rounds(F))),
 )
