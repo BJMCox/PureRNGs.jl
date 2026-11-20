@@ -11,5 +11,5 @@ authors:
     email: bcox@mpp.mpg.de
 repository-code: "https://github.com/BJMCox/PureRNGs.jl"
 license: Apache-2.0
-version: 0.0.2
-date-released: "2026-11-17"
+version: 0.0.3
+date-released: "2026-11-20"
