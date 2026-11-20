@@ -1096,6 +1096,43 @@ end
     end
 end
 
+function _default_sample_length(rng, population)
+    values, next_rng = randsample_next(rng, population)
+    return length(values), first(rand_next(next_rng, UInt64))
+end
+
+function _wide_counted_sample(rng)
+    values, next_rng = randsample_next(rng, typemin(Int64):0, 3)
+    return values, first(rand_next(next_rng, UInt64))
+end
+
+@testset "traced sampling checks wide population cardinality" begin
+    eager = Philox4x32(12)
+    carrier = Reactant.to_rarray(eager)
+    for population in (typemin(Int64):typemax(Int64), typemin(Int64):0)
+        @test_throws ArgumentError (Reactant.@compile sync = true _default_sample_length(
+            carrier,
+            population,
+        ))
+    end
+
+    values, following =
+        (Reactant.@compile sync = true _wide_counted_sample(carrier))(carrier)
+    expected, expected_following = _wide_counted_sample(eager)
+    @test Array(values) == expected
+    @test following == expected_following
+end
+
+_negative_uniform(rng) = first(rand_next(rng, Float32, (-2, -3)))
+_negative_range(rng) = first(rand_next(rng, 1:10, Int16(-2), UInt8(3)))
+
+@testset "traced fills reject negative dimensions" begin
+    carrier = Reactant.to_rarray(Philox4x32(12))
+    for draw in (_negative_uniform, _negative_range)
+        @test_throws ArgumentError (Reactant.@compile sync = true draw(carrier))
+    end
+end
+
 function _narrow_type_snapshot(carrier)
     byte, carrier = rand_next(carrier, UInt8)
     halves, carrier = rand_next(carrier, Int16, 5)
