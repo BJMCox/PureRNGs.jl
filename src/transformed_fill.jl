@@ -56,6 +56,12 @@ end
     indices,
     codec,
 ) where {T}
+    if destination isa AbstractArray{T} &&
+       indices isa AbstractUnitRange &&
+       IndexStyle(destination) isa IndexLinear &&
+       _use_grouped_fill(rng, codec, T)
+        return _fill_transformed_blocks_cpu!(rng, position, destination, T, indices, codec)
+    end
     isempty(indices) && return nothing
     # One range check covers every store below, so the inner loops skip the
     # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools,
@@ -97,37 +103,41 @@ end
     return cursor
 end
 
-# A group of `128 ÷ gcd(width, 128)` draws ends at a block boundary, so every
-# shift inside the group is constant. Round up to four-block chunks for
-# Philox when the group stays small.
-@inline function _transformed_group_draws(width::Int)
-    draws = 128 ÷ gcd(width, 128)
-    return iszero((draws * width ÷ 128) % 4) || 4draws > 128 ? draws : 4draws
+# A group ending at a block boundary has constant shifts throughout. Round up
+# to four-block chunks for Philox4x32 when the group stays small.
+@inline function _transformed_group_draws(::Type{R}, width::Int) where {R}
+    block_bits = 1 << _block_shift(R)
+    draws = block_bits ÷ gcd(width, block_bits)
+    if R <: Philox4x32 && 4draws <= 128 && !iszero((draws * width ÷ block_bits) % 4)
+        return 4draws
+    end
+    return draws
 end
 
 # Draws needed to carry a cursor at `offset` bits into a block up to the next
 # block boundary. Widths coarser than the offset never align, hence the -1. The
 # width is a type parameter so the modular inverse folds away.
-@inline function _transformed_group_prefix(::Val{W}, offset::Int) where {W}
-    step = gcd(W, 128)
+@inline function _transformed_group_prefix(::Val{W}, offset::Int, block_bits::Int) where {W}
+    step = gcd(W, block_bits)
     iszero(offset % step) || return -1
-    modulus = 128 ÷ step
+    modulus = block_bits ÷ step
     return ((modulus - offset ÷ step) * invmod(W ÷ step, modulus)) % modulus
 end
 
-# Decode one aligned group of `W`-bit draws from consecutive 128-bit blocks.
-# Philox generates four blocks at a time to keep its vector width.
+# Decode one aligned group of `W`-bit draws from consecutive blocks.
+# Philox4x32 generates four blocks at a time to keep its vector width.
 @generated function _decode_transformed_group(
     rng::R,
-    block::UInt64,
+    block,
     ::Val{W},
     ::Type{U},
-) where {R<:Union{Philox4x32,Threefry4x32},W,U<:Union{UInt32,UInt64}}
-    draws = _transformed_group_draws(W)
-    blocks = draws * W ÷ 128
+) where {R<:_ScalarUniformGenerators,W,U<:Union{UInt32,UInt64}}
+    block_bits = 1 << _block_shift(R)
+    draws = _transformed_group_draws(R, W)
+    blocks = draws * W ÷ block_bits
     chunks = R <: Philox4x32 ? blocks ÷ 4 : 0
     word_bits = 8sizeof(U)
-    words_per_block = 128 ÷ word_bits
+    words_per_block = block_bits ÷ word_bits
     words_per_group = 4words_per_block
     chunk_words = chunks * words_per_group
     function word_ref(word)
@@ -143,15 +153,17 @@ end
         tail, lane = divrem(word - chunk_words, words_per_block)
         return :($(Symbol(:group_, chunks+tail))[$(lane+1)])
     end
-    # Float32 normals consume 23 bits. Decode directly from the core's UInt32
-    # words when a draw fits, instead of packing pairs into UInt64 first.
+    # Use native UInt32 words for Float32 normals from a 32-bit core.
     group_blocks = U === UInt32 ? :_blocks4 : :_blocks4_words
     single_block = U === UInt32 ? :_block : :_block_words
     body = Expr[:(mask = _low_mask(UInt16($W)) % $U)]
     for source = 0:(blocks-3chunks-1)
         words =
             source < chunks ? :($group_blocks(rng, block + UInt64($(4source)))) :
-            :($single_block(rng, block + UInt64($(3chunks + source))))
+            :($single_block(
+                rng,
+                _advance_stream_block_unchecked(block, UInt64($(3chunks + source))),
+            ))
         push!(body, :($(Symbol(:group_, source)) = $words))
     end
     raws = map(0:(draws-1)) do draw
@@ -171,8 +183,8 @@ end
 @inline function _store_transformed_group!(
     destination,
     index::Int,
-    rng::Union{Philox4x32,Threefry4x32},
-    block::UInt64,
+    rng,
+    block,
     codec,
     ::Type{T},
     width::Val,
@@ -194,13 +206,14 @@ end
 @inline function _store_transformed_group!(
     destination,
     index::Int,
-    rng::Union{Philox4x32,Threefry4x32},
-    block::UInt64,
+    rng,
+    block,
     ::_NormalCodec{_CPUBackend},
     ::Type{Float32},
     width::Val,
 )
-    raws = _decode_transformed_group(rng, block, width, UInt32)
+    word = rng isa _ScalarUniform32Generators ? UInt32 : UInt64
+    raws = _decode_transformed_group(rng, block, width, word)
     # On the 23-bit midpoint lattice, q = (2k - (2^23 - 1)) * 2^-24 exactly.
     # The inclusive central interval contains center_width + 1 consecutive k.
     midpoint_span = Int32(0x7f_ffff)
@@ -222,9 +235,8 @@ end
 end
 
 @inline function _fill_transformed_blocks_cpu!(
-    ::IndexLinear,
-    rng::Union{Philox4x32,Threefry4x32},
-    position::_Position64,
+    rng,
+    position,
     destination::AbstractArray{T},
     ::Type{T},
     indices,
@@ -237,89 +249,46 @@ end
     checkbounds(destination, indices)
     bits = Int(_fill_width(codec, T))
     width = Val(bits)
-    group = _transformed_group_draws(bits)
-    span = UInt64(group * bits ÷ 128)
+    block_bits = Int(_block_bits(rng))
+    group = _transformed_group_draws(typeof(rng), bits)
+    span = UInt64(group * bits ÷ block_bits)
     index = first(indices)
-    last_index = last(indices)
+    remaining = length(indices)
     cursor = _dense_cursor(rng, _position_block(position), position.bit)
-    if last_index - index + 1 >= group
+    if remaining >= group
         cursor = _ensure_dense_cursor(rng, cursor)
-        prefix = _transformed_group_prefix(width, 64 * Int(cursor.lane) + Int(cursor.bit))
-        if prefix >= 0 && last_index - index + 1 >= prefix + group
+        offset = 64 * Int(cursor.lane) + Int(cursor.bit)
+        prefix = _transformed_group_prefix(width, offset, block_bits)
+        if prefix >= 0 && remaining - prefix >= group
             cursor = _fill_cursor!(rng, cursor, destination, T, index, prefix, codec)
             index += prefix
+            remaining -= prefix
             cursor = _ensure_dense_cursor(rng, cursor)
             block = cursor.block
-            while index + group - 1 <= last_index &&
-                  block <= _max_block(rng) - (span - UInt64(1))
+            # The caller reserved the whole span, including every group.
+            while remaining >= group
                 _store_transformed_group!(destination, index, rng, block, codec, T, width)
+                remaining -= group
+                iszero(remaining) && return nothing
                 index += group
-                block += span
+                block = _advance_stream_block_unchecked(block, span)
             end
-            block == cursor.block || (cursor = _dense_cursor(rng, block, UInt16(0)))
+            cursor = _dense_cursor(rng, block, UInt16(0))
         end
     end
-    index > last_index && return nothing
-    _fill_cursor!(rng, cursor, destination, T, index, last_index - index + 1, codec)
+    _fill_cursor!(rng, cursor, destination, T, index, remaining, codec)
     return nothing
 end
 
-# A Cartesian destination keeps the per-element cursor: the group stores by
-# linear index.
-@inline function _fill_transformed_blocks_cpu!(
-    ::IndexStyle,
-    rng,
-    position,
-    destination,
-    ::Type{T},
-    indices,
-    codec,
-) where {T}
-    isempty(indices) && return nothing
-    # One range check covers every store below, so the inner loops skip the
-    # per-element checks. Those cost normal and exponential fills 1.1-1.5x (BenchmarkTools,
-    # serial 2^16 fills).
-    checkbounds(destination, indices)
-    cursor = _dense_cursor(rng, _position_block(position), position.bit)
-    _fill_cursor!(rng, cursor, destination, T, first(indices), length(indices), codec)
-    return nothing
-end
-
-# `Val(:uniform)` is excluded because its own method already routes it to
-# `_fill_uniform_cpu!`, and naming it here would make the two ambiguous.
-@inline _fill_transformed_cpu!(
-    rng::Philox4x32,
-    position::_Position64,
-    destination::AbstractArray{T},
-    ::Type{T},
-    indices::AbstractUnitRange,
-    codec::Union{_NormalCodec,_ExponentialCodec,_MappedFillCodec},
-) where {T<:_UniformFloat} = _fill_transformed_blocks_cpu!(
-    IndexStyle(destination),
-    rng,
-    position,
-    destination,
-    T,
-    indices,
-    codec,
-)
-
-@inline _fill_transformed_cpu!(
-    rng::Threefry4x32,
-    position::_Position64,
-    destination::AbstractArray{Float32},
+@inline _use_grouped_fill(rng, codec, T) =
+    rng isa Philox4x32 &&
+    T <: _UniformFloat &&
+    codec isa Union{_NormalCodec,_ExponentialCodec,_MappedFillCodec}
+@inline _use_grouped_fill(
+    ::_ScalarUniformGenerators,
+    ::_NormalCodec{_CPUBackend},
     ::Type{Float32},
-    indices::AbstractUnitRange,
-    codec::_NormalCodec{_CPUBackend},
-) = _fill_transformed_blocks_cpu!(
-    IndexStyle(destination),
-    rng,
-    position,
-    destination,
-    Float32,
-    indices,
-    codec,
-)
+) = true
 
 @inline function _fill_group!(
     rng,
