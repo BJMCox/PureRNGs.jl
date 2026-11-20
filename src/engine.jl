@@ -21,12 +21,6 @@
     return child, _dense_cursor(child, _position_block(child.position), child.position.bit)
 end
 
-@inline _advance_block_unchecked(block::UInt64, count::UInt64) = block + count
-@inline function _advance_block_unchecked(block::NTuple{2,UInt64}, count::UInt64)
-    lo = block[1] + count
-    return lo, block[2] + UInt64(lo < block[1])
-end
-
 # The dense stream packs takes with no gaps, so a skip is a bit offset. A skip
 # that stays in the cursor's block keeps its decoded words.
 @inline function _skip_takes(
@@ -41,7 +35,7 @@ end
     bit = UInt16(offset & ((UInt64(1) << shift) - UInt64(1)))
     iszero(blocks) &&
         return _DenseBitCursor(cursor.block, cursor.block_words, bit >> 6, bit & UInt16(63))
-    return _dense_cursor(rng, _advance_block_unchecked(cursor.block, blocks), bit)
+    return _dense_cursor(rng, _advance_stream_block_unchecked(cursor.block, blocks), bit)
 end
 
 @inline _first_block_word(block::UInt64) = block
